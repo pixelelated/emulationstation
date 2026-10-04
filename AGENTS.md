@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is the interface of **Rasteratops**, an immutable Linux distribution forked from ROCKNIX
+This repository is the interface of **pixelelated**, an immutable Linux distribution forked from ROCKNIX
 for handheld gaming devices. It is built as the `emulationstation` package of the
 distribution repository, and every rule about how to work in it lives **there**,
 not here -- one copy, so nothing drifts (fork rule D-WORKFLOW-010, 2026-09-13).

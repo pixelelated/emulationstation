@@ -8,7 +8,7 @@ class Window;
 class TextureResource;
 
 #if defined(ROCKNIX)
-#define DEFAULT_SPLASH_IMAGE ":/rasteratops-wordmark.svg"
+#define DEFAULT_SPLASH_IMAGE ":/pixelelated-wordmark.svg"
 #define OLD_SPLASH_LAYOUT true
 #elif WIN32
 #define DEFAULT_SPLASH_IMAGE ":/splash.svg"

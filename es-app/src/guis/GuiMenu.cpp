@@ -559,7 +559,7 @@ void GuiMenu::addVersionInfo()
 
 	if (!ApiSystem::getInstance()->getVersion().empty())
 	{
-		if (ApiSystem::getInstance()->getApplicationName() == "ROCKNIX" || ApiSystem::getInstance()->getApplicationName() == "RASTERATOPS")
+		if (ApiSystem::getInstance()->getApplicationName() == "ROCKNIX" || ApiSystem::getInstance()->getApplicationName() == "pixelelated")
 			label = ApiSystem::getInstance()->getApplicationName() + " " + ApiSystem::getInstance()->getVersion() + " (" + ApiSystem::getInstance()->getVersion(true) + ")";
 		else
 		{
@@ -1502,13 +1502,13 @@ void GuiMenu::openUpdatesSettings(bool selectTorrentService)
 		});
 	}
 
-    if (ApiSystem::getInstance()->getApplicationName() == "RASTERATOPS")
+    if (ApiSystem::getInstance()->getApplicationName() == "pixelelated")
     {
         updateGui->addGroup(_("SOFTWARE UPDATES"));
         updateGui->addEntry(_("MANUAL UPDATES"), true, [this]
         {
             mWindow->pushGui(new GuiMsgBox(mWindow,
-                _("This version uses manual updates. Open github.com/rasteratops/distribution/releases on a computer, choose the update for your device, and follow the instructions."), _("OK")));
+                _("This version uses manual updates. Open github.com/pixelelated/distribution/releases on a computer, choose the update for your device, and follow the instructions."), _("OK")));
         });
     }
     else if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::UPGRADE))
@@ -1984,7 +1984,16 @@ void GuiMenu::openSystemSettings()
       auto rocknix_screenshot_enabled = std::make_shared<SwitchComponent>(mWindow);
       bool rocknixscreenshotenabled = SystemConf::getInstance()->get("rocknix.screenshot.enabled") == "1";
       rocknix_screenshot_enabled->setState(SystemConf::getInstance()->getBool("rocknix.screenshot.enabled"));
-      s->addWithLabel(_("ENABLE RASTERATOPS SCREENSHOT"), rocknix_screenshot_enabled);
+      // This brand stays lowercase; addWithLabel uppercases the entire label.
+      ComponentListRow screenshotRow;
+      auto screenshotTheme = ThemeData::getMenuTheme();
+      auto screenshotLabel = std::make_shared<TextComponent>(mWindow,
+          _("ENABLE pixelelated SCREENSHOT"), screenshotTheme->Text.font, screenshotTheme->Text.color);
+      if (EsLocale::isRTL())
+          screenshotLabel->setHorizontalAlignment(Alignment::ALIGN_RIGHT);
+      screenshotRow.addElement(screenshotLabel, true);
+      screenshotRow.addElement(rocknix_screenshot_enabled, false);
+      s->addRow(screenshotRow);
       rocknix_screenshot_enabled->setOnChangedCallback([rocknix_screenshot_enabled] {
               bool rocknixscreenshotenabled = rocknix_screenshot_enabled->getState();
                      SystemConf::getInstance()->set("rocknix.screenshot.enabled", rocknixscreenshotenabled ? "1" : "0");
@@ -5327,7 +5336,7 @@ static void cloudOfferFolder(Window* window, const CloudFolderAsk& ask)
 	const std::function<void()> abandon = ask.abandon;
 	const auto st = cloudScanFacts("state");
 	const std::string state = cloudScanFact(st, "STATE");
-	const std::string current = cloudScanFact(st, "CURRENT").empty() ? "/Rasteratops/Saves" : cloudScanFact(st, "CURRENT");
+	const std::string current = cloudScanFact(st, "CURRENT").empty() ? "/pixelelated/Saves" : cloudScanFact(st, "CURRENT");
 	const std::string newRoot = cloudRootOf(current);
 	if (state == "migration-pending")
 	{
@@ -5814,7 +5823,7 @@ static void cloudPreviewTidyFolders(Window* window)
 // The row's line, from what the check would move: one whole sentence per
 // shape, each with its French, the tiers in the vocabulary's words. The
 // line used to name /ROCKNIX, the folder of an earlier build, on a build
-// whose folder is /Rasteratops, and SAVES AND SETTINGS BACKUPS when the
+// whose folder is /pixelelated, and SAVES AND SETTINGS BACKUPS when the
 // check planned the content folder alone (2026-10-01, fork #353).
 static std::string cloudTidyLine(const CloudText::TidyPlan& plan)
 {

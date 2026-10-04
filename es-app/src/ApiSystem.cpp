@@ -448,8 +448,8 @@ bool ApiSystem::canArchitectureUpdate(std::string& architecture) {
 bool ApiSystem::canUpdate(std::vector<std::string>& output) 
 {
 	LOG(LogDebug) << "ApiSystem::canUpdate";
-    // Manual adoption in Rasteratops0.0.1, including inherited force settings.
-    if (getApplicationName() == "RASTERATOPS")
+    // Manual adoption in pixelelated0.0.1, including inherited force settings.
+    if (getApplicationName() == "pixelelated")
         return false;
 
 	FILE *pipe = popen("rocknix-update check", "r");

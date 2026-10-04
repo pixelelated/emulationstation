@@ -934,7 +934,7 @@ int main(int argc, char* argv[])
 		f.close();
 
 		if (val == "1")
-		window.pushGui(new GuiMsgBox(&window, "RASTERATOPS IS FREE SOFTWARE.\n\n IF YOU PAID FOR RASTERATOPS YOU HAVE BEEN SCAMMED.\n\n PLEASE REQUEST A REFUND FROM THE SELLER!", _("AGREE")));
+		window.pushGui(new GuiMsgBox(&window, "pixelelated IS FREE SOFTWARE.\n\n IF YOU PAID FOR pixelelated YOU HAVE BEEN SCAMMED.\n\n PLEASE REQUEST A REFUND FROM THE SELLER!", _("AGREE")));
 
 		std::remove(markerFile.c_str());
 	}
