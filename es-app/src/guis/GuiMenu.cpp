@@ -2339,6 +2339,10 @@ void GuiMenu::openSystemSettings()
 	s->addWithLabel(_("DEFAULT GPU SCALING GOVERNOR"), optionsGpuGovernors);
 	s->addSaveFunc([selectedGpuGovernor, optionsGpuGovernors]
 	{
+		// A device without GPU governor support has no option to apply.
+		if (!optionsGpuGovernors->hasSelection())
+			return;
+
 		if (optionsGpuGovernors->changed()) {
 			SystemConf::getInstance()->set("system.gpuperf", optionsGpuGovernors->getSelected());
 		}
