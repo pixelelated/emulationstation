@@ -82,7 +82,7 @@ std::string ThreadedCloudSync::whyForCode(int rc)
 	switch (rc)
 	{
 		case 3: case 4: return _("COULDN'T FIND YOUR CLOUD FOLDER");
-		case 5:         return _("YOUR CLOUD STOPPED ANSWERING");
+		case 5: case 124: return _("YOUR CLOUD STOPPED ANSWERING");
 		case 7: case 8: return _("YOUR CLOUD WOULDN'T TAKE THE FILES");
 		case CloudExit::Stopped:   return _("IT WAS STOPPED");
 		// The sentinels, for a part that exited one beside a part that did
@@ -106,7 +106,7 @@ std::string ThreadedCloudSync::tokenForCode(int rc)
 	{
 		case 0: case 9: return "completed";
 		case 3: case 4: return "folder-missing";
-		case 5:         return "cloud-stopped";
+		case 5: case 124: return "cloud-stopped";
 		case 7: case 8: return "cloud-refused";
 		case CloudExit::Stopped:   return "stopped";
 		case CloudExit::NoNetwork: return "no-network";

@@ -5191,7 +5191,8 @@ static void cloudOpenTransferOptions(Window* window, bool backup)
 // D-CLOUD-156): the scan page found where the games are (cloud_setup
 // --content-location). Found under the cloud root's Content folder while
 // the configured root holds nothing of ours, the device is pointed there
-// with no question -- it is ours, by name. Found nowhere, the approved
+// with no question -- it is ours, by name. The same applies to recognized legacy content at the account root: only the
+// local pointer changes, never the files. Found nowhere, the approved
 // question offers the chooser; NOT NOW goes on to a listing that will say
 // no system holds what was ticked. Anything else is as configured.
 static void cloudOpenContentFolderChooser(Window* window, const std::function<void()>& then);
@@ -5201,8 +5202,10 @@ static void cloudSetContentFolder(Window* window, const std::string& folder, con
 		[folder](IGuiLoadingHandler*)
 		{
 			std::string why, rc;
+			const std::string command = folder == "/" ? "--use-content-root" :
+				"--set-content-remote " + Utils::String::shellQuote(folder);
 			for (auto& line : Utils::Platform::GetShOutputLines(
-				"timeout 30 /usr/bin/cloud_setup --set-content-remote " + Utils::String::shellQuote(folder) + " 2>&1; echo \"RC=$?\""))
+				"timeout 30 /usr/bin/cloud_setup " + command + " 2>&1; echo \"RC=$?\""))
 			{
 				const std::string l = Utils::String::trim(line);
 				if (Utils::String::startsWith(l, "RC="))
@@ -5230,7 +5233,7 @@ static void cloudOfferContentFolder(Window* window, const std::function<void()>&
 	const auto facts = cloudScanFacts("content-location");
 	const std::string state = cloudScanFact(facts, "STATE");
 	const std::string found = cloudScanFact(facts, "FOUND");
-	if (state == "found-elsewhere" && !found.empty())
+	if ((state == "found-elsewhere" || state == "stranded-at-root") && !found.empty())
 	{
 		LOG(LogInfo) << "cloud content folder: nothing of ours at the configured root; using " << found;
 		cloudSetContentFolder(window, found, then);
@@ -5250,8 +5253,8 @@ static void cloudOfferContentFolder(Window* window, const std::function<void()>&
 		_("NOT NOW"), then));
 }
 // CHOOSE A CLOUD FOLDER (#352, the approved title): the folders at the
-// cloud's root, as the scan listed them (root-dirs), the one the scan
-// found first when it found one. A press points the device's content root
+// cloud's root, as the scan listed them (root-dirs), plus the root itself;
+// the one the scan found first when it found one. A press points the device's content root
 // there and goes on to the content scan.
 static void cloudOpenContentFolderChooser(Window* window, const std::function<void()>& then)
 {
@@ -5260,6 +5263,8 @@ static void cloudOpenContentFolderChooser(Window* window, const std::function<vo
 	const std::string found = cloudScanFact(cloudScanFacts("content-location"), "FOUND");
 	if (!found.empty())
 		dirs.push_back(found);
+	if (found != "/")
+		dirs.push_back("/");
 	std::vector<std::string> roots;
 	cloudScanLines("root-dirs", roots);
 	for (auto& d : roots)
