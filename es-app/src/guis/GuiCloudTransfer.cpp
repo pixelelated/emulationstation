@@ -844,6 +844,14 @@ void GuiCloudTransfer::update(int deltaTime)
 				// came (#308 F-CS-31).
 				detail += (detail.empty() ? "" : "  ·  ") + names + (names.empty() ? "" : " - ") + CloudText::localizedWhy(g.first);
 			}
+			// A folder scan already names its subject in the page title.
+			// Drop that redundant label before clipping the failure reason
+			// on a small panel. Transfer lists still keep every failed unit.
+			if (CloudText::transferKind(job.mCommand) == CloudText::TransferKind::Scan
+				&& groups.size() == 1 && groups.front().second.size() == 1
+				&& groups.front().second.front() == unitName("CLOUD FOLDER")
+				&& mSmallFont && mSmallFont->sizeText(detail).x() > mLineWidth)
+				detail = CloudText::localizedWhy(groups.front().first);
 			mDetail->setText(fitOneLine(mSmallFont, detail, mLineWidth));
 		}
 
