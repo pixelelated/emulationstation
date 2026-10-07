@@ -645,22 +645,20 @@ TEST_CASE("every protocol shape an emitter prints classifies to a known kind")
 		// print theirs with echo.
 		{ ">>> why YOUR CLOUD STORAGE ISN'T SET UP YET", ProtocolKind::Why, "cloud_backup:843, cloud_restore:914, cloud_content_backup:95, :119, cloud_content_restore:98, :122" },
 		{ ">>> why COULDN'T REACH YOUR CLOUD - CHECK YOUR SIGN-IN", ProtocolKind::Why, "cloud_backup:868, cloud_restore:939" },
-		{ ">>> why YOUR CLOUD STOPPED ANSWERING", ProtocolKind::Why, "cloud_backup:933, :740, :751, cloud_restore:1000, :802, :813, cloud_content_backup:183, cloud_content_restore:189, cloud_migrate_layout:98" },
+		{ ">>> why YOUR CLOUD STOPPED ANSWERING", ProtocolKind::Why, "cloud_backup:933, :740, :751, cloud_restore:1000, :802, :813, cloud_content_backup:183, cloud_content_restore:189" },
 		{ ">>> why YOUR CLOUD SYNC SETTINGS COULDN'T BE READ", ProtocolKind::Why, "cloud_backup:1011, :1017, :1475, cloud_restore:1078, :1084, :1578, cloud_content_backup:112, cloud_content_restore:115" },
 		{ ">>> why AN OLD FOLDER SETTING IS IN THE WAY", ProtocolKind::Why, "cloud_backup:1029, cloud_restore:1096" },
-		{ ">>> why YOUR CLOUD SYNC SETTINGS COULDN'T BE SAVED", ProtocolKind::Why, "cloud_migrate_layout:307 (stream A follow-up 2, the pointer write read back before the delete)" },
 		{ ">>> why CHECK WHAT WOULD CHANGE FIRST", ProtocolKind::Why, "cloud_content_restore:851 (a --match --apply with no plan)" },
 		{ ">>> why YOUR SAVES FOLDER ISN'T ON THIS DEVICE", ProtocolKind::Why, "cloud_backup:1379" },
 		{ ">>> why THIS DEVICE'S SETTINGS BACKUP IS DAMAGED", ProtocolKind::Why, "cloud_backup:1882, backuptool:1116" },
 		{ ">>> why THE COPY IN YOUR CLOUD ISN'T COMPLETE", ProtocolKind::Why, "cloud_backup:1993" },
 		{ ">>> why COULDN'T FIND YOUR CLOUD FOLDER", ProtocolKind::Why, "why_for 3|4: cloud_backup:739, cloud_restore:801, cloud_content_backup:182, cloud_content_restore:188" },
-		{ ">>> why SOME FILES DIDN'T FINISH", ProtocolKind::Why, "why_for 6: cloud_backup:741, cloud_restore:803, cloud_content_backup:184, cloud_content_restore:190; cloud_migrate_layout:330" },
+		{ ">>> why SOME FILES DIDN'T FINISH", ProtocolKind::Why, "why_for 6: cloud_backup:741, cloud_restore:803, cloud_content_backup:184, cloud_content_restore:190" },
 		{ ">>> why YOUR CLOUD WOULDN'T TAKE THE FILES", ProtocolKind::Why, "why_for 7|8: cloud_backup:742, cloud_restore:804, cloud_content_backup:185, cloud_content_restore:191" },
 		{ ">>> why IT WAS STOPPED", ProtocolKind::Why, "why_for 130: cloud_backup:743, cloud_restore:805, cloud_content_backup:186, cloud_content_restore:192" },
 		{ ">>> why THE CLOUD TOOK TOO LONG - IT'LL TRY AGAIN NEXT TIME", ProtocolKind::Why, "why_for 10|124 automatic: cloud_backup:749, cloud_restore:811" },
 		{ ">>> why SOMETHING WENT WRONG", ProtocolKind::Why, "why_for *: cloud_backup:753, cloud_restore:815, cloud_content_backup:187, cloud_content_restore:193" },
 		{ ">>> why SOMETHING CHANGED SINCE YOU CHECKED", ProtocolKind::Why, "cloud_content_restore:781, :824 (a match whose plan no longer matches its preview)" },
-		{ ">>> why THE NEW FOLDER ALREADY HAS FILES IN IT", ProtocolKind::Why, "cloud_migrate_layout:320 (--apply)" },
 		{ ">>> why COULDN'T TELL WHICH CARD YOUR SAVES ARE ON", ProtocolKind::Why, "cloud_saves_root:137" },
 		{ ">>> why YOUR SAVES ARE ON A DIFFERENT CARD", ProtocolKind::Why, "cloud_saves_root:156" },
 		{ ">>> why YOUR SAVES CHANGED CARDS PART-WAY THROUGH", ProtocolKind::Why, "cloud_saves_root:177" },
@@ -752,9 +750,9 @@ TEST_CASE("the stamp's offline why reads as COULDN'T FINISH with its own sentenc
 	CHECK(isKnownWhy(r.why));
 	CHECK(localizedWhy(r.why) == "YOU WENT OFFLINE PART-WAY THROUGH");
 
-	// The four stream A sentences the interface had no entry for.
+	// The retained transfer sentences are localized.
 	for (const char* why : { "SOMETHING CHANGED SINCE YOU CHECKED", "COULDN'T RECORD WHICH CARD YOUR SAVES ARE ON",
-		"THE NEW FOLDER ALREADY HAS FILES IN IT", "YOU WENT OFFLINE PART-WAY THROUGH" })
+		"YOU WENT OFFLINE PART-WAY THROUGH" })
 	{
 		INFO(why);
 		CHECK(isKnownWhy(why));
@@ -786,7 +784,6 @@ TEST_CASE("verbOf reads the direction out of the command")
 	CHECK(verbOf("/usr/bin/backuptool --backup") == Verb::Backup);
 	CHECK(verbOf("/usr/bin/cloud_restore --saves") == Verb::Restore);
 	CHECK(verbOf("/usr/bin/cloud_restore --saves; /usr/bin/cloud_backup --saves") == Verb::Sync);
-	CHECK(verbOf("/usr/bin/cloud_migrate_layout") == Verb::Other);
 	CHECK(verbOf("") == Verb::Other);
 }
 
@@ -816,16 +813,10 @@ TEST_CASE("transferKind reads which transfer a page's command runs")
 	// Both directions is the card's sync, not a page's run; nothing named
 	// is nothing known.
 	CHECK(transferKind("/usr/bin/cloud_restore --yes --method=copy --update --saves-only; /usr/bin/cloud_backup --yes --method=copy --update --saves-only") == TransferKind::Other);
-	// The folder move the dialog offers (#353) is a kind of its own, with
-	// MOVING... for its word; the check before it is not a transfer.
-	CHECK(transferKind("/usr/bin/cloud_migrate_layout --apply") == TransferKind::Move);
-	CHECK(transferKind("/usr/bin/cloud_migrate_layout --check") == TransferKind::Other);
-	// The scan before the options page (#350), in both of its modes; the
-	// folder the offer creates, which runs the re-point and the seeding in
-	// one command and is named by the seeding.
+	// A scan and folder seeding retain their own progress labels.
 	CHECK(transferKind("/usr/bin/cloud_scan") == TransferKind::Scan);
 	CHECK(transferKind("/usr/bin/cloud_scan --content --with-media") == TransferKind::Scan);
-	CHECK(transferKind("/usr/bin/cloud_migrate_layout --apply >/dev/null; r=$?; [ \"$r\" = 0 ] || [ \"$r\" = 3 ] || exit \"$r\"; /usr/bin/cloud_setup --seed-folders") == TransferKind::Create);
+	CHECK(transferKind("/usr/bin/cloud_setup --seed-folders") == TransferKind::Create);
 	CHECK(transferKind("") == TransferKind::Other);
 
 	// verbOf, the card's reader, does not know the content scripts; that is
@@ -1643,9 +1634,8 @@ TEST_CASE("the page's item names: every label EmulationStation composes has its 
 		{ "RESTORING SAVES", "main.cpp the startup sync; GuiMenu.cpp SYNC SAVES; JourneyTiers.h" },
 		{ "BACKING UP SAVES", "main.cpp the startup sync; GuiMenu.cpp SYNC SAVES" },
 		{ "RESTORING ROMS AND BIOS", "JourneyTiers.h, an earlier build's marker" },
-		{ "CLOUD FOLDER", "cloud_scan's first item; cloud_migrate_layout --apply" },
-		{ "SETTINGS BACKUPS", "cloud_scan's second item; cloud_migrate_layout --apply" },
-		{ "DISCARDED SAVES", "cloud_migrate_layout --apply, the set-aside (D-CLOUD-165)" },
+		{ "CLOUD FOLDER", "cloud_scan's first item" },
+		{ "SETTINGS BACKUPS", "cloud_scan's second item" },
 	};
 	for (auto& l : labels)
 	{
@@ -1744,35 +1734,4 @@ TEST_CASE("parseSettingsArchive reads the device label and the time out of an ar
 	CHECK(deviceNameFromLabel("Retroid-Pocket-Nova") == "RETROID POCKET NOVA");
 	CHECK(deviceNameFromLabel("Anbernic-RG35XX-SP") == "ANBERNIC RG35XX SP");
 	CHECK(deviceNameFromLabel("") == "");
-}
-
-TEST_CASE("parseTidyPlan reads what cloud_migrate_layout --check would move, for the TIDY UP row's line")
-{
-	const auto p = parseTidyPlan({ "This device stores:", "  saves    qa:/GAMES", ">>> plan backups,saves,content /Rasteratops", "", "Nothing has been changed. Run with --apply to do it." });
-	CHECK(p.ok);
-	CHECK(p.saves);
-	CHECK(p.backups);
-	CHECK(p.content);
-	CHECK(p.root == "/Rasteratops");
-	// The content folder alone: a device whose saves and backups are current.
-	const auto c = parseTidyPlan({ ">>> plan content /Rasteratops" });
-	CHECK(c.ok);
-	CHECK_FALSE(c.saves);
-	CHECK_FALSE(c.backups);
-	CHECK(c.content);
-	// The discarded-saves shelf is saves to the row; a plan of none moves nothing.
-	const auto d = parseTidyPlan({ ">>> plan discarded /Rasteratops" });
-	CHECK(d.ok);
-	CHECK(d.saves);
-	CHECK_FALSE(d.content);
-	const auto n = parseTidyPlan({ ">>> plan none /Rasteratops" });
-	CHECK(n.ok);
-	CHECK_FALSE(n.saves);
-	CHECK_FALSE(n.backups);
-	CHECK_FALSE(n.content);
-	// No line, a check that said something else, a line cut short.
-	CHECK_FALSE(parseTidyPlan({}).ok);
-	CHECK_FALSE(parseTidyPlan({ "Already on the current layout (/Rasteratops/Saves, /Rasteratops/Backups)." }).ok);
-	CHECK_FALSE(parseTidyPlan({ ">>> plan" }).ok);
-	CHECK_FALSE(parseTidyPlan({ ">>> plan saves" }).ok);
 }

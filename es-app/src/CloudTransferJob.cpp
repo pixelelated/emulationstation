@@ -383,8 +383,7 @@ void CloudTransferJob::handleLine(const std::string& line)
 			// Any keyword a newer script prints is ignored rather than shown
 			// raw: row 3 says what the item is doing in the player's words,
 			// and a word out of a script is not those.
-			// scan and compare are cloud_scan's (fork #350); copy, verify and
-			// remove are the folder move's (cloud_migrate_layout --apply, #353).
+			// Keep generic progress verbs for scripts sharing this protocol.
 			if (protocol.text == "archive" || protocol.text == "unpack"
 				|| protocol.text == "scan" || protocol.text == "compare"
 				|| protocol.text == "copy" || protocol.text == "verify" || protocol.text == "remove")

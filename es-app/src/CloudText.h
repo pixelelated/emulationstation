@@ -277,10 +277,8 @@ namespace CloudText
 	// naming a restore and a backup script both is the card's sync, not a
 	// page's run, and Other.
 	// Scan: cloud_scan, the check before the options page (fork #350);
-	// Move: cloud_migrate_layout --apply, the folder move the dialog offers
-	// (#353); Create: cloud_setup --seed-folders, the folder the offer
-	// makes. Each has its own running word and still-running sentence.
-	enum class TransferKind { Backup, Restore, Match, Scan, Move, Create, Other };
+	// Create: cloud_setup --seed-folders, the selected folders setup creates. Each has its own running word and still-running sentence.
+	enum class TransferKind { Backup, Restore, Match, Scan, Create, Other };
 	TransferKind transferKind(const std::string& cmd);
 
 	// The first candidate that fits the width, else the last one offered.
@@ -529,7 +527,7 @@ namespace CloudText
 	bool isKnownUnitLabel(const std::string& label);
 
 	// The scan's facts (cloud_scan writes "KEY=value" lines; so do
-	// cloud_migrate_layout --state and cloud_setup --content-location): one
+	// cloud_setup --folder-state and --content-location): one
 	// map, the last value for a repeated key, lines without = ignored.
 	std::map<std::string, std::string> parseKeyValues(const std::string& text);
 
@@ -543,14 +541,6 @@ namespace CloudText
 	// model with hyphens for spaces ("Retroid-Pocket-Nova"), so the row
 	// reads RETROID POCKET NOVA (the approved line is "<DEVICE>, <DATE>").
 	std::string deviceNameFromLabel(const std::string& label);
-
-	// What cloud_migrate_layout --check would move, from its ">>> plan
-	// <tiers> <root>" line: tiers is a comma list of backups, saves,
-	// discarded, content (none when only a setting would change) and root
-	// the folder they move into. ok is false without the line; the
-	// discarded-saves shelf counts as saves, since that is what it holds.
-	struct TidyPlan { bool ok = false; bool saves = false; bool backups = false; bool content = false; std::string root; };
-	TidyPlan parseTidyPlan(const std::vector<std::string>& lines);
 
 	// "route=<scan|topup> at=<epoch> index=<i> total=<n> name=<game>" from
 	// raofflineproxy-ctl's running file (fork #189): the one line the ctl

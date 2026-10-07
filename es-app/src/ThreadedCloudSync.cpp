@@ -674,8 +674,6 @@ void ThreadedCloudSync::run()
 					verb == CloudText::Verb::Sync ? _("SYNC SAVES WITH THE CLOUD")
 					: verb == CloudText::Verb::Restore ? _("RESTORE SAVES FROM THE CLOUD")
 					: _("BACK UP SAVES TO THE CLOUD"));
-			else if (mCommand.find("cloud_migrate_layout") != std::string::npos)
-				recover = _("TRY AGAIN FROM MANAGE CLOUD STORAGE > TIDY UP YOUR CLOUD FOLDERS");
 			else
 				recover = _("TRY AGAIN FROM MANAGE CLOUD STORAGE > BACK UP TO THE CLOUD");
 

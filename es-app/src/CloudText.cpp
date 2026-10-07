@@ -420,9 +420,6 @@ std::vector<std::pair<std::string, std::string>> whySentences()
 		{ "YOUR CLOUD SYNC SETTINGS COULDN'T BE READ", _("YOUR CLOUD SYNC SETTINGS COULDN'T BE READ") },
 		{ "YOUR CLOUD SYNC SETTINGS COULDN'T BE SAVED", _("YOUR CLOUD SYNC SETTINGS COULDN'T BE SAVED") },
 		{ "YOUR CLOUD FOLDER COULDN'T BE READ", _("YOUR CLOUD FOLDER COULDN'T BE READ") },
-		{ "THE PREVIOUS CLOUD MOVE NEEDS ITS ORIGINAL CONNECTION", _("THE PREVIOUS CLOUD MOVE NEEDS ITS ORIGINAL CONNECTION") },
-		{ "YOUR CLOUD FOLDER CHOICES CHANGED DURING THE MOVE", _("YOUR CLOUD FOLDER CHOICES CHANGED DURING THE MOVE") },
-		{ "YOUR CLOUD FOLDER MOVE DIDN'T FINISH", _("YOUR CLOUD FOLDER MOVE DIDN'T FINISH") },
 		{ "CHECK WHAT WOULD CHANGE FIRST", _("CHECK WHAT WOULD CHANGE FIRST") },
 		{ "AN OLD FOLDER SETTING IS IN THE WAY", _("AN OLD FOLDER SETTING IS IN THE WAY") },
 		{ "YOUR SAVES FOLDER ISN'T ON THIS DEVICE", _("YOUR SAVES FOLDER ISN'T ON THIS DEVICE") },
@@ -449,7 +446,6 @@ std::vector<std::pair<std::string, std::string>> whySentences()
 		// five since f0f263b8cc.
 		{ "SOMETHING CHANGED SINCE YOU CHECKED", _("SOMETHING CHANGED SINCE YOU CHECKED") },
 		{ "COULDN'T RECORD WHICH CARD YOUR SAVES ARE ON", _("COULDN'T RECORD WHICH CARD YOUR SAVES ARE ON") },
-		{ "THE NEW FOLDER ALREADY HAS FILES IN IT", _("THE NEW FOLDER ALREADY HAS FILES IN IT") },
 		{ "YOU WENT OFFLINE PART-WAY THROUGH", _("YOU WENT OFFLINE PART-WAY THROUGH") },
 		{ "THIS DEVICE CAN'T RESTORE SETTINGS", _("THIS DEVICE CAN'T RESTORE SETTINGS") },
 		{ "A SETTINGS BACKUP OR RESTORE IS ALREADY RUNNING", _("A SETTINGS BACKUP OR RESTORE IS ALREADY RUNNING") },
@@ -652,12 +648,9 @@ TransferKind transferKind(const std::string& cmd)
 		return TransferKind::Match;
 	if (cmd.find("cloud_scan") != std::string::npos)
 		return TransferKind::Scan;
-	// The folder the offer creates runs the re-point and the seeding in one
-	// command (GuiMenu's cloudOfferFolder): the seeding names the kind.
+	// Setup creates the selected folders without relocating existing files.
 	if (cmd.find("--seed-folders") != std::string::npos)
 		return TransferKind::Create;
-	if (cmd.find("cloud_migrate_layout") != std::string::npos && cmd.find("--apply") != std::string::npos)
-		return TransferKind::Move;
 	const bool restore = cmd.find("cloud_restore") != std::string::npos || cmd.find("cloud_content_restore") != std::string::npos;
 	const bool backup  = cmd.find("cloud_backup")  != std::string::npos || cmd.find("cloud_content_backup")  != std::string::npos;
 	if (restore && !backup) return TransferKind::Restore;
@@ -1155,33 +1148,6 @@ CloudText::SettingsArchive CloudText::parseSettingsArchive(const std::string& na
 	a.label = rest.substr(0, cut);
 	a.ok = a.when > 0;
 	return a;
-}
-
-CloudText::TidyPlan CloudText::parseTidyPlan(const std::vector<std::string>& lines)
-{
-	TidyPlan plan;
-	for (auto& raw : lines)
-	{
-		const std::string line = Utils::String::trim(raw);
-		if (!Utils::String::startsWith(line, ">>> plan "))
-			continue;
-		const auto parts = Utils::String::split(line.substr(9), ' ', true);
-		if (parts.size() < 2)
-			continue;
-		plan = TidyPlan();
-		plan.ok = true;
-		plan.root = parts[1];
-		for (auto& tier : Utils::String::split(parts[0], ',', true))
-		{
-			if (tier == "saves" || tier == "discarded")
-				plan.saves = true;
-			else if (tier == "backups")
-				plan.backups = true;
-			else if (tier == "content")
-				plan.content = true;
-		}
-	}
-	return plan;
 }
 
 std::string CloudText::deviceNameFromLabel(const std::string& label)

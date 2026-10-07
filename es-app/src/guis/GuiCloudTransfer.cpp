@@ -477,7 +477,6 @@ std::string GuiCloudTransfer::verbWord(const CloudTransferJob& job)
 		case CloudText::TransferKind::Restore: return _("RESTORING...");
 		case CloudText::TransferKind::Match:   return _("MATCHING...");
 		case CloudText::TransferKind::Scan:    return _("CHECKING...");
-		case CloudText::TransferKind::Move:    return _("MOVING...");
 		case CloudText::TransferKind::Create:  return _("CREATING...");
 		default:                               return _("WORKING...");
 	}
@@ -523,7 +522,6 @@ std::string GuiCloudTransfer::stillRunningSentence(const std::shared_ptr<CloudTr
 		case CloudText::TransferKind::Restore: return _("YOUR RESTORE FROM THE CLOUD IS STILL RUNNING.");
 		case CloudText::TransferKind::Match:   return _("THIS DEVICE IS STILL BEING MATCHED TO THE CLOUD.");
 		case CloudText::TransferKind::Scan:    return _("YOUR CLOUD IS STILL BEING CHECKED.");
-		case CloudText::TransferKind::Move:    return _("YOUR CLOUD FOLDER IS STILL BEING MOVED.");
 		case CloudText::TransferKind::Create:  return _("YOUR CLOUD FOLDER IS STILL BEING CREATED.");
 		default:                               return _("YOUR CLOUD TRANSFER IS STILL RUNNING.");
 	}
@@ -792,8 +790,7 @@ void GuiCloudTransfer::update(int deltaTime)
 					summary = std::to_string(job.mRunFiles) + " " + std::string(job.mRunFiles == 1 ? _("FILE") : _("FILES"));
 				if (sized)
 					summary += (summary.empty() ? "" : " · ") + sizeLabel((unsigned long) job.mRunBytes);
-				summary += " " + std::string(restore ? _("RESTORED")
-					: CloudText::transferKind(job.mCommand) == CloudText::TransferKind::Move ? _("MOVED") : _("BACKED UP"));
+				summary += " " + std::string(restore ? _("RESTORED") : _("BACKED UP"));
 			}
 			else if (job.mRunSized && o.completed)
 			{

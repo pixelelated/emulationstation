@@ -675,18 +675,6 @@ static void startStartupSavesSync(Window* window)
 		" done;"
 		" [ \"$_up\" = 1 ] || exit " + noNetwork + ";"
 		" fi;"
-		// Boot-only preparation uses the same join/follow classifier as the
-		// folder page. It must precede writes: a startup backup into an empty
-		// old folder could otherwise make it win over the fleet's real saves
-		// (#365, T08/T11/T12). This does not show or apply the move; its page
-		// still waits for this worker and its outcome card to finish.
-		" if [ -x /usr/bin/cloud_migrate_layout ] && [ -x /usr/bin/cloud_scan ]; then"
-		" /usr/bin/cloud_migrate_layout --needs-step >/dev/null 2>&1; _s=$?;"
-		" if [ \"$_s\" = 0 ]; then"
-		" timeout 30 /usr/bin/cloud_scan --folder; _s=$?;"
-		" if [ \"$_s\" = 124 ]; then echo \">>> why THE CLOUD TOOK TOO LONG - IT'LL TRY AGAIN NEXT TIME\"; fi;"
-		" [ \"$_s\" = 0 ] || exit \"$_s\";"
-		" elif [ \"$_s\" != 1 ]; then exit \"$_s\"; fi; fi;"
 		" echo \">>> doing receive\";"
 		" /usr/bin/cloud_restore --yes --method=copy --update --saves-only --automatic; _r=$?;"
 		" echo \">>> tier RESTORING SAVES|$_r\";"
@@ -1126,14 +1114,6 @@ int main(int argc, char* argv[])
 		window.displayNotificationMessage(_U("\uF0C2  ") + _("COULDN'T RECORD THIS SESSION'S SAVES. THEY'RE STILL ON THIS DEVICE."));
 	if (!journeyPending)
 		startStartupSavesSync(&window);
-
-	// The cloud folder step at boot (D-CLOUD-170, fork #363): a device
-	// linked to a folder an earlier version made its default is asked about
-	// it once the startup sync has ended, at every boot until it is settled.
-	// Not beside the restore's own page, whose FINISH goes on to it (one
-	// setup page at a time), and not on the one-touch restore's boot.
-	if (!journeyPending && !Utils::FileSystem::exists("/storage/.config/.restore-finish-pending", false))
-		GuiMenu::armCloudFolderStep(&window);
 
 	// Play music
 	AudioManager::getInstance()->init();
