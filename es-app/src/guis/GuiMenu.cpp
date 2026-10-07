@@ -5372,7 +5372,7 @@ static void cloudOfferFolder(Window* window, const CloudFolderAsk& ask)
 		const std::string oldRoot = cloudRootOf(source);
 		LOG(LogInfo) << "cloud folder: " << oldRoot << " holds saves and " << newRoot << " does not exist; offering the move";
 		window->pushGui(new GuiMsgBox(window,
-			Utils::String::format(_("YOUR CLOUD HAS A %s FOLDER FROM AN EARLIER VERSION.\n\nMOVE IT TO %s? YOUR OTHER DEVICES WILL FOLLOW.").c_str(),
+			Utils::String::format(_("YOUR CLOUD HAS A \u2018%s\u2019 FOLDER FROM A PREVIOUS OS.\n\nMOVE THE FOLDER TO \u2018%s\u2019?\n\nOTHER DEVICES THAT SYNC WITH THIS CLOUD WILL SWITCH TO THE NEW FOLDER AUTOMATICALLY ONCE THEY\u2019RE RUNNING pixelelated AND ONLINE.\n\nIF FILES STILL NEED MOVING, YOU'LL BE ASKED TO CONFIRM.").c_str(),
 				oldRoot.c_str(), newRoot.c_str()),
 			_("MOVE"), [window, oldRoot, newRoot, rescan, abandon]
 			{
