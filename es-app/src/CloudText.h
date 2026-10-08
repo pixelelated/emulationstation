@@ -281,6 +281,10 @@ namespace CloudText
 	enum class TransferKind { Backup, Restore, Match, Scan, Create, Other };
 	TransferKind transferKind(const std::string& cmd);
 
+	// A refused check names its scan lock; transfer/sync lock wording stays
+	// unchanged. Called only when the job was skipped without moving files.
+	std::string lockHeldOutcome(TransferKind kind);
+
 	// The first candidate that fits the width, else the last one offered.
 	// measure is the row's own font, handed in because a font is a GL
 	// resource and this has to stay free of one; an empty measure or a

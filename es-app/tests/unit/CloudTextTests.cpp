@@ -636,6 +636,10 @@ TEST_CASE("every protocol shape an emitter prints classifies to a known kind")
 	// projects/ROCKNIX/packages/network/rclone/sources/ and
 	// projects/ROCKNIX/packages/rocknix/sources/scripts/, on next.
 	static const Shape shapes[] = {
+		// New cloud setup/check emitters at distribution 6f89bc7cec (#512).
+		{ ">>> why YOUR CLOUD SETTINGS CHANGED. CHECK AGAIN", ProtocolKind::Why, "cloud_scan:219" },
+		{ ">>> why ANOTHER CLOUD CHECK IS RUNNING", ProtocolKind::Why, "cloud_scan:358" },
+		{ ">>> why YOUR CLOUD FOLDERS COULDN'T BE CREATED", ProtocolKind::Why, "cloud_setup:804,867" },
 		// Every ">>> why" a script prints, from the scripts at next 4476f90394
 		// (regenerated, #308 follow-up: the table was f0f263b8cc's, and since
 		// then stream A's scripts print four sentences and backuptool five
@@ -1734,4 +1738,15 @@ TEST_CASE("parseSettingsArchive reads the device label and the time out of an ar
 	CHECK(deviceNameFromLabel("Retroid-Pocket-Nova") == "RETROID POCKET NOVA");
 	CHECK(deviceNameFromLabel("Anbernic-RG35XX-SP") == "ANBERNIC RG35XX SP");
 	CHECK(deviceNameFromLabel("") == "");
+}
+
+TEST_CASE("a busy cloud check names a check and ordinary sync keeps its headline")
+{
+	CHECK(lockHeldOutcome(transferKind("/usr/bin/cloud_scan --run-id qa")) ==
+		"SKIPPED - ANOTHER CLOUD CHECK IS RUNNING");
+	CHECK(lockHeldOutcome(transferKind("/usr/bin/cloud_scan --content --run-id qa")) ==
+		"SKIPPED - ANOTHER CLOUD CHECK IS RUNNING");
+	for (const auto kind : { TransferKind::Backup, TransferKind::Restore,
+		TransferKind::Match, TransferKind::Create, TransferKind::Other })
+		CHECK(lockHeldOutcome(kind) == "SKIPPED - A SYNC IS ALREADY RUNNING");
 }

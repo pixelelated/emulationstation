@@ -458,7 +458,7 @@ GuiCloudTransfer::Outcome GuiCloudTransfer::outcome(const CloudTransferJob& job)
 	else if (o.partial)
 		o.word = _("COULDN'T FINISH");
 	else if (o.skipped && code == CloudExit::LockHeld)
-		o.word = _("SKIPPED - A SYNC IS ALREADY RUNNING");
+		o.word = CloudText::lockHeldOutcome(CloudText::transferKind(job.mCommand));
 	else if (o.skipped && code == CloudExit::NoFolder)
 		o.word = _("SKIPPED - YOUR CLOUD FOLDER ISN'T SET UP YET");
 	else if (o.skipped)

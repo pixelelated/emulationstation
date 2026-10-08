@@ -3965,3 +3965,15 @@ msgid "%d second ago"
 msgid_plural "%d seconds ago"
 msgstr[0] ""
 msgstr[1] ""
+
+msgid "YOUR CLOUD SETTINGS CHANGED. CHECK AGAIN"
+msgstr ""
+
+msgid "ANOTHER CLOUD CHECK IS RUNNING"
+msgstr ""
+
+msgid "YOUR CLOUD FOLDERS COULDN'T BE CREATED"
+msgstr ""
+
+msgid "SKIPPED - ANOTHER CLOUD CHECK IS RUNNING"
+msgstr ""

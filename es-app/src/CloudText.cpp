@@ -404,6 +404,13 @@ std::vector<std::string> outcomeCandidates(const std::string& outcome)
 	return candidates;
 }
 
+std::string lockHeldOutcome(TransferKind kind)
+{
+	return kind == TransferKind::Scan
+		? _("SKIPPED - ANOTHER CLOUD CHECK IS RUNNING")
+		: _("SKIPPED - A SYNC IS ALREADY RUNNING");
+}
+
 std::vector<std::pair<std::string, std::string>> whySentences()
 {
 	// Each sentence twice: as the script prints it, to match, and inside
@@ -420,6 +427,9 @@ std::vector<std::pair<std::string, std::string>> whySentences()
 		{ "YOUR CLOUD SYNC SETTINGS COULDN'T BE READ", _("YOUR CLOUD SYNC SETTINGS COULDN'T BE READ") },
 		{ "YOUR CLOUD SYNC SETTINGS COULDN'T BE SAVED", _("YOUR CLOUD SYNC SETTINGS COULDN'T BE SAVED") },
 		{ "YOUR CLOUD FOLDER COULDN'T BE READ", _("YOUR CLOUD FOLDER COULDN'T BE READ") },
+		{ "YOUR CLOUD SETTINGS CHANGED. CHECK AGAIN", _("YOUR CLOUD SETTINGS CHANGED. CHECK AGAIN") },
+		{ "ANOTHER CLOUD CHECK IS RUNNING", _("ANOTHER CLOUD CHECK IS RUNNING") },
+		{ "YOUR CLOUD FOLDERS COULDN'T BE CREATED", _("YOUR CLOUD FOLDERS COULDN'T BE CREATED") },
 		{ "CHECK WHAT WOULD CHANGE FIRST", _("CHECK WHAT WOULD CHANGE FIRST") },
 		{ "AN OLD FOLDER SETTING IS IN THE WAY", _("AN OLD FOLDER SETTING IS IN THE WAY") },
 		{ "YOUR SAVES FOLDER ISN'T ON THIS DEVICE", _("YOUR SAVES FOLDER ISN'T ON THIS DEVICE") },
