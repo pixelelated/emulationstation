@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <map>
 #include <string>
 #include <vector>
@@ -24,6 +25,8 @@ struct Result
 	bool complete = false;
 	std::vector<Category> categories;
 };
+// Append raw pipe bytes without inventing line breaks; reject oversize output.
+bool appendOutput(std::string& json, const char* data, std::size_t size);
 Context parseContext(const std::string& json);
 Result parseResult(const std::string& json, const std::string& runId,
 	const Context& started, const Context& current, const std::vector<std::string>& selected);

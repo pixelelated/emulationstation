@@ -33,6 +33,17 @@ bool document(const std::string& json, rapidjson::Document& doc)
 }
 }
 
+bool CloudFolderValidation::appendOutput(std::string& json, const char* data, std::size_t size)
+{
+	if (size > 65536 || json.size() > 65536 - size)
+	{
+		json.clear();
+		return false;
+	}
+	json.append(data, size);
+	return true;
+}
+
 CloudFolderValidation::Context CloudFolderValidation::parseContext(const std::string& json)
 {
 	Context c;

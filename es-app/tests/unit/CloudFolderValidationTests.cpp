@@ -1,6 +1,7 @@
 #include "doctest/doctest.h"
 #include "CloudFolderValidation.h"
 #include <rapidjson/document.h>
+#include <algorithm>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
 using namespace CloudFolderValidation;
@@ -59,4 +60,25 @@ TEST_CASE("folder JSON rejects malformed missing duplicate and mistyped data")
 	CHECK_FALSE(parse(answer + std::string(65536,' ')).valid);
 	CHECK_FALSE(parseContext(replace(context,"\"saves\":\"/mine/Saves\"","\"saves\":null")).valid);
 	CHECK_FALSE(parseContext(replace(context,"\"config_id\":\"config1\"","\"config_id\":\"\"")).valid);
+}
+
+TEST_CASE("folder JSON pipe chunks preserve long records and enforce the size cap")
+{
+	const std::string source = replace(answer, "files-found", std::string(2500, 'a'));
+	for (std::size_t chunk : {1u, 255u, 1023u, 1024u})
+	{
+		std::string output;
+		for (std::size_t i = 0; i < source.size(); i += chunk)
+			REQUIRE(appendOutput(output, source.data() + i, std::min(chunk, source.size() - i)));
+		CHECK(output == source);
+		CHECK(parse(output).valid);
+	}
+	std::string output;
+	const std::string limit(65536, ' ');
+	CHECK(appendOutput(output, limit.data(), limit.size()));
+	CHECK_FALSE(appendOutput(output, "x", 1));
+	CHECK(output.empty());
+	CHECK_FALSE(appendOutput(output, limit.data(), 65537));
+	CHECK(output.empty());
+	CHECK_FALSE(parse(source.substr(0, 1023)).valid);
 }

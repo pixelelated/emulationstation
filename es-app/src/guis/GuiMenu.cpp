@@ -1,5 +1,7 @@
 #include "CloudFolderValidation.h"
 #include <chrono>
+#include <cstdio>
+#include <sys/wait.h>
 #include <tuple>
 #include "guis/GuiMenu.h"
 
@@ -95,6 +97,8 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <sys/wait.h>
 #include <tuple>
 #endif
 
@@ -6838,12 +6842,27 @@ static std::string cloudFolderStateLabel(const std::string& state)
 	if (state == "misplaced") return _("CHECK FILE LOCATIONS");
 	return _("COULDN'T READ THIS FOLDER");
 }
+// Legacy line readers discard chunks longer than their line buffer. JSON is
+// a byte stream, and a populated five-category result can exceed that buffer.
+static std::pair<std::string, int> cloudReadFolderJson(const std::string& command)
+{
+	FILE* pipe = popen(command.c_str(), "r");
+	if (!pipe) return {"", -1};
+	std::string json;
+	char buffer[1024];
+	bool bounded = true;
+	std::size_t count;
+	while ((count = fread(buffer, 1, sizeof(buffer), pipe)) != 0)
+		if (bounded) bounded = CloudFolderValidation::appendOutput(json, buffer, count);
+	const bool failed = ferror(pipe) != 0;
+	const int status = pclose(pipe);
+	if (!bounded || failed) json.clear();
+	return {json, status != -1 && WIFEXITED(status) ? WEXITSTATUS(status) : -1};
+}
 static CloudFolderValidation::Context cloudFolderContext()
 {
-	std::string json;
-	int rc = ApiSystem::executeScriptLegacy("timeout 5 /usr/bin/cloud_setup --validation-context",
-		[&json](const std::string& line) { json += line + "\n"; }).second;
-	return rc == 0 ? CloudFolderValidation::parseContext(json) : CloudFolderValidation::Context();
+	const auto output = cloudReadFolderJson("timeout 5 /usr/bin/cloud_setup --validation-context");
+	return output.second == 0 ? CloudFolderValidation::parseContext(output.first) : CloudFolderValidation::Context();
 }
 static void cloudFolderInstructions(Window* window, const CloudFolderValidation::Category& item)
 {
@@ -6905,12 +6924,10 @@ static void cloudCheckFolders(Window* window, const std::vector<std::string>& se
 	{
 			const auto started = cloudFolderContext();
 			if (!started.valid) return CloudFolderValidation::Result();
-			std::string json;
-			const int rc = ApiSystem::executeScriptLegacy("timeout 35 /usr/bin/cloud_setup --validate-folders "
-				+ Utils::String::shellQuote(csv) + " " + Utils::String::shellQuote(run),
-				[&json](const std::string& line) { json += line + "\n"; }).second;
-			auto result = CloudFolderValidation::parseResult(json, run, started, cloudFolderContext(), selected);
-			if (rc != 0) result.complete = false;
+			const auto output = cloudReadFolderJson("timeout 35 /usr/bin/cloud_setup --validate-folders "
+				+ Utils::String::shellQuote(csv) + " " + Utils::String::shellQuote(run));
+			auto result = CloudFolderValidation::parseResult(output.first, run, started, cloudFolderContext(), selected);
+			if (output.second != 0) result.complete = false;
 			return result;
 		}, [window](CloudFolderValidation::Result result) { cloudShowFolderResult(window, result); }));
 }
