@@ -4477,7 +4477,7 @@ static void cloudContentSystemPicker(Window* window, const std::function<void()>
 			{
 				window->pushGui(new GuiMsgBox(window, backup
 					? _("NO SYSTEM ON THIS DEVICE HOLDS WHAT YOU TICKED.")
-					: _("NO SYSTEM IN YOUR CLOUD HOLDS WHAT YOU TICKED.\n\nPUT FILES INTO THE ROMS FOLDER FROM A COMPUTER, THEN SCAN AGAIN.")));
+					: _("NOTHING MATCHES YOUR SELECTION IN THE CLOUD FOLDER YOU CHOSE.\n\nCHOOSE A DIFFERENT FOLDER, OR ADD FILES FROM A COMPUTER. USE CLOUD > CHECK CLOUD FOLDERS FOR THE EXPECTED LOCATIONS.")));
 				return;
 			}
 			// CONTENT TO ..., not SYSTEMS TO ...: settings cover the whole device
