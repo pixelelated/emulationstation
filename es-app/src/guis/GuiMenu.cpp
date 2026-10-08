@@ -6967,7 +6967,7 @@ static void cloudShowFolderSelection(Window* window, GuiSettings* prev, const st
 			_("YES"), [window, csv, selected, stillSelected]
 			{
 				if (!stillSelected()) return;
-				auto page = new GuiCloudTransfer(window, "timeout 90 /usr/bin/cloud_setup --seed-folders "
+				auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_setup --seed-folders "
 					+ Utils::String::shellQuote(csv), _("CREATING CLOUD FOLDERS"), (int)selected.size());
 				page->setAutoContinue([window, selected] { cloudCheckFolders(window, selected); });
 				window->pushGui(page);
