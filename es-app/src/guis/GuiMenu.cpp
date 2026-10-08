@@ -1,3 +1,6 @@
+#include "CloudFolderValidation.h"
+#include <chrono>
+#include <tuple>
 #include "guis/GuiMenu.h"
 
 #include "components/OptionListComponent.h"
@@ -92,6 +95,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <tuple>
 #endif
 
 #if WIN32
@@ -4052,6 +4056,9 @@ void GuiMenu::addFeatures(const VectorEx<CustomFeature>& features, Window* windo
 // these for the CLOUD FOLDER row and for rows that must stay visible
 // before a remote is configured.
 static void cloudSetupOpenSyncPathEditor(Window* window, const std::string& current, const std::function<void()>& onDone);
+static void cloudOpenFolderSettings(Window* window, const std::function<void()>& onDone);
+static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev);
+static void cloudSetupOpenPathEditor(Window* window, const std::string& title, const std::string& command, const std::string& current, const std::function<void()>& onDone);
 // The transfer flow since #350 (D-CLOUD-156): the scan page first, then the
 // folder dialogs it may raise, then the options page built from its files.
 static void cloudOpenTransferOptions(Window* window, bool backup);
@@ -4162,9 +4169,26 @@ static std::string cloudScanFact(const std::map<std::string, std::string>& facts
 	auto it = facts.find(key);
 	return it == facts.end() ? "" : it->second;
 }
+static std::string sCloudScanRun, sCloudContentScanRun, sCloudContentScanMode;
+static std::string cloudNewCheckId()
+{
+	static unsigned long sequence = 0;
+	return "es-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
+		+ "-" + std::to_string(++sequence);
+}
 static bool cloudScanStamped(const std::string& name)
 {
-	return Utils::FileSystem::exists(std::string(CLOUD_SCAN_DIR) + "/" + name, false);
+	const auto& run = name == "content-done" ? sCloudContentScanRun : sCloudScanRun;
+	if (run.empty()) return false;
+	const std::string mode = name == "content-done" ? sCloudContentScanMode : "";
+	return ApiSystem::executeScriptLegacy("timeout 5 /usr/bin/cloud_scan --stamp-valid "
+		+ cloudShellQuote(name) + " " + cloudShellQuote(run) + mode,
+		[](const std::string&) {}).second == 0;
+}
+static void cloudCheckChanged(Window* window)
+{
+	window->pushGui(new GuiMsgBox(window,
+		_("THE CLOUD CHECK IS NO LONGER CURRENT. CHECK YOUR FOLDERS AGAIN."), _("OK")));
 }
 // The picker's selection, saved and then read back before anything moves on
 // it (audit of the fix round PL-019). --set-systems exits 0 over a rename
@@ -4807,6 +4831,11 @@ static void cloudAddClassRow(GuiSettings* s, Window* window, bool configured,
 // page states a selection and the action happens once.
 static void cloudOpenTransferOptions(Window* window, bool backup)
 {
+	if (!cloudScanStamped("done"))
+	{
+		cloudCheckChanged(window);
+		return;
+	}
 	const bool configured = Utils::FileSystem::exists("/storage/.config/rclone/rclone.conf", false);
 	auto s = new GuiSettings(window, backup ? _("BACK UP TO THE CLOUD") : _("RESTORE FROM THE CLOUD"));
 	s->addGroup(backup ? _("WHAT WOULD YOU LIKE TO BACK UP?") : _("WHAT WOULD YOU LIKE TO RESTORE?"));
@@ -5176,86 +5205,6 @@ static void cloudOpenTransferOptions(Window* window, bool backup)
 	window->pushGui(s);
 }
 
-// Discovery may suggest a content folder, but only the player's selection
-// changes CONTENT_REMOTE. Linking or scanning never adopts another library.
-static void cloudOpenContentFolderChooser(Window* window, const std::function<void()>& then);
-static void cloudSetContentFolder(Window* window, const std::string& folder, const std::function<void()>& then)
-{
-	window->pushGui(new GuiLoading<std::pair<std::string, std::string>>(window, _("WORKING..."),
-		[folder](IGuiLoadingHandler*)
-		{
-			std::string why, rc;
-			const std::string command = folder == "/" ? "--use-content-root" :
-				"--set-content-remote " + Utils::String::shellQuote(folder);
-			for (auto& line : Utils::Platform::GetShOutputLines(
-				"timeout 30 /usr/bin/cloud_setup " + command + " 2>&1; echo \"RC=$?\""))
-			{
-				const std::string l = Utils::String::trim(line);
-				if (Utils::String::startsWith(l, "RC="))
-					rc = l.substr(3);
-				else if (!l.empty())
-					why += (why.empty() ? "" : "\n") + l;
-			}
-			return std::make_pair(rc, why);
-		},
-		[window, folder, then](std::pair<std::string, std::string> result)
-		{
-			if (result.first != "0")
-			{
-				LOG(LogWarning) << "cloud content folder: " << folder << " was refused: " << result.second;
-				window->pushGui(new GuiMsgBox(window,
-					_("THE CLOUD FOLDER WAS NOT CHANGED") + (result.second.empty() ? "" : "\n\n" + result.second), _("OK"), nullptr));
-				return;
-			}
-			LOG(LogInfo) << "cloud content folder: now " << folder;
-			then();
-		}));
-}
-static void cloudOfferContentFolder(Window* window, const std::function<void()>& then)
-{
-	const auto facts = cloudScanFacts("content-location");
-	const std::string state = cloudScanFact(facts, "STATE");
-	if (state != "empty" && state != "found-elsewhere" && state != "stranded-at-root")
-	{
-		then();
-		return;
-	}
-	std::string folder = cloudScanFact(facts, "CONTENT_REMOTE");
-	if (folder.empty())
-		folder = "/";
-	window->pushGui(new GuiMsgBox(window,
-		Utils::String::format(_("YOUR CLOUD HAS NO ROMS OR BIOS AT %s.\n\nCHOOSE THE FOLDER WHERE YOUR GAMES ARE?").c_str(), folder.c_str()),
-		_("CHOOSE A FOLDER"), [window, then] { cloudOpenContentFolderChooser(window, then); },
-		_("NOT NOW"), then));
-}
-// CHOOSE A CLOUD FOLDER (#352, the approved title): the folders at the
-// cloud's root, as the scan listed them (root-dirs), plus the root itself;
-// the one the scan found first when it found one. A press points the device's content root
-// there and goes on to the content scan.
-static void cloudOpenContentFolderChooser(Window* window, const std::function<void()>& then)
-{
-	auto s = new GuiSettings(window, _("CHOOSE A CLOUD FOLDER"));
-	std::vector<std::string> dirs;
-	const std::string found = cloudScanFact(cloudScanFacts("content-location"), "FOUND");
-	if (!found.empty())
-		dirs.push_back(found);
-	if (found != "/")
-		dirs.push_back("/");
-	std::vector<std::string> roots;
-	cloudScanLines("root-dirs", roots);
-	for (auto& d : roots)
-		if (!d.empty() && "/" + d != found)
-			dirs.push_back("/" + d);
-	if (dirs.empty())
-		cloudSetupAddInfoRow(s, window, _("NONE"), false);
-	for (auto& d : dirs)
-		s->addEntry(d, false, [window, s, d, then]
-		{
-			cloudSetContentFolder(window, d, [s, then] { s->close(); then(); });
-		});
-	window->pushGui(s);
-}
-
 // The content scan, on a page of its own (#350): the content folder is
 // settled first on a restore (above), then cloud_scan --content lists the
 // cloud's systems in the classes ticked, and the systems page is built
@@ -5267,19 +5216,24 @@ static void cloudScanContent(Window* window, bool backup, bool content, bool med
 {
 	if (!Utils::FileSystem::exists("/usr/bin/cloud_scan"))
 	{
-		then();
+		cloudCheckChanged(window);
 		return;
 	}
-	auto scan = [window, content, media, then]
+	const std::string run = cloudNewCheckId();
+	sCloudContentScanRun = run;
+	sCloudContentScanMode = cloudContentMode(content, media);
+	auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan --content --run-id "
+		+ cloudShellQuote(run) + sCloudContentScanMode, _("CHECKING YOUR CLOUD"), 1);
+	page->setAutoContinue([window, run, then]
 	{
-		auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan --content" + cloudContentMode(content, media), _("CHECKING YOUR CLOUD"), 1);
-		page->setAutoContinue(then);
+		if (sCloudContentScanRun != run || !cloudScanStamped("content-done"))
+		{
+			cloudCheckChanged(window);
+			return;
+		}
+		then();
+	});
 		window->pushGui(page);
-	};
-	if (backup)
-		scan();
-	else
-		cloudOfferContentFolder(window, scan);
 }
 
 // Scan the selected folders before offering the transfers they support.
@@ -5297,8 +5251,18 @@ static void cloudOpenTransfer(Window* window, bool backup)
 		cloudOpenTransferOptions(window, backup);
 		return;
 	}
-	auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan", _("CHECKING YOUR CLOUD"), 3);
-	page->setAutoContinue([window, backup] { cloudOpenTransferOptions(window, backup); });
+	const std::string run = cloudNewCheckId();
+	sCloudScanRun = run;
+	auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan --run-id " + cloudShellQuote(run), _("CHECKING YOUR CLOUD"), 3);
+	page->setAutoContinue([window, backup, run]
+	{
+		if (sCloudScanRun != run || !cloudScanStamped("done"))
+		{
+			cloudCheckChanged(window);
+			return;
+		}
+		cloudOpenTransferOptions(window, backup);
+	});
 	window->pushGui(page);
 }
 
@@ -5711,35 +5675,15 @@ void GuiMenu::openCloud(Window* window, bool onFolderRow)
 			}, "", false, true);
 
 
-		// Came here with the rest of NETWORK SETTINGS' cloud group, and was
-		// missed when that group was deleted -- which left the folder editable
-		// only by walking the setup wizard to its final page again, for
-		// somebody whose remote is already configured and working.
-		//
-		// A verb, like everything else in this group. "CLOUD FOLDER" reads as a
-		// heading rather than something you can act on; not "choose" or
-		// "select", which promise a list to pick from, when this opens a
-		// keyboard and you type a path.
-		//
-		// A changed folder rebuilds this page, so the line under the row
-		// names the new one: with no onDone the page kept the folder it was
-		// built with until it was reopened (#308 8-es claude F-ES-27). The
-		// editor calls it only when the script took the folder; the new page
-		// goes up before the old one closes, so nothing flashes between.
-		// And it opens on this row (audit of the fixes, G-E2-O1; D-UI-042):
-		// the rebuilt page opened on its first row with this one scrolled
-		// off the foot, so the player could not see the confirmation, and
-		// the next A opened BACK UP TO THE CLOUD instead of the editor.
+		// Each data root keeps its own selection. Returning from the editor
+		// rebuilds this hub at the same row, so the next press stays here.
 		const std::string syncpath = info["SAVES_REMOTE"];
-		// One line under the row (D-UI-023): the sentence around the path took
-		// 580 of the 620 px a 640x480 description has, so any real path
-		// wrapped to a third line (#308 8-es claude F-ES-14; Roboto-Bold at
-		// 15 and 20 px, the budget noted at openRestoreRelink's DEVICE
-		// PASSWORD row).
 		s->addWithDescription(_("CHANGE CLOUD FOLDER"),
 			_("YOUR SAVES ARE IN:") + " " + syncpath,
-			nullptr, [window, s, syncpath] { cloudSetupOpenSyncPathEditor(window, syncpath, [window, s] { GuiMenu::openCloud(window, true); s->close(); }); },
+			nullptr, [window, s] { cloudOpenFolderSettings(window, [window, s] { GuiMenu::openCloud(window, true); s->close(); }); },
 			"", onFolderRow, true);
+		s->addWithDescription(_("CHECK CLOUD FOLDERS"), _("CHECK THE FOLDERS YOU CHOOSE."), nullptr,
+			[window] { cloudSetupShowDoneStep(window, "", nullptr); }, "", false, true);
 	}
 	s->addWithDescription(_("CONNECT OR REPAIR CLOUD STORAGE"),
 		configured ? _("CHANGE THE FOLDER, ADD A PROVIDER, OR RENEW A SIGN-IN.")
@@ -6553,65 +6497,73 @@ static void cloudSetupOpenPasswordPage(Window* window, const std::string& curren
 // Edit the cloud folder (SYNCPATH) the sync tools read from and write
 // to, without touching config files by hand. onDone runs after a
 // successful change.
-static void cloudSetupOpenSyncPathEditor(Window* window, const std::string& current, const std::function<void()>& onDone)
+static void cloudSetupOpenPathEditor(Window* window, const std::string& title, const std::string& command,
+	const std::string& current, const std::function<void()>& onDone)
 {
-	auto save = [window, onDone](const std::string& value)
+	auto save = [window, onDone, command, current](const std::string& value)
 	{
-		const std::string trimmed = Utils::String::trim(value);
-		if (trimmed.empty() || trimmed == "/")
-			return;
-		LOG(LogInfo) << "cloud_setup wizard: setting sync path to " << trimmed;
-		// The script asks the provider whether it will take the folder and
-		// refuses one it will not, saying why. That answer has to reach the
-		// screen: with the exit code discarded, a refused folder left the
-		// setting as it was while the page carried on as if it had changed
-		// (the A3 fixture, 2026-09-06).
-		// Line by line: GetShOutput glues lines together, which turned the
-		// script's paragraphs into "thefolder" and "nameshave" (VM frame,
-		// 2026-09-07). rclone's own log line -- the one starting with a date
-		// -- is for the log, not the screen; the script's sentences are.
-		//
-		// Behind GuiLoading: asking the provider is an rclone listing with
-		// no timeout of its own, and it ran in this callback on the
-		// interface thread (fork #103). Thirty seconds is the box; when it
-		// closes the exit code is timeout's 124, which reads as refused,
-		// and the setting is left as it was.
-		window->pushGui(new GuiLoading<std::pair<std::string, std::string>>(window, _("CHECKING..."),
-			[trimmed](IGuiLoadingHandler*)
+		const std::string path = Utils::String::trim(value);
+		if (path == current) return;
+		if (path.empty())
 			{
-				std::string why, rc;
-				for (auto& line : Utils::Platform::GetShOutputLines(
-					"timeout 30 /usr/bin/cloud_setup --set-syncpath " + Utils::String::shellQuote(trimmed) + " 2>&1; echo \"RC=$?\"")) // fork #198
-				{
-					const std::string l = Utils::String::trim(line);
-					if (Utils::String::startsWith(l, "RC="))
-						rc = l.substr(3);
-					else if (l.size() > 10 && isdigit((unsigned char) l[0]) && l[4] == '/' && l[7] == '/')
-						LOG(LogWarning) << "cloud_setup wizard: " << l;
-					else if (!l.empty())
-						why += (why.empty() ? "" : "\n") + l;
-				}
-				return std::make_pair(rc, why);
-			},
-			[window, onDone](std::pair<std::string, std::string> result)
-			{
-				const std::string& rc = result.first;
-				const std::string& why = result.second;
-				if (rc != "0")
-				{
-					LOG(LogWarning) << "cloud_setup wizard: the folder was refused: " << why;
-					window->pushGui(new GuiMsgBox(window,
-						_("THE CLOUD FOLDER WAS NOT CHANGED") + (why.empty() ? "" : "\n\n" + why), _("OK"), nullptr));
+			window->pushGui(new GuiMsgBox(window, _("ENTER A CLOUD FOLDER PATH."), _("OK")));
 					return;
 				}
-				if (onDone != nullptr)
-					onDone();
+		window->pushGui(new GuiLoading<int>(window, _("CHECKING..."),
+			[path, command](IGuiLoadingHandler*)
+			{
+				return ApiSystem::executeScriptLegacy("timeout 30 /usr/bin/cloud_setup " + command
+					+ " " + Utils::String::shellQuote(path), [](const std::string&) {}).second;
+			},
+			[window, onDone](int rc)
+			{
+				if (rc != 0)
+				{
+					window->pushGui(new GuiMsgBox(window,
+						_("THE CLOUD FOLDER WAS NOT CHANGED. CHECK THE PATH AND YOUR CONNECTION, THEN TRY AGAIN."), _("OK")));
+					return;
+				}
+				sCloudScanRun.clear();
+				sCloudContentScanRun.clear();
+				LOG(LogInfo) << "cloud_setup wizard: selected folder changed";
+				if (onDone) onDone();
 			}));
 	};
 	if (Settings::getInstance()->getBool("UseOSK"))
-		window->pushGui(new GuiTextEditPopupKeyboard(window, _("CLOUD FOLDER"), current, save, false));
+		window->pushGui(new GuiTextEditPopupKeyboard(window, title, current, save, false));
 	else
-		window->pushGui(new GuiTextEditPopup(window, _("CLOUD FOLDER"), current, save, false));
+		window->pushGui(new GuiTextEditPopup(window, title, current, save, false));
+}
+static void cloudSetupOpenSyncPathEditor(Window* window, const std::string& current, const std::function<void()>& onDone)
+{
+	cloudSetupOpenPathEditor(window, _("SAVES FOLDER"), "--set-syncpath", current, onDone);
+}
+static void cloudOpenFolderSettings(Window* window, const std::function<void()>& onDone)
+{
+	auto s = new GuiSettings(window, _("CLOUD FOLDERS"));
+	auto info = cloudSetupInfo();
+	cloudSetupAddProse(s, window, _("CHOOSE WHERE TO LOOK"),
+		_("CHANGING A PATH DOES NOT MOVE YOUR FILES."));
+	const std::vector<std::tuple<std::string, std::string, std::string>> folders = {
+		{_("SAVES FOLDER"), "SAVES_REMOTE", "--set-syncpath"},
+		{_("SETTINGS FOLDER"), "SETTINGS_REMOTE", "--set-settings-remote"},
+		{_("ROMS, BIOS, AND GAME CONTENT FOLDER"), "CONTENT_REMOTE", "--set-content-remote"}
+	};
+	for (const auto& item : folders)
+	{
+		const auto title = std::get<0>(item), path = info[std::get<1>(item)], command = std::get<2>(item);
+		s->addWithDescription(title, path, nullptr, [window, s, title, path, command, onDone]
+		{
+			cloudSetupOpenPathEditor(window, title, command, path, [window, s, onDone]
+			{
+				cloudOpenFolderSettings(window, onDone);
+				s->onFinalize(nullptr);
+				s->close();
+			});
+		}, "", false, true);
+	}
+	s->onFinalize(onDone);
+	window->pushGui(s);
 }
 
 // Run `cloud_setup --check [remote]` and hand (exit code, remote name) to
@@ -6868,105 +6820,148 @@ static void cloudSetupShowConfigureStep(Window* window, CloudSetupMode mode, con
 	cloudSetupPresent(window, s, prev);
 }
 
-// Completion page: confirmation, the cloud-folder setting, and a
-// clearly-optional immediate backup. `seeded` is what --seed-folders
-// printed; cloudSetupShowDoneStep ran it.
-static void cloudSetupBuildDoneStep(Window* window, const std::string& remote, GuiSettings* prev, const std::vector<std::string>& seeded, bool seedOk)
+// Folder checks are explicit, selected-category reads. Linking alone does not
+// create anything or look outside the selected roots.
+static std::string cloudFolderCategoryLabel(const std::string& category)
 {
-	auto info = cloudSetupInfo();
-	LOG(LogInfo) << "cloud_setup wizard: folders=" << (seedOk ? "ready" : "incomplete") << " remote=" << remote << " saves_remote=" << info["SAVES_REMOTE"];
-
-	auto s = new GuiSettings(window, seedOk ? _("CLOUD SETUP COMPLETE") : _("CLOUD SETUP"));
-	s->setSubTitle(seedOk ? _("YOUR CLOUD STORAGE IS READY") : _("YOUR CLOUD FOLDERS COULD NOT BE CREATED"));
-
-	if (seedOk)
-		cloudSetupAddInfoRow(s, window, _U("\uF058  ") + _("YOUR CLOUD IS ANSWERING:") + " " + cloudSetupDisplayName(remote));
-	cloudSetupAddInfoRow(s, window, _("CLOUD SETTINGS ARE NOW AVAILABLE IN GAME SETTINGS."));
-
-	// Only confirmed folder readback is presented as ready. A partial failure
-	// keeps the connection and paths, and offers a retry on this page.
-	s->addGroup(_("YOUR CLOUD FOLDERS"));
-	bool anyOk = false;
-	for (auto& line : seeded)
-		if (Utils::String::trim(line).rfind("OK ", 0) == 0)
-			anyOk = true;
-	if (!anyOk)
-		cloudSetupAddInfoRow(s, window, _("CHECK YOUR CONNECTION, THEN TRY AGAIN."));
+	if (category == "saves") return _("SAVES");
+	if (category == "settings") return _("SETTINGS");
+	if (category == "roms") return _("ROMS");
+	if (category == "bios") return _("BIOS FILES");
+	return _("GAME CONTENT");
+}
+static std::string cloudFolderStateLabel(const std::string& state)
+{
+	if (state == "present") return _("FILES FOUND");
+	if (state == "missing") return _("FOLDER MISSING");
+	if (state == "empty") return _("NO FILES FOUND");
+	if (state == "misplaced") return _("CHECK FILE LOCATIONS");
+	return _("COULDN'T READ THIS FOLDER");
+}
+static CloudFolderValidation::Context cloudFolderContext()
+{
+	std::string json;
+	int rc = ApiSystem::executeScriptLegacy("timeout 5 /usr/bin/cloud_setup --validation-context",
+		[&json](const std::string& line) { json += line + "\n"; }).second;
+	return rc == 0 ? CloudFolderValidation::parseContext(json) : CloudFolderValidation::Context();
+}
+static void cloudFolderInstructions(Window* window, const CloudFolderValidation::Category& item)
+{
+	auto s = new GuiSettings(window, _("CLOUD FOLDER INSTRUCTIONS"));
+	s->addGroup(cloudFolderCategoryLabel(item.category));
+	cloudSetupAddProse(s, window, _("CLOUD FOLDER"), item.path);
+	if (item.category == "roms")
+		cloudSetupAddProse(s, window, _("ADD ROMS FROM A COMPUTER"),
+			_("PUT EACH SYSTEM'S ROMS IN ITS OWN FOLDER HERE, SUCH AS nes OR gba. THEN CHECK AGAIN."));
+	else if (item.category == "bios")
+		cloudSetupAddProse(s, window, _("ADD BIOS FILES FROM A COMPUTER"),
+			_("PUT YOUR BIOS FILES HERE, KEEPING THE NAMES AND SUBFOLDERS REQUIRED BY YOUR EMULATORS."));
+	else if (item.category == "media")
+		cloudSetupAddProse(s, window, _("ADD GAME CONTENT FROM A COMPUTER"),
+			_("PUT EACH SYSTEM'S ARTWORK, VIDEOS, MANUALS, AND GAME LIST HERE IN ITS SYSTEM FOLDER."));
+	else if (item.category == "saves")
+		cloudSetupAddProse(s, window, _("GAME SAVES, SAVE STATES, AND SCREENSHOTS"),
+			_("BACK UP SAVES TO POPULATE THIS FOLDER, OR COPY YOUR SAVES HERE FROM A COMPUTER."));
 	else
+		cloudSetupAddProse(s, window, _("SETTINGS BACKUPS"),
+			_("BACK UP SETTINGS TO POPULATE THIS FOLDER, OR COPY A SETTINGS BACKUP HERE FROM A COMPUTER."));
+	cloudSetupAddProse(s, window, _("AFTER ADDING FILES"),
+		_("CHECK FOLDERS AGAIN. THIS CHECK DOES NOT TEST FILE INTEGRITY OR GAME COMPATIBILITY."));
+	window->pushGui(s);
+}
+static void cloudShowFolderResult(Window* window, const CloudFolderValidation::Result& result)
 	{
-		cloudSetupAddInfoRow(s, window, _("SET UP FOR YOU IN YOUR CLOUD ACCOUNT, IF NOT ALREADY THERE:"));
-		for (auto& line : seeded)
+	if (!result.valid)
 		{
-			auto text = Utils::String::trim(line);
-			if (text.rfind("OK ", 0) == 0)
-				cloudSetupAddInfoRow(s, window, _U("\uF07B  ") + text.substr(3));
-			else if (text.rfind("MISSING ", 0) == 0)
-				cloudSetupAddInfoRow(s, window, _U("\uF071  ") + _("MISSING") + " " + text.substr(8));
+		window->pushGui(new GuiMsgBox(window,
+			_("COULDN'T CHECK YOUR FOLDERS. CHECK YOUR CONNECTION, THEN TRY AGAIN."), _("OK")));
+		return;
 		}
-		cloudSetupAddProse(s, window, _("ADD ROMS AND BIOS FROM A COMPUTER"),
-			_("COPY ROMS INTO THE ROMS FOLDER AND BIOS FILES INTO THE BIOS FOLDER."));
+	auto s = new GuiSettings(window, _("CLOUD FOLDER CHECK"));
+	s->setSubTitle(result.complete ? _("COMPLETED") : _("COULDN'T FINISH"));
+	cloudSetupAddProse(s, window, _("FOLDER LOCATIONS ONLY"),
+		_("FILES FOUND DOES NOT MEAN THEY ARE COMPLETE OR COMPATIBLE."));
+	for (const auto& item : result.categories)
+	{
+		s->addGroup(cloudFolderCategoryLabel(item.category));
+		cloudSetupAddProse(s, window, cloudFolderStateLabel(item.state), item.path);
+		s->addEntry(_("SEE INSTRUCTIONS"), true, [window, item] { cloudFolderInstructions(window, item); });
 	}
-
-	if (seedOk)
-		cloudSetupAddProse(s, window, _("MOVED YOUR CLOUD FOLDER?"),
-			_("USE CHANGE CLOUD FOLDER ON EACH DEVICE."));
-	else
-		s->addEntry(_("TRY AGAIN"), true, [window, s, remote] { cloudSetupShowDoneStep(window, remote, s); });
-
-	s->addGroup(_("OPTIONAL NEXT STEPS"));
-	const std::string syncpath = info["SAVES_REMOTE"];
-	cloudSetupAddFact(s, window, _("CHANGE CLOUD FOLDER"), syncpath, [window, s, remote, syncpath]
+	window->pushGui(s);
+}
+static void cloudCheckFolders(Window* window, const std::vector<std::string>& selected)
 	{
-		cloudSetupOpenSyncPathEditor(window, syncpath, [window, s, remote]
+	if (selected.empty())
 		{
-			cloudSetupShowDoneStep(window, remote, s);
-		});
-	});
-	if (seedOk)
+		window->pushGui(new GuiMsgBox(window, _("CHOOSE AT LEAST ONE ITEM TO CHECK."), _("OK")));
+		return;
+	}
+	const std::string run = cloudNewCheckId();
+	std::string csv;
+	for (const auto& category : selected) csv += (csv.empty() ? "" : ",") + category;
+	LOG(LogInfo) << "cloud_setup wizard: checking selected folders, run=" << run;
+	window->pushGui(new GuiLoading<CloudFolderValidation::Result>(window, _("CHECKING YOUR CLOUD FOLDERS"),
+		[selected, csv, run](IGuiLoadingHandler*)
 	{
-		s->addEntry(_("BACK UP SETTINGS AND SAVES NOW"), true, [window, s]
+			const auto started = cloudFolderContext();
+			if (!started.valid) return CloudFolderValidation::Result();
+			std::string json;
+			const int rc = ApiSystem::executeScriptLegacy("timeout 35 /usr/bin/cloud_setup --validate-folders "
+				+ Utils::String::shellQuote(csv) + " " + Utils::String::shellQuote(run),
+				[&json](const std::string& line) { json += line + "\n"; }).second;
+			auto result = CloudFolderValidation::parseResult(json, run, started, cloudFolderContext(), selected);
+			if (rc != 0) result.complete = false;
+			return result;
+		}, [window](CloudFolderValidation::Result result) { cloudShowFolderResult(window, result); }));
+}
+static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev)
 		{
-			window->pushGui(new GuiMsgBox(window, _("BACK UP SETTINGS AND SAVES TO THE CLOUD?\n\nGAME SAVES, SAVE STATES, AND SCREENSHOTS ARE INCLUDED. ROMS AND BIOS FILES ARE NOT."), _("YES"),
-				[window, s]
+	auto s = new GuiSettings(window, _("CLOUD FOLDERS"));
+	cloudSetupAddProse(s, window, _("CHOOSE WHAT TO USE"),
+		_("CHECK YOUR FOLDERS OR CREATE THEM FOR THE ITEMS YOU CHOOSE."));
+	const auto context = cloudFolderContext();
+	auto switches = std::make_shared<std::vector<std::pair<std::string, std::shared_ptr<SwitchComponent>>>>();
+	for (const auto& category : std::vector<std::string>{"saves", "settings", "roms", "bios", "media"})
 				{
-					s->close();
-					ThreadedCloudSync::start(window, "/usr/bin/backuptool backup >/dev/null 2>&1 && /usr/bin/cloud_backup --yes && /usr/bin/cloud_backup --yes --system-only", _("BACK UP SETTINGS AND SAVES"), "", ThreadedCloudSync::Origin::None);
+		auto toggle = std::make_shared<SwitchComponent>(window);
+		toggle->setState(category == "saves" || category == "settings");
+		switches->push_back({category, toggle});
+		const auto path = context.paths.find(category);
+		s->addWithDescription(cloudFolderCategoryLabel(category),
+			path == context.paths.end() ? _("<NOT SET>") : path->second, toggle);
+	}
+	auto picked = [switches]
+	{
+		std::vector<std::string> selected;
+		for (const auto& item : *switches) if (item.second->getState()) selected.push_back(item.first);
+		return selected;
+	};
+	s->addGroup(_("FOLDER ACTIONS"));
+	s->addEntry(_("CHECK FOLDERS"), true, [window, picked] { cloudCheckFolders(window, picked()); });
+	s->addEntry(_("CREATE FOLDERS"), true, [window, picked]
+	{
+		const auto selected = picked();
+		if (selected.empty())
+		{
+			window->pushGui(new GuiMsgBox(window, _("CHOOSE AT LEAST ONE ITEM TO CREATE FOLDERS FOR."), _("OK")));
+			return;
+		}
+		std::string csv;
+		for (const auto& category : selected) csv += (csv.empty() ? "" : ",") + category;
+		window->pushGui(new GuiMsgBox(window,
+			_("CREATE FOLDERS AND SETUP NOTES FOR THE ITEMS YOU CHOSE?\n\nYOUR FILES WILL NOT BE MOVED OR REORGANIZED."),
+			_("YES"), [window, csv, selected]
+			{
+				auto page = new GuiCloudTransfer(window, "timeout 90 /usr/bin/cloud_setup --seed-folders "
+					+ Utils::String::shellQuote(csv), _("CREATING CLOUD FOLDERS"), (int)selected.size());
+				page->setAutoContinue([window, selected] { cloudCheckFolders(window, selected); });
+				window->pushGui(page);
 				}, _("NO"), nullptr));
 		});
-	}
-
+	s->addEntry(_("CHANGE CLOUD FOLDER"), true, [window] { cloudOpenFolderSettings(window, nullptr); });
 	s->getMenu().clearButtons();
 	s->getMenu().addButton(_("FINISH"), _("finish"), [s] { s->close(); });
-
 	cloudSetupPresent(window, s, prev);
-}
-
-// Seed the folders first, behind a spinner, then build the page from what
-// the seeding said. --seed-folders is up to two dozen rclone calls against
-// the remote -- a mkdir, a listing and a README per folder -- and this page
-// used to run them while it was being built, on the interface thread, with
-// rclone's default timeouts as the only bound: on a link that had just
-// dropped, a screen that stopped drawing at the moment the wizard said it
-// was done (fork #103). Ninety seconds is the box; a run that outlives it
-// reports the folders it did manage to create. prev stays under the
-// spinner untouched, so the page built afterwards can still replace it.
-//
-// Create the selected folders after linking. Existing paths and credentials
-// stay selected until the player changes them; no legacy folder is adopted.
-static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev)
-{
-	window->pushGui(new GuiLoading<std::pair<std::vector<std::string>, int>>(window, _("SETTING UP YOUR CLOUD FOLDERS"),
-		[](IGuiLoadingHandler*)
-		{
-			std::vector<std::string> lines;
-			const int rc = ApiSystem::executeScriptLegacy("timeout 90 /usr/bin/cloud_setup --seed-folders",
-				[&lines](const std::string& line) { lines.push_back(line); }).second;
-			return std::make_pair(lines, rc);
-		},
-		[window, remote, prev](std::pair<std::vector<std::string>, int> result)
-		{
-			cloudSetupBuildDoneStep(window, remote, prev, result.first, result.second == 0);
-		}));
 }
 
 // Wizard entry point: network is a hard precondition; then branch on the
@@ -7928,10 +7923,10 @@ void GuiMenu::openCloudSetup(Window* window)
 	const std::string syncpath = info["SAVES_REMOTE"];
 	cloudSetupAddFact(s, window, _("CLOUD FOLDER"), syncpath, [window, s, syncpath]
 	{
-		cloudSetupOpenSyncPathEditor(window, syncpath, [window, s]
+		cloudOpenFolderSettings(window, [window, s]
 		{
-			s->close();
 			GuiMenu::openCloudSetup(window);
+			s->close();
 		});
 	});
 	std::string preexisting = Utils::String::trim(info["REMOTES"]);

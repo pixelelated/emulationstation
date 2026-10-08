@@ -39,8 +39,8 @@ check(m is not None, "openCloud takes whether to open on the folder row")
 flag = m.group(1) if m else None
 
 row = body.index('_("CHANGE CLOUD FOLDER")')
-call = body[row:body.index(";", body.index("cloudSetupOpenSyncPathEditor", row))]
-call = call + body[body.index(";", body.index("cloudSetupOpenSyncPathEditor", row)):][:200]
+call = body[row:body.index(";", body.index("cloudOpenFolderSettings", row))]
+call = call + body[body.index(";", body.index("cloudOpenFolderSettings", row)):][:200]
 check(re.search(r"GuiMenu::openCloud\(window, true\)", call) is not None,
       "the editor's onDone reopens the hub on the folder row")
 tail = re.search(r'"",\s*(\w+),\s*true\);', call)

@@ -350,8 +350,11 @@ bool GuiCloudTransfer::input(InputConfig* config, Input input)
 // run ends.
 void GuiCloudTransfer::askCancel()
 {
+	const auto kind = CloudText::transferKind(mJob->mCommand);
 	mWindow->pushGui(new GuiMsgBox(mWindow,
-		_("CANCEL THIS BACKUP OR RESTORE?") + std::string("\n\n")
+		kind == CloudText::TransferKind::Scan ? _("CANCEL THIS CHECK?\n\nNO FILES HAVE BEEN MOVED. YOU CAN CHECK AGAIN LATER.")
+			 : kind == CloudText::TransferKind::Create ? _("STOP CREATING FOLDERS?\n\nFOLDERS ALREADY CREATED WILL STAY. YOU CAN TRY AGAIN LATER.")
+			 : _("CANCEL THIS BACKUP OR RESTORE?") + std::string("\n\n")
 			+ _("WHAT'S ALREADY IN PLACE STAYS. THE NEXT BACKUP OR RESTORE FINISHES WHAT THIS ONE DIDN'T."),
 		_("YES"), [] { CloudTransferJob::stopByPlayer(); },
 		_("NO"), nullptr));
@@ -871,7 +874,11 @@ void GuiCloudTransfer::update(int deltaTime)
 			// A match: what it removed, counted from what rclone deleted
 			// (#308 gpt F-CS-26), and nothing about the cloud having it --
 			// a match removes only what the cloud does not have.
-			if (match)
+			if (CloudText::transferKind(job.mCommand) == CloudText::TransferKind::Scan)
+				note = _("NO FILES HAVE BEEN MOVED. YOU CAN CHECK AGAIN LATER.");
+			else if (CloudText::transferKind(job.mCommand) == CloudText::TransferKind::Create)
+				note = _("FOLDERS ALREADY CREATED WILL STAY. YOU CAN TRY AGAIN LATER.");
+			else if (match)
 				note = CloudText::matchRemovedNote(job.mRemovedFiles);
 			else if (restore)
 				note = moved ? _("WHAT MADE IT IS ON THIS DEVICE. NOTHING ELSE CHANGED.") : _("DON'T WORRY, NOTHING CHANGED.");

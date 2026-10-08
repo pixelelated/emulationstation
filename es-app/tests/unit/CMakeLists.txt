@@ -35,6 +35,7 @@ get_filename_component(ES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
 # in this binary -- see README.md.
 add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/CloudTextTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/CloudFolderValidationTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/CheevosRetryTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/OfflineAchievementsTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/CheevosIndexTests.cpp
@@ -50,6 +51,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/TabStopsTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchCommandTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
+	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
 	${ES_ROOT}/es-app/src/CheevosRetry.cpp
 	${ES_ROOT}/es-app/src/OfflineAchievementsText.cpp
 	${ES_ROOT}/es-app/src/CheevosIndex.cpp

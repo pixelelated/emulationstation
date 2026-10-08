@@ -34,7 +34,7 @@ static void createSavesFolder(Window* window, const std::vector<std::string>& ar
 		window->pushGui(new GuiLoading<int>(window, _("SETTING UP YOUR CLOUD FOLDERS"),
 			[](auto gui)
 			{
-				return ApiSystem::executeScriptLegacy("timeout 90 /usr/bin/cloud_setup --seed-folders",
+				return ApiSystem::executeScriptLegacy("timeout 90 /usr/bin/cloud_setup --seed-folders saves",
 					[](const std::string) {}).second;
 			},
 			[window](int rc)
