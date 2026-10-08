@@ -6505,10 +6505,10 @@ static void cloudSetupOpenPathEditor(Window* window, const std::string& title, c
 		const std::string path = Utils::String::trim(value);
 		if (path == current) return;
 		if (path.empty())
-			{
+		{
 			window->pushGui(new GuiMsgBox(window, _("ENTER A CLOUD FOLDER PATH."), _("OK")));
-					return;
-				}
+			return;
+		}
 		window->pushGui(new GuiLoading<int>(window, _("CHECKING..."),
 			[path, command](IGuiLoadingHandler*)
 			{
@@ -6870,13 +6870,13 @@ static void cloudFolderInstructions(Window* window, const CloudFolderValidation:
 	window->pushGui(s);
 }
 static void cloudShowFolderResult(Window* window, const CloudFolderValidation::Result& result)
-	{
+{
 	if (!result.valid)
-		{
+	{
 		window->pushGui(new GuiMsgBox(window,
 			_("COULDN'T CHECK YOUR FOLDERS. CHECK YOUR CONNECTION, THEN TRY AGAIN."), _("OK")));
 		return;
-		}
+	}
 	auto s = new GuiSettings(window, _("CLOUD FOLDER CHECK"));
 	s->setSubTitle(result.complete ? _("COMPLETED") : _("COULDN'T FINISH"));
 	cloudSetupAddProse(s, window, _("FOLDER LOCATIONS ONLY"),
@@ -6890,9 +6890,9 @@ static void cloudShowFolderResult(Window* window, const CloudFolderValidation::R
 	window->pushGui(s);
 }
 static void cloudCheckFolders(Window* window, const std::vector<std::string>& selected)
-	{
+{
 	if (selected.empty())
-		{
+	{
 		window->pushGui(new GuiMsgBox(window, _("CHOOSE AT LEAST ONE ITEM TO CHECK."), _("OK")));
 		return;
 	}
@@ -6914,17 +6914,17 @@ static void cloudCheckFolders(Window* window, const std::vector<std::string>& se
 			return result;
 		}, [window](CloudFolderValidation::Result result) { cloudShowFolderResult(window, result); }));
 }
-static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev)
-		{
+static void cloudShowFolderSelection(Window* window, GuiSettings* prev, const std::vector<std::string>& selected)
+{
 	auto s = new GuiSettings(window, _("CLOUD FOLDERS"));
-	cloudSetupAddProse(s, window, _("CHOOSE WHAT TO USE"),
-		_("CHECK YOUR FOLDERS OR CREATE THEM FOR THE ITEMS YOU CHOOSE."));
+	cloudSetupAddProse(s, window, _("CHOOSE FOLDERS"),
+		_("SELECT WHAT TO CHECK OR CREATE FOLDERS FOR. THIS DOES NOT CHANGE AUTOMATIC SYNC."));
 	const auto context = cloudFolderContext();
 	auto switches = std::make_shared<std::vector<std::pair<std::string, std::shared_ptr<SwitchComponent>>>>();
 	for (const auto& category : std::vector<std::string>{"saves", "settings", "roms", "bios", "media"})
-				{
+	{
 		auto toggle = std::make_shared<SwitchComponent>(window);
-		toggle->setState(category == "saves" || category == "settings");
+		toggle->setState(std::find(selected.begin(), selected.end(), category) != selected.end());
 		switches->push_back({category, toggle});
 		const auto path = context.paths.find(category);
 		s->addWithDescription(cloudFolderCategoryLabel(category),
@@ -6936,10 +6936,24 @@ static void cloudSetupShowDoneStep(Window* window, const std::string& remote, Gu
 		for (const auto& item : *switches) if (item.second->getState()) selected.push_back(item.first);
 		return selected;
 	};
-	s->addGroup(_("FOLDER ACTIONS"));
-	s->addEntry(_("CHECK FOLDERS"), true, [window, picked] { cloudCheckFolders(window, picked()); });
-	s->addEntry(_("CREATE FOLDERS"), true, [window, picked]
+	// A page describes the paths an action will use. Even an external settings
+	// change must not turn a press on an old path into work somewhere else.
+	auto stillSelected = [window, context]
 	{
+		const auto current = cloudFolderContext();
+		if (context.valid && current.valid && context.configId == current.configId && context.paths == current.paths)
+			return true;
+		cloudCheckChanged(window);
+		return false;
+	};
+	s->addGroup(_("FOLDER ACTIONS"));
+	s->addEntry(_("CHECK FOLDERS"), true, [window, picked, stillSelected]
+	{
+		if (stillSelected()) cloudCheckFolders(window, picked());
+	});
+	s->addEntry(_("CREATE FOLDERS"), true, [window, picked, stillSelected]
+	{
+		if (!stillSelected()) return;
 		const auto selected = picked();
 		if (selected.empty())
 		{
@@ -6950,19 +6964,31 @@ static void cloudSetupShowDoneStep(Window* window, const std::string& remote, Gu
 		for (const auto& category : selected) csv += (csv.empty() ? "" : ",") + category;
 		window->pushGui(new GuiMsgBox(window,
 			_("CREATE FOLDERS AND SETUP NOTES FOR THE ITEMS YOU CHOSE?\n\nYOUR FILES WILL NOT BE MOVED OR REORGANIZED."),
-			_("YES"), [window, csv, selected]
+			_("YES"), [window, csv, selected, stillSelected]
 			{
+				if (!stillSelected()) return;
 				auto page = new GuiCloudTransfer(window, "timeout 90 /usr/bin/cloud_setup --seed-folders "
 					+ Utils::String::shellQuote(csv), _("CREATING CLOUD FOLDERS"), (int)selected.size());
 				page->setAutoContinue([window, selected] { cloudCheckFolders(window, selected); });
 				window->pushGui(page);
-				}, _("NO"), nullptr));
+			}, _("NO"), nullptr));
+	});
+	s->addEntry(_("CHANGE CLOUD FOLDER"), true, [window, s, picked]
+	{
+		cloudOpenFolderSettings(window, [window, s, picked]
+		{
+			cloudShowFolderSelection(window, s, picked());
 		});
-	s->addEntry(_("CHANGE CLOUD FOLDER"), true, [window] { cloudOpenFolderSettings(window, nullptr); });
+	});
 	s->getMenu().clearButtons();
 	s->getMenu().addButton(_("FINISH"), _("finish"), [s] { s->close(); });
 	cloudSetupPresent(window, s, prev);
 }
+static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev)
+{
+	cloudShowFolderSelection(window, prev, {"saves", "settings"});
+}
+
 
 // Wizard entry point: network is a hard precondition; then branch on the
 // scenario - no remotes yet goes straight into the first-remote wizard,
