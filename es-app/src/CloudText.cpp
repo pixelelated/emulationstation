@@ -1353,3 +1353,56 @@ CloudText::NextTime CloudText::nextTime(bool awardsPending, bool savesPending)
 		return NextTime::Saves;
 	return NextTime::None;
 }
+
+
+CloudText::FolderPathRefusal CloudText::folderPathRefusal(const std::string& line)
+{
+	// Exact fixed lines only: a provider's arbitrary output is not UI copy.
+	if (line.size() > 512)
+		return FolderPathRefusal::Unknown;
+	if (line == "ERROR empty path" || line == "ERROR root path not allowed" ||
+		line == "Your cloud folder can't be empty.")
+		return FolderPathRefusal::Empty;
+	if (line == "That folder name can't be used.")
+		return FolderPathRefusal::InvalidName;
+	if (line == "That folder name has characters your cloud sync settings can't hold." ||
+		line == "Your cloud folder's name can't contain \", $, `, or \\.")
+		return FolderPathRefusal::InvalidCharacters;
+	if (line == "Your cloud folder can't have an empty part, or a part called . or .., in its path.")
+		return FolderPathRefusal::InvalidComponents;
+	if (line == "This provider keeps things in buckets, so the first part of the")
+		return FolderPathRefusal::Bucket;
+	if (line == "Your provider wouldn't accept this folder:")
+		return FolderPathRefusal::Provider;
+	if (line == "Your cloud sync settings couldn't be saved." ||
+		line == "ERROR the cloud sync settings could not be saved")
+		return FolderPathRefusal::SettingsWrite;
+	return FolderPathRefusal::Unknown;
+}
+
+std::string CloudText::folderPathRefusalMessage(FolderPathRefusal reason, int exitCode)
+{
+	if (exitCode == 75)
+		return _("WAIT FOR THE CURRENT CLOUD TASK TO FINISH, THEN TRY AGAIN.");
+	if (exitCode == 124)
+		return _("THE FOLDER CHECK TOOK TOO LONG. CHECK YOUR CONNECTION, THEN TRY AGAIN.");
+	switch (reason)
+	{
+	case FolderPathRefusal::Empty:
+		return _("CHOOSE A FOLDER INSIDE YOUR CLOUD STORAGE.");
+	case FolderPathRefusal::InvalidName:
+		return _("THIS FOLDER NAME CAN'T BE USED. CHOOSE A DIFFERENT FOLDER NAME.");
+	case FolderPathRefusal::InvalidCharacters:
+		return _("DON'T USE DOUBLE QUOTES, $, `, \\, OR LINE BREAKS IN THE FOLDER NAME.");
+	case FolderPathRefusal::InvalidComponents:
+		return _("USE ONE SLASH BETWEEN FOLDERS. DON'T USE '.' OR '..' AS FOLDER NAMES.");
+	case FolderPathRefusal::Bucket:
+		return _("THE FIRST PART OF THIS PATH MUST BE A BUCKET NAME. CHECK THAT NAME AND YOUR ACCESS TO THE BUCKET.");
+	case FolderPathRefusal::Provider:
+		return _("YOUR PROVIDER COULDN'T CHECK THIS FOLDER. CHECK YOUR CONNECTION AND ACCESS TO THE FOLDER, THEN TRY AGAIN.");
+	case FolderPathRefusal::SettingsWrite:
+		return _("YOUR CLOUD SETTINGS COULDN'T BE SAVED. TRY AGAIN.");
+	default:
+		return _("CHECK THE PATH AND YOUR CONNECTION, THEN TRY AGAIN.");
+	}
+}

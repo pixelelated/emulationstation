@@ -530,6 +530,16 @@ namespace CloudText
 	std::string unitLabel(const std::string& label);
 	bool isKnownUnitLabel(const std::string& label);
 
+	// Recognize only fixed cloud_setup explanations, never provider details or
+	// player paths. The worker carries an enum; the UI supplies localized copy.
+	enum class FolderPathRefusal
+	{
+		Unknown, Empty, InvalidName, InvalidCharacters, InvalidComponents,
+		Bucket, Provider, SettingsWrite
+	};
+	FolderPathRefusal folderPathRefusal(const std::string& line);
+	std::string folderPathRefusalMessage(FolderPathRefusal reason, int exitCode);
+
 	// The scan's facts (cloud_scan writes "KEY=value" lines; so do
 	// cloud_setup --folder-state and --content-location): one
 	// map, the last value for a repeated key, lines without = ignored.

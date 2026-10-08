@@ -3986,3 +3986,47 @@ msgstr ""
 
 msgid "NOTHING MATCHES YOUR SELECTION IN THE CLOUD FOLDER YOU CHOSE.\n\nCHOOSE A DIFFERENT FOLDER, OR ADD FILES FROM A COMPUTER. USE CLOUD > CHECK CLOUD FOLDERS FOR THE EXPECTED LOCATIONS."
 msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "THE CLOUD FOLDER WAS NOT CHANGED."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "WAIT FOR THE CURRENT CLOUD TASK TO FINISH, THEN TRY AGAIN."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "THE FOLDER CHECK TOOK TOO LONG. CHECK YOUR CONNECTION, THEN TRY AGAIN."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "CHOOSE A FOLDER INSIDE YOUR CLOUD STORAGE."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "THIS FOLDER NAME CAN'T BE USED. CHOOSE A DIFFERENT FOLDER NAME."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "DON'T USE DOUBLE QUOTES, $, `, \\, OR LINE BREAKS IN THE FOLDER NAME."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "USE ONE SLASH BETWEEN FOLDERS. DON'T USE '.' OR '..' AS FOLDER NAMES."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "THE FIRST PART OF THIS PATH MUST BE A BUCKET NAME. CHECK THAT NAME AND YOUR ACCESS TO THE BUCKET."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "YOUR PROVIDER COULDN'T CHECK THIS FOLDER. CHECK YOUR CONNECTION AND ACCESS TO THE FOLDER, THEN TRY AGAIN."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "YOUR CLOUD SETTINGS COULDN'T BE SAVED. TRY AGAIN."
+msgstr ""
+
+#. cloud folder path refusal (#524 PL-003)
+msgid "CHECK THE PATH AND YOUR CONNECTION, THEN TRY AGAIN."
+msgstr ""

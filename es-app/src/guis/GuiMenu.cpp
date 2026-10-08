@@ -6513,18 +6513,27 @@ static void cloudSetupOpenPathEditor(Window* window, const std::string& title, c
 			window->pushGui(new GuiMsgBox(window, _("ENTER A CLOUD FOLDER PATH."), _("OK")));
 			return;
 		}
-		window->pushGui(new GuiLoading<int>(window, _("CHECKING..."),
+		using PathResult = std::pair<CloudText::FolderPathRefusal, int>;
+		window->pushGui(new GuiLoading<PathResult>(window, _("CHECKING..."),
 			[path, command](IGuiLoadingHandler*)
 			{
-				return ApiSystem::executeScriptLegacy("timeout 30 /usr/bin/cloud_setup " + command
-					+ " " + Utils::String::shellQuote(path), [](const std::string&) {}).second;
+				auto reason = CloudText::FolderPathRefusal::Unknown;
+				const auto result = ApiSystem::executeScriptLegacy("timeout 30 /usr/bin/cloud_setup " + command
+					+ " " + Utils::String::shellQuote(path), [&reason](const std::string& line)
+					{
+						const auto known = CloudText::folderPathRefusal(line);
+						if (reason == CloudText::FolderPathRefusal::Unknown)
+							reason = known;
+					});
+				return PathResult(reason, result.second);
 			},
-			[window, onDone](int rc)
+			[window, onDone](PathResult result)
 			{
-				if (rc != 0)
+				if (result.second != 0)
 				{
 					window->pushGui(new GuiMsgBox(window,
-						_("THE CLOUD FOLDER WAS NOT CHANGED. CHECK THE PATH AND YOUR CONNECTION, THEN TRY AGAIN."), _("OK")));
+						_("THE CLOUD FOLDER WAS NOT CHANGED.") + "\n\n" +
+						CloudText::folderPathRefusalMessage(result.first, result.second), _("OK")));
 					return;
 				}
 				sCloudScanRun.clear();

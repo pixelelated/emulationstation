@@ -1750,3 +1750,35 @@ TEST_CASE("a busy cloud check names a check and ordinary sync keeps its headline
 		TransferKind::Match, TransferKind::Create, TransferKind::Other })
 		CHECK(lockHeldOutcome(kind) == "SKIPPED - A SYNC IS ALREADY RUNNING");
 }
+
+
+TEST_CASE("cloud folder refusal carries only recognized bounded reasons (#524 PL-003)")
+{
+	using R = CloudText::FolderPathRefusal;
+	CHECK(folderPathRefusal("Your cloud folder can't be empty.") == R::Empty);
+	CHECK(folderPathRefusal("ERROR empty path") == R::Empty);
+	CHECK(folderPathRefusal("ERROR root path not allowed") == R::Empty);
+	CHECK(folderPathRefusal("That folder name can't be used.") == R::InvalidName);
+	CHECK(folderPathRefusal("That folder name has characters your cloud sync settings can't hold.") == R::InvalidCharacters);
+	CHECK(folderPathRefusal("Your cloud folder's name can't contain \", $, `, or \\.") == R::InvalidCharacters);
+	CHECK(folderPathRefusal("Your cloud folder can't have an empty part, or a part called . or .., in its path.") == R::InvalidComponents);
+	CHECK(folderPathRefusal("This provider keeps things in buckets, so the first part of the") == R::Bucket);
+	CHECK(folderPathRefusal("Your provider wouldn't accept this folder:") == R::Provider);
+	CHECK(folderPathRefusal("Your cloud sync settings couldn't be saved.") == R::SettingsWrite);
+	CHECK(folderPathRefusal("ERROR the cloud sync settings could not be saved") == R::SettingsWrite);
+	for (const auto& line : { std::string(), std::string("provider: private details"),
+		std::string("Try /private/folder."), std::string("OK /private/folder"),
+		std::string("prefix Your cloud folder can't be empty."), std::string(4096, 'x') })
+		CHECK(folderPathRefusal(line) == R::Unknown);
+	CHECK(folderPathRefusalMessage(R::InvalidComponents, 1) ==
+		"USE ONE SLASH BETWEEN FOLDERS. DON'T USE '.' OR '..' AS FOLDER NAMES.");
+	CHECK(folderPathRefusalMessage(R::Bucket, 1) ==
+		"THE FIRST PART OF THIS PATH MUST BE A BUCKET NAME. CHECK THAT NAME AND YOUR ACCESS TO THE BUCKET.");
+	CHECK(folderPathRefusalMessage(R::Provider, 1) ==
+		"YOUR PROVIDER COULDN'T CHECK THIS FOLDER. CHECK YOUR CONNECTION AND ACCESS TO THE FOLDER, THEN TRY AGAIN.");
+	CHECK(folderPathRefusalMessage(R::Unknown, 1) == "CHECK THE PATH AND YOUR CONNECTION, THEN TRY AGAIN.");
+	CHECK(folderPathRefusalMessage(R::Unknown, 124) ==
+		"THE FOLDER CHECK TOOK TOO LONG. CHECK YOUR CONNECTION, THEN TRY AGAIN.");
+	CHECK(folderPathRefusalMessage(R::Unknown, 75) ==
+		"WAIT FOR THE CURRENT CLOUD TASK TO FINISH, THEN TRY AGAIN.");
+}
