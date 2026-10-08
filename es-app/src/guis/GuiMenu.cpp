@@ -6558,7 +6558,9 @@ static void cloudOpenFolderSettings(Window* window, const std::function<void()>&
 		const auto title = std::get<0>(item), path = info[std::get<1>(item)], command = std::get<2>(item);
 		s->addWithDescription(title, path, nullptr, [window, s, title, path, command, onDone]
 		{
-			cloudSetupOpenPathEditor(window, title, command, path, [window, s, onDone]
+			const auto editorTitle = command == "--set-content-remote"
+				? _("ROMS, BIOS, AND GAME CONTENT") : title;
+			cloudSetupOpenPathEditor(window, editorTitle, command, path, [window, s, onDone]
 			{
 				cloudOpenFolderSettings(window, onDone);
 				s->onFinalize(nullptr);
@@ -6879,8 +6881,8 @@ static void cloudFolderInstructions(Window* window, const CloudFolderValidation:
 		cloudSetupAddProse(s, window, _("ADD GAME CONTENT FROM A COMPUTER"),
 			_("PUT EACH SYSTEM'S ARTWORK, VIDEOS, MANUALS, AND GAME LIST HERE IN ITS SYSTEM FOLDER."));
 	else if (item.category == "saves")
-		cloudSetupAddProse(s, window, _("GAME SAVES, SAVE STATES, AND SCREENSHOTS"),
-			_("BACK UP SAVES TO POPULATE THIS FOLDER, OR COPY YOUR SAVES HERE FROM A COMPUTER."));
+		cloudSetupAddProse(s, window, _("ADD SAVES"),
+			_("BACK UP GAME SAVES, SAVE STATES, AND SCREENSHOTS TO THIS FOLDER, OR COPY THEM HERE FROM A COMPUTER."));
 	else
 		cloudSetupAddProse(s, window, _("SETTINGS BACKUPS"),
 			_("BACK UP SETTINGS TO POPULATE THIS FOLDER, OR COPY A SETTINGS BACKUP HERE FROM A COMPUTER."));
