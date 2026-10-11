@@ -320,3 +320,33 @@ TEST_CASE("a join's answer is not a truth value (#308 F-WF-03/06; audit G-E2-01)
 	CHECK_FALSE(JoinAnswer().joined());
 	CHECK(joinFailure(JoinAnswer{ 2 }.code) == JoinFailure::ServiceNotAnswering);
 }
+
+TEST_CASE("saved SSIDs preserve renamed profiles and escaped fields (#535)")
+{
+	SavedNetwork profile;
+	REQUIRE(parseSavedDetailsLine("Remembered\tCafe\\tGuest\\\\room\tsaved", profile));
+	CHECK(profile.name == "Remembered");
+	CHECK(profile.ssid == "Cafe\tGuest\\room");
+	CHECK_FALSE(parseSavedDetailsLine("Name\tactive", profile));
+	CHECK_FALSE(parseSavedDetailsLine("Name\tSSID\tother", profile));
+	CHECK_FALSE(parseSavedDetailsLine("Name\t\tsaved", profile));
+	std::vector<SavedNetwork> saved = { { "Remembered", false, "Cafe" } };
+	auto rows = pickerRows({"Cafe", "Open"}, saved, "");
+	REQUIRE(rows.size() == 2);
+	CHECK(rows[0].saved);
+	CHECK(joinName(rows[0]) == "Remembered");
+	CHECK(pressAction(rows[0]) == PressAction::ChooseSaved);
+	CHECK_FALSE(rows[1].saved);
+	CHECK(manualAction("Cafe", "", saved, true) == PressAction::Join);
+	CHECK(preferredProfile("Cafe", saved) == "Remembered");
+	// An active profile on another radio/network cannot claim this row.
+	saved.push_back({ "Other", true, "Office" });
+	rows = pickerRows({"Cafe"}, saved, "Cafe");
+	CHECK(rows[0].profile == "Remembered");
+	saved.push_back({ "Another", false, "Cafe" });
+	CHECK(profilesForSsid("Cafe", saved).size() == 2);
+	CHECK(preferredProfile("Cafe", saved).empty());
+	rows = pickerRows({"Cafe"}, saved, "");
+	CHECK(rows[0].saved);
+	CHECK(rows[0].profile.empty()); // requires the explicit profile chooser
+}

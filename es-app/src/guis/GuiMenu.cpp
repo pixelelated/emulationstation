@@ -5569,10 +5569,40 @@ static void cloudAddTransferRow(GuiSettings* s, Window* window, bool configured,
 // meant knowing which half of the split you wanted before you could start.
 // Direction first, then what moves -- the split the system actually keeps is
 // the one the player is shown.
+// A connection can change on a child page. Refresh its parent on return,
+// after the input callback has unwound; never rebuild a live button bar.
+class CloudConnectionsPage : public GuiSettings
+{
+public:
+	CloudConnectionsPage(Window* window, const std::string& title, const std::function<void()>& refresh)
+		: GuiSettings(window, title), mRefresh(refresh), mAlive(std::make_shared<bool>(true)),
+		  mSnapshot(Utils::Platform::GetShOutput("/usr/bin/cloud_remote list")) { }
+	~CloudConnectionsPage() override { *mAlive = false; }
+	void topWindow(bool isTop) override
+	{
+		GuiSettings::topWindow(isTop);
+		if (!isTop) return;
+		auto alive = mAlive;
+		mWindow->postToUiThread([this, alive]
+		{
+			if (!*alive || mWindow->peekGui() != this) return;
+			const auto current = Utils::Platform::GetShOutput("/usr/bin/cloud_remote list");
+			if (current == mSnapshot) return;
+			mSnapshot = current;
+			mRefresh();
+			close();
+		});
+	}
+private:
+	std::function<void()> mRefresh;
+	std::shared_ptr<bool> mAlive;
+	std::string mSnapshot;
+};
+
 void GuiMenu::openCloud(Window* window, bool onFolderRow)
 {
 	const bool configured = Utils::FileSystem::exists("/storage/.config/rclone/rclone.conf", false);
-	auto s = new GuiSettings(window, _("CLOUD"));
+	auto s = new CloudConnectionsPage(window, _("CLOUD"), [window] { GuiMenu::openCloud(window); });
 
 	// The three rows follow the current transfer's outcome (D-UI-070; the
 	// page is sat in since D-UI-078): see cloudAddTransferRow and the
@@ -5673,7 +5703,7 @@ void GuiMenu::openCloud(Window* window, bool onFolderRow)
 							text = _("NO CLOUD STORAGE IS SET UP ON THIS DEVICE YET.");
 						else
 							text = _("COULDN'T REACH") + " " + who + ".\n\n"
-								+ _("CHECK WI-FI, THEN TRY AGAIN. IF IT KEEPS FAILING, SIGN IN AGAIN UNDER CONNECT OR REPAIR CLOUD STORAGE.");
+								+ _("CHECK WI-FI, THEN TRY AGAIN. IF IT KEEPS FAILING, SIGN IN AGAIN UNDER CLOUD CONNECTIONS.");
 						window->pushGui(new GuiMsgBox(window, text, _("OK")));
 					}));
 			}, "", false, true);
@@ -5689,10 +5719,9 @@ void GuiMenu::openCloud(Window* window, bool onFolderRow)
 		s->addWithDescription(_("CHECK CLOUD FOLDERS"), _("CHECK THE FOLDERS YOU CHOOSE."), nullptr,
 			[window] { cloudSetupShowDoneStep(window, "", nullptr); }, "", false, true);
 	}
-	s->addWithDescription(_("CONNECT OR REPAIR CLOUD STORAGE"),
-		configured ? _("CHANGE THE FOLDER, ADD A PROVIDER, OR RENEW A SIGN-IN.")
-		           : _("SET UP A PROVIDER WITH RCLONE, FROM THE HANDHELD. NO COMPUTER NEEDED."),
-		nullptr, [window] { GuiMenu::openCloudAddRemote(window); }, "", false, true);
+	s->addWithDescription(_("CLOUD CONNECTIONS"),
+		_("ADD, CHOOSE, OR MANAGE YOUR CONNECTIONS."),
+		nullptr, [window] { GuiMenu::openCloudConnections(window); }, "", false, true);
 
 	// Only while there is a restore to finish.
 	// Read uncached: exists() remembers its answer for the session, and this
@@ -6444,16 +6473,22 @@ static void cloudOAuthOwnSession(GuiSettings* s)
 // height (the cap MenuComponent::updateSize applies) so the window does
 // not jump between steps, push it, then close the page it replaces -
 // closing first would flash the menu underneath.
-static void cloudSetupPresent(Window* window, GuiSettings* s, GuiSettings* prev)
+static void cloudSetupPresent(Window* window, GuiSettings* s, GuiSettings* prev, bool completeInstructions = false)
 {
 	if (prev != nullptr)
 		sOAuthSessionPages.erase(prev);   // handed on, not left
 	if (!Renderer::ScreenSettings::fullScreenMenus())
 	{
 		float width = Renderer::getScreenWidth() * 0.90f;
-		if (width > Renderer::getScreenHeight())
+		if (!completeInstructions && width > Renderer::getScreenHeight())
 			width = (float)Renderer::getScreenHeight();
-		s->getMenu().setSize(width, Renderer::getScreenHeight() * 0.75f);
+		// Instruction-only rows cannot scroll into view by cursor movement.
+		// Resize AND position this page; GuiSettings otherwise keeps its
+		// 15% top offset, pushing a taller page's buttons below the panel.
+		s->getMenu().setSize(width, Renderer::getScreenHeight() * (completeInstructions ? 0.90f : 0.75f));
+		if (completeInstructions)
+			s->getMenu().setPosition((Renderer::getScreenWidth() - width) / 2,
+				Renderer::getScreenHeight() * 0.025f);
 	}
 	window->pushGui(s);
 	if (prev != nullptr)
@@ -6589,7 +6624,7 @@ static void cloudSetupRunCheck(Window* window, const std::string& remote, const 
 {
 	std::string cmd = "/usr/bin/cloud_setup --check";
 	if (!remote.empty())
-		cmd += " " + remote;
+		cmd += " " + Utils::String::shellQuote(remote);
 	window->pushGui(new GuiLoading<std::pair<int, std::string>>(window, _("CHECKING..."),
 		[cmd](auto gui)
 		{
@@ -6793,7 +6828,7 @@ static void cloudSetupShowConfigureStep(Window* window, CloudSetupMode mode, con
 		cloudSetupAddProse(s, window, _("DO NOT USE 'rclone authorize'"),
 			_("IT CANNOT BIND ITS PORT WHILE STEP 2'S CONNECTION IS OPEN."));
 		if (mode == CloudSetupMode::AddRemote)
-			cloudSetupAddInfoRow(s, window, _("NOTE: CLOUD SYNC USES THE FIRST REMOTE IN ALPHABETICAL ORDER."));
+			cloudSetupAddInfoRow(s, window, _("CHOOSE WHICH CONNECTION TO USE UNDER CLOUD CONNECTIONS."));
 	}
 
 	if (info["AUTH_PORT"] == "busy")
@@ -6832,7 +6867,7 @@ static void cloudSetupShowConfigureStep(Window* window, CloudSetupMode mode, con
 		cloudSetupGateCheck(window, s, mode == CloudSetupMode::RepairRemote ? remote : "");
 	});
 
-	cloudSetupPresent(window, s, prev);
+	cloudSetupPresent(window, s, prev, true);
 }
 
 // Folder checks are explicit, selected-category reads. Linking alone does not
@@ -7014,6 +7049,15 @@ static void cloudShowFolderSelection(Window* window, GuiSettings* prev, const st
 }
 static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev)
 {
+	const auto active = Utils::String::trim(Utils::Platform::GetShOutput("/usr/bin/cloud_remote active"));
+	if (!remote.empty() && remote + (remote.back() == ':' ? "" : ":") != active)
+	{
+		auto s = new GuiSettings(window, _("CONNECTION SAVED"));
+		cloudSetupAddProse(s, window, remote,
+			_("YOUR CURRENT CONNECTION HAS NOT CHANGED. CHOOSE THIS CONNECTION UNDER CLOUD CONNECTIONS WHEN YOU WANT TO USE IT."));
+		cloudSetupPresent(window, s, prev);
+		return;
+	}
 	cloudShowFolderSelection(window, prev, {"saves", "settings"});
 }
 
@@ -7041,6 +7085,7 @@ struct CloudBackend
 	std::string name;         // rclone's backend id, e.g. "sftp"
 	std::string label;        // human name, e.g. "SSH/SFTP Connection"
 	std::string subprovider;  // vendor within the backend, where it has one
+	bool reauthorize = false;
 };
 
 struct CloudBackendField
@@ -7081,6 +7126,25 @@ static std::vector<std::string> cloudRemoteLines(const std::string& args)
 		if (!Utils::String::trim(line).empty())
 			lines.push_back(line);
 	return lines;
+}
+
+static std::string cloudConnectionError(const std::string& output)
+{
+	if (output.find("A cloud operation is running.") != std::string::npos)
+		return _("A CLOUD OPERATION IS RUNNING. WAIT FOR IT TO FINISH, THEN TRY AGAIN.");
+	if (output.find("Turn off both automatic") != std::string::npos)
+		return _("TURN OFF BOTH AUTOMATIC SAVE SYNC OPTIONS UNDER MANAGE CLOUD STORAGE BEFORE CHANGING THIS CONNECTION.");
+	if (output.find("The selected connection is missing.") != std::string::npos)
+		return _("THE SELECTED CONNECTION IS MISSING. CHOOSE ANOTHER UNDER CLOUD CONNECTIONS.");
+	if (output.find("different connection name") != std::string::npos)
+		return _("CHOOSE A DIFFERENT CONNECTION NAME.");
+	if (output.find("Another connection uses") != std::string::npos)
+		return _("ANOTHER CONNECTION USES THIS ONE. CHANGE THAT CONNECTION FIRST.");
+	if (output.find("additional setup") != std::string::npos)
+		return _("THIS PROVIDER NEEDS ADDITIONAL SETUP. USE A COMPUTER TO FINISH CONNECTING IT.");
+	if (output.find("could not be verified") != std::string::npos || output.find("stopped answering") != std::string::npos)
+		return _("THE CONNECTION DIDN'T ANSWER. CHECK ITS DETAILS AND YOUR NETWORK, THEN TRY AGAIN. YOUR SETTINGS HAVE NOT CHANGED.");
+	return _("YOUR CLOUD SETTINGS COULD NOT BE READ OR SAVED. TRY AGAIN.");
 }
 
 // Split a TSV record, keeping empty fields. removeEmptyEntries would drop
@@ -7179,7 +7243,13 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 		(*values)["__name__"] = backend.name;
 
 	s->addGroup(_("NAME"));
-	s->addInputTextRow(_("CONNECTION NAME"), (*values)["__name__"], false,
+	if (values->count("__edit__"))
+	{
+		cloudSetupAddFact(s, window, _("CONNECTION NAME"), (*values)["__name__"]);
+		cloudSetupAddProse(s, window, _("EDIT CONNECTION"),
+			_("BLANK FIELDS KEEP THEIR CURRENT VALUES."));
+	}
+	else s->addInputTextRow(_("CONNECTION NAME"), (*values)["__name__"], false,
 		cloudRemoteEditor(values, "__name__"),
 		[values](const std::string& newVal) { (*values)["__name__"] = newVal; });
 
@@ -7205,7 +7275,7 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 			// only rule that never leaves a key on screen. Opening the row
 			// still shows the value, which is the reveal.
 			bool mask = f.password || f.sensitive;
-			if (!values->count(f.name) && !f.deflt.empty())
+			if (!values->count("__edit__") && !values->count(f.name) && !f.deflt.empty())
 				(*values)[f.name] = f.deflt;
 			std::string current = values->count(f.name) ? (*values)[f.name] : "";
 			// The rclone name is the key the value is stored under; the row
@@ -7215,7 +7285,7 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 			// Match the widget to the option. Everything was a text box before,
 			// which meant typing "true" for a switch, and guessing that the
 			// answer for a generic WebDAV server is the literal string "other".
-			if (f.type == "bool")
+			if (f.type == "bool" && !values->count("__edit__"))
 			{
 				auto sw = std::make_shared<SwitchComponent>(window);
 				sw->setState(current == "true");
@@ -7230,7 +7300,7 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 			// Only offer a list when it is short enough to scroll on a handheld.
 			// s3's endpoint carries 351 suggestions and its region 150; those are
 			// effectively free-form and stay as text.
-			if (f.choices > 0 && f.choices <= 12)
+			if (f.choices > 0 && f.choices <= 12 && !values->count("__edit__"))
 			{
 				std::string choicesArgs = "choices " + cloudShellQuote(backend.name)
 					+ " " + cloudShellQuote(fieldName);
@@ -7290,7 +7360,7 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 	}
 
 	s->addGroup(_("FINISH"));
-	s->addEntry(_("CONNECT"), true, [window, backend, values, s]
+	s->addEntry(values->count("__edit__") ? _("SAVE CONNECTION") : _("CONNECT"), true, [window, backend, values, s]
 	{
 		std::string name = Utils::String::trim((*values)["__name__"]);
 		if (name.empty())
@@ -7300,33 +7370,34 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 			return;
 		}
 
-		std::string cmd = "create " + cloudShellQuote(name) + " "
+		std::string cmd = std::string(values->count("__edit__") ? "update " : "create ") + cloudShellQuote(name) + " "
 			+ cloudShellQuote(backend.name);
 		// The sub-provider is a real config value, not just a filter.
 		if (!backend.subprovider.empty())
 			cmd += " " + cloudShellQuote("provider=" + backend.subprovider);
 		for (auto& kv : *values)
 		{
-			if (kv.first == "__name__" || Utils::String::trim(kv.second).empty())
+			if (Utils::String::startsWith(kv.first, "__") || Utils::String::trim(kv.second).empty())
 				continue;
 			cmd += " " + cloudShellQuote(kv.first + "=" + kv.second);
 		}
 
 		window->pushGui(new GuiMsgBox(window,
-			_("CONNECT TO THIS PROVIDER NOW?\n\nTHE CONNECTION IS ONLY SAVED IF IT ANSWERS."),
-			_("YES"), [window, cmd, s]
+			values->count("__edit__")
+				? _("UPDATE THIS CONNECTION AND KEEP YOUR SELECTED FOLDERS?\n\nYOUR CURRENT SETTINGS ARE KEPT UNTIL THE NEW ONES WORK.")
+				: _("CONNECT TO THIS PROVIDER NOW?\n\nTHE CONNECTION IS ONLY SAVED IF IT ANSWERS."),
+			values->count("__edit__") ? _("UPDATE CONNECTION") : _("CONNECT"), [window, cmd, s]
 			{
-				// cloud_remote verifies the remote -- an rclone listing it
-				// bounds at 10 s to connect and 20 s to answer -- and removes
-				// it again if it cannot be reached, so a failure here leaves
-				// nothing behind. Behind GuiLoading, because that round trip
+				// cloud_remote verifies private staged settings before publication;
+				// failure keeps the existing connection. Its two subprocesses
+				// are each bounded to 40 seconds, below this outer deadline. Behind GuiLoading, because that round trip
 				// ran in this callback on the interface thread (fork #103);
 				// the outer box is for an rclone that outlives its own flags.
 				window->pushGui(new GuiLoading<std::string>(window, _("CONNECTING..."),
 					[cmd](IGuiLoadingHandler*)
 					{
 						std::string out = Utils::Platform::GetShOutput(
-							"timeout 60 /usr/bin/cloud_remote " + cmd + " 2>&1");
+							"timeout 100 /usr/bin/cloud_remote " + cmd + " 2>&1");
 						// Masked: the command carries the form's pass=, key= and
 						// token= values, and a script that echoes its arguments
 						// in a usage or an error would put them in es_log.txt
@@ -7349,7 +7420,7 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 						// "it failed".
 						window->pushGui(new GuiMsgBox(window,
 							_("THE CONNECTION COULDN'T BE SAVED.") + std::string("\n\n") +
-								Utils::String::trim(out),
+								cloudConnectionError(out),
 							_("OK"), nullptr));
 					}));
 			},
@@ -7421,7 +7492,7 @@ static void cloudOAuthPresentChoice(Window* window, const CloudBackend& backend,
 	const std::string& remoteName, GuiSettings* prev,
 	const CloudOAuthReady& ready);
 static void cloudOAuthShowConnected(Window* window, const CloudBackend& backend,
-	GuiSettings* prev);
+	const std::string& remoteName, GuiSettings* prev);
 static void cloudOAuthChooseInput(Window* window, const CloudBackend& backend,
 	const std::string& remoteName, GuiSettings* prev);
 
@@ -7447,6 +7518,7 @@ static void cloudOAuthStart(Window* window, const CloudBackend& backend,
 		"/usr/bin/cloud_oauth serve " + cloudShellQuote(backend.name)
 		+ " --name " + cloudShellQuote(remoteName)
 		+ " --label " + cloudShellQuote(backend.label)
+		+ (backend.reauthorize ? " --replace" : "")
 		+ " --timeout 900 >/dev/null 2>&1") + " </dev/null >/dev/null 2>&1 &";
 	Utils::Platform::runSystemCommand(cmd, "", nullptr);
 
@@ -7707,15 +7779,15 @@ static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
 
 		if (status == "signed-in")
 		{
-			cloudOAuthShowConnected(window, backend, s);
+			cloudOAuthShowConnected(window, backend, remoteName, s);
 			return;
 		}
 		if (status == "failed")
 		{
 			window->pushGui(new GuiMsgBox(window,
-				_("THE SIGN-IN DID NOT COMPLETE.\n\nCODES ARE SINGLE-USE AND EXPIRE QUICKLY - START AGAIN TO GET A NEW ONE."),
-				_("OK"), nullptr,
-				_("EXIT"), [s] { s->close(); }));
+				_("THE SIGN-IN DID NOT COMPLETE. TRY AGAIN TO START A NEW SIGN-IN."),
+				_("TRY AGAIN"), [window, backend, remoteName, s] { cloudOAuthStart(window, backend, remoteName, s); },
+				_("CANCEL SIGN-IN"), [s] { s->close(); }));
 			return;
 		}
 		window->pushGui(new GuiMsgBox(window,
@@ -7746,54 +7818,46 @@ static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
 // the player could go and do. Somebody who has just finished a sign-in on a
 // handheld deserves to be told what they now have.
 static void cloudOAuthShowConnected(Window* window, const CloudBackend& backend,
-	GuiSettings* prev)
+	const std::string& remoteName, GuiSettings* prev)
 {
-	auto s = new GuiSettings(window, _("CONNECTED"));
-	s->setSubTitle(CloudText::providerSubtitle(backend.name, backend.label));
+	cloudSetupShowDoneStep(window, remoteName, prev);
+}
 
-	cloudSetupAddProse(s, window,
-		Utils::String::format(_("%s IS CONNECTED").c_str(),
-		                      Utils::String::toUpper(backend.label).c_str()),
-		_("YOUR GAME SAVES, SAVE STATES, AND SCREENSHOTS CAN NOW BE KEPT IN THE CLOUD AND PICKED UP ON ANOTHER DEVICE."));
-
-	// A named menu rather than a vague "it is all available now" -- and one
-	// name, because there is one page. This said two, which was accurate when
-	// cloud was split across two menus and became a way to send somebody to
-	// the wrong half of a page that no longer exists.
-	//
-	// The rows are numbered and named exactly as that page names them, under
-	// an "in" line, so the list reads as what you can do once you are there
-	// rather than as three unrelated facts (maintainer, 2026-09-06).
-	s->addGroup(_("WHAT YOU CAN DO NOW"));
-	cloudSetupAddInfoRow(s, window, _("IN GAME SETTINGS:"), true);
-	cloudSetupAddInfoRow(s, window, "1.  " + _("SYNC SAVES WITH THE CLOUD"));
-	cloudSetupAddInfoRow(s, window, "2.  " + _("BACK UP SAVES TO THE CLOUD, OR RESTORE THEM"));
-	cloudSetupAddInfoRow(s, window, "3.  " + _("MANAGE CLOUD STORAGE"));
-
-	// Which is true of this device: what syncs on its own is two switches
-	// under MANAGE CLOUD STORAGE (SYNC SAVES DURING STARTUP, WHEN EXITING A
-	// GAME), not systems, and a device whose settings were restored may have
-	// them on already -- its next exit syncs to the cloud just connected. The
-	// page said NOTHING SYNCS YET whatever the switches said, told the player
-	// to turn on systems, and said ROMs and BIOS are never included, which
-	// the ROMS AND BIOS tier has not been true of since D-UI-022 (#308 8a gpt
-	// F-ES-19).
-	const bool syncsOnItsOwn = SystemConf::getInstance()->get("cloudsaves.startup") == "1"
-		|| SystemConf::getInstance()->get("cloudsaves.gameexit") == "1";
-	if (syncsOnItsOwn)
-		cloudSetupAddProse(s, window, _("YOUR SAVES ALREADY SYNC"),
-			_("THIS DEVICE WAS SET TO SYNC THEM, SO FROM NOW ON THEY GO TO THIS CLOUD."));
-	else
-		cloudSetupAddProse(s, window, _("NOTHING SYNCS YET"),
-			_("CONNECTING ONLY GIVES THIS DEVICE SOMEWHERE TO PUT THINGS. TO SYNC SAVES ON THEIR OWN, TURN IT ON UNDER MANAGE CLOUD STORAGE."));
-
-	// Continue to folder setup using the same selected paths as normal transfers.
-	s->getMenu().clearButtons();
-	s->getMenu().addButton(_("CONTINUE"), _("continue"), [window, s, backend]
+// Adding and renewing are distinct before a sign-in begins. A new name is
+// editable and never overwrites an existing connection at the backend.
+static void cloudOAuthAdd(Window* window, const CloudBackend& backend, GuiSettings* prev)
+{
+	auto s = new GuiSettings(window, _("ADD CONNECTION"));
+	auto name = std::make_shared<std::string>(backend.name);
+	std::set<std::string> existing;
+	for (const auto& line : cloudRemoteLines("list"))
 	{
-		cloudSetupShowDoneStep(window, backend.name, s);
+		auto cols = Utils::String::splitAny(line, "\t", false);
+		if (cols.size() >= 2) existing.insert(cols[0]);
+	}
+	for (int suffix = 2; existing.count(*name); ++suffix)
+		*name = backend.name + std::to_string(suffix);
+	s->addInputTextRow(_("CONNECTION NAME"), *name, false,
+		[name](Window* w, std::string title, std::string /*initial*/,
+			const std::function<void(std::string)>& save)
+		{
+			if (Settings::getInstance()->getBool("UseOSK"))
+				w->pushGui(new GuiTextEditPopupKeyboard(w, title, *name, save, false));
+			else
+				w->pushGui(new GuiTextEditPopup(w, title, *name, save, false));
+		},
+		[name](const std::string& value) { *name = Utils::String::trim(value); });
+	cloudSetupAddProse(s, window, _("ADD A SEPARATE CONNECTION"),
+		_("THIS KEEPS YOUR EXISTING CONNECTIONS. TO RENEW A SIGN-IN, CHOOSE THAT CONNECTION UNDER CLOUD CONNECTIONS."));
+	s->addEntry(_("SIGN IN"), true, [window, backend, name, existing, s]
+	{
+		if (name->empty() || existing.count(*name))
+		{
+			window->pushGui(new GuiMsgBox(window, _("CHOOSE A DIFFERENT CONNECTION NAME."), _("OK")));
+			return;
+		}
+		cloudOAuthStart(window, backend, *name, s);
 	});
-
 	cloudSetupPresent(window, s, prev);
 }
 
@@ -7838,7 +7902,7 @@ static void cloudRemoteShowList(Window* window, const std::string& title,
 			// says what kind of sign-in it is and nothing about where.
 			s->addWithDescription(Utils::String::toUpper(b.label),
 				_("OPENS THE PROVIDER'S SIGN-IN PAGE."), nullptr,
-				[window, backend, s] { cloudOAuthStart(window, backend, backend.name, s); },
+				[window, backend, s] { cloudOAuthAdd(window, backend, s); },
 				"", false, true);
 		}
 		else
@@ -7853,6 +7917,110 @@ static void cloudRemoteShowList(Window* window, const std::string& title,
 	if (shown == 0)
 		s->addEntry(_("NOTHING MATCHED THAT SEARCH"), false, [] {});
 
+	cloudSetupPresent(window, s, nullptr);
+}
+
+static bool cloudConnectionManual(Window* window)
+{
+	if (SystemConf::getInstance()->get("cloudsaves.startup") != "1" &&
+		SystemConf::getInstance()->get("cloudsaves.gameexit") != "1") return true;
+	window->pushGui(new GuiMsgBox(window,
+		_("TURN OFF BOTH AUTOMATIC SAVE SYNC OPTIONS UNDER MANAGE CLOUD STORAGE BEFORE CHANGING THIS CONNECTION."), _("OK")));
+	return false;
+}
+
+static void cloudConnectionChange(Window* window, const std::string& command, GuiSettings* page)
+{
+	window->pushGui(new GuiLoading<std::string>(window, _("SAVING CONNECTION"),
+		[command](IGuiLoadingHandler*) { return Utils::Platform::GetShOutput("timeout 60 /usr/bin/cloud_remote " + command + " 2>&1"); },
+		[window, page](const std::string& result)
+		{
+			if (!Utils::String::startsWith(result, "OK="))
+			{
+				window->pushGui(new GuiMsgBox(window,
+					_("THE CONNECTION COULDN'T BE CHANGED.") + std::string("\n\n") + cloudConnectionError(result), _("OK")));
+				return;
+			}
+			page->close();
+		}));
+}
+
+static void cloudConnectionDetails(Window* window, const std::string& name, const std::string& type, const std::string& subprovider)
+{
+	auto s = new GuiSettings(window, _("CLOUD CONNECTION"));
+	cloudSetupAddFact(s, window, _("CONNECTION NAME"), name);
+	cloudSetupAddFact(s, window, _("PROVIDER"), CloudText::providerLabel(type));
+	s->addEntry(_("CHECK CONNECTION"), true, [window, name]
+	{
+		cloudSetupRunCheck(window, name + ":", [window](int rc, const std::string&)
+		{
+			window->pushGui(new GuiMsgBox(window, rc == 0 ? _("THE CONNECTION ANSWERED.") : _("COULDN'T REACH THIS CONNECTION. CHECK WI-FI OR SIGN IN AGAIN."), _("OK")));
+		});
+	});
+	s->addEntry(_("USE THIS CONNECTION"), true, [window, name, s]
+	{
+		if (!cloudConnectionManual(window)) return;
+		window->pushGui(new GuiMsgBox(window,
+			_("USE THIS CONNECTION FOR CLOUD TOOLS? YOUR SELECTED FOLDER PATHS WILL STAY THE SAME. CHECK THEM BEFORE YOUR NEXT BACKUP OR RESTORE."),
+			_("USE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "select " + cloudShellQuote(name), s); }, _("CANCEL"), nullptr));
+	});
+	for (auto backend : cloudRemoteBackends())
+	{
+		if (backend.name != type) continue;
+		backend.subprovider = subprovider;
+		if (backend.tier == "oauth")
+		{
+			backend.reauthorize = true;
+			s->addEntry(_("SIGN IN AGAIN"), true, [window, backend, name, s]
+			{
+				if (!cloudConnectionManual(window)) return;
+				window->pushGui(new GuiMsgBox(window,
+					_("SIGN IN TO THE SAME CLOUD ACCOUNT AGAIN. YOUR CURRENT SIGN-IN IS KEPT UNTIL THE NEW ONE WORKS. YOUR SELECTED FOLDERS WILL STAY THE SAME."),
+					_("SIGN IN"), [window, backend, name, s] { cloudOAuthStart(window, backend, name, s); }, _("CANCEL"), nullptr));
+			});
+		}
+		else
+			s->addEntry(_("EDIT CONNECTION"), true, [window, backend, name, s]
+			{
+				if (!cloudConnectionManual(window)) return;
+				auto values = std::make_shared<std::map<std::string, std::string>>();
+				(*values)["__name__"] = name;
+				(*values)["__edit__"] = "1";
+				cloudRemoteShowForm(window, backend, values, s);
+			});
+		break;
+	}
+	s->addEntry(_("REMOVE CONNECTION"), true, [window, name, s]
+	{
+		if (!cloudConnectionManual(window)) return;
+		window->pushGui(new GuiMsgBox(window,
+			_("REMOVE THIS CONNECTION FROM THIS DEVICE? YOUR CLOUD FILES STAY WHERE THEY ARE. IF THIS IS YOUR ACTIVE CONNECTION, CHOOSE ANOTHER BEFORE USING CLOUD TOOLS."),
+			_("REMOVE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "remove " + cloudShellQuote(name), s); }, _("CANCEL"), nullptr));
+	});
+	cloudSetupPresent(window, s, nullptr);
+}
+
+void GuiMenu::openCloudConnections(Window* window)
+{
+	auto s = new CloudConnectionsPage(window, _("CLOUD CONNECTIONS"), [window] { GuiMenu::openCloudConnections(window); });
+	const auto rows = cloudRemoteLines("list");
+	const bool readable = !rows.empty() && Utils::String::startsWith(rows.front(), "STATE=");
+	if (!readable)
+		cloudSetupAddProse(s, window, _("CONNECTIONS UNAVAILABLE"), _("YOUR CLOUD CONNECTIONS COULDN'T BE READ. TRY AGAIN."));
+	else if (rows.front() != "STATE=active")
+		cloudSetupAddProse(s, window, _("NO CONNECTION IN USE"), _("CHOOSE A CONNECTION BEFORE USING CLOUD TOOLS."));
+	for (const auto& line : rows)
+	{
+		auto cols = Utils::String::splitAny(line, "\t", false);
+		if (cols.size() < 3) continue;
+		const auto name = cols[0], type = cols[1];
+		const std::string subprovider = cols.size() > 3 ? cols[3] : "";
+		const auto detail = CloudText::providerLabel(type) + (cols[2] == "active" ? " - " + _("IN USE") : "");
+		s->addWithDescription(name, detail, nullptr,
+			[window, name, type, subprovider] { cloudConnectionDetails(window, name, type, subprovider); }, "", false, true);
+	}
+	if (readable) s->addEntry(_("ADD CONNECTION"), true, [window] { GuiMenu::openCloudAddRemote(window); });
+	s->addEntry(_("USE A COMPUTER INSTEAD"), true, [window] { GuiMenu::openCloudSetup(window); });
 	cloudSetupPresent(window, s, nullptr);
 }
 
@@ -7888,7 +8056,7 @@ void GuiMenu::openCloudAddRemote(Window* window)
 			s->addEntry(_(want.second.c_str()), true, [window, backend, s]
 			{
 				if (backend.tier == "oauth")
-					cloudOAuthStart(window, backend, backend.name, s);
+					cloudOAuthAdd(window, backend, s);
 				else
 					cloudRemoteChooseBackend(window, backend);
 			});

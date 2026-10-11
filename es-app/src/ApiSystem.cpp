@@ -637,6 +637,22 @@ bool ApiSystem::enableWifi(std::string ssid, std::string key)
 }
 #endif
 
+// Only the exact positive protocol answer authorizes the open-network path.
+std::string ApiSystem::getWifiSecurity(const std::string& ssid)
+{
+	std::vector<std::string> lines;
+	auto answer = executeScript("timeout 15 wifictl security " + Utils::String::shellQuote(ssid),
+		[&lines](const std::string line) { lines.push_back(line); });
+	if (answer.second == 0 && lines.size() == 1 && (lines[0] == "open" || lines[0] == "protected"))
+		return lines[0];
+	return "unknown";
+}
+
+bool ApiSystem::connectOpenWifi(const std::string& ssid)
+{
+	return executeScript("timeout 120 wifictl connect-open " + Utils::String::shellQuote(ssid));
+}
+
 bool ApiSystem::disableWifi() 
 {
 	return executeScript("timeout 30 wifictl disable");
@@ -664,8 +680,15 @@ bool ApiSystem::getCurrentWifiSsid(std::string& ssid)
 bool ApiSystem::getSavedWifiNetworks(std::vector<WifiText::SavedNetwork>& networks)
 {
 	std::vector<std::string> lines;
-	auto result = executeScript("timeout 15 wifictl saved", [&lines](const std::string line) { lines.push_back(line); });
-	networks = WifiText::parseSaved(lines);
+	auto result = executeScript("timeout 15 wifictl saved --ssid", [&lines](const std::string line) { lines.push_back(line); });
+	networks.clear();
+	for (const auto& line : lines)
+	{
+		if (line.empty()) continue;
+		WifiText::SavedNetwork network;
+		if (!WifiText::parseSavedDetailsLine(line, network)) { networks.clear(); return false; }
+		networks.push_back(network);
+	}
 	if (result.second != 0)
 	{
 		networks.clear();

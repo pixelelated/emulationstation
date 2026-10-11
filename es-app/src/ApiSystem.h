@@ -251,6 +251,8 @@ public:
 	bool enableWifi(std::string ssid, std::string key);
 #endif
     bool disableWifi();
+	std::string getWifiSecurity(const std::string& ssid);
+	bool connectOpenWifi(const std::string& ssid);
 
 	// The network the device is joined to now, from NetworkManager (wifictl
 	// current) -- not wifi.ssid, which is the one configured last and, once

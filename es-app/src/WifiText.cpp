@@ -31,6 +31,55 @@ bool WifiText::parseSavedLine(const std::string& rawLine, SavedNetwork& network)
 	return true;
 }
 
+static std::string savedField(const std::string& field)
+{
+	std::string result;
+	for (size_t i = 0; i < field.size(); ++i)
+		if (field[i] == '\\' && i + 1 < field.size() && (field[i + 1] == '\\' || field[i + 1] == 't'))
+			result += field[++i] == 't' ? '\t' : '\\';
+		else result += field[i];
+	return result;
+}
+
+bool WifiText::parseSavedDetailsLine(const std::string& rawLine, SavedNetwork& network)
+{
+	const std::string line = withoutCR(rawLine);
+	const size_t first = line.find('\t'), last = line.rfind('\t');
+	if (first == std::string::npos || first == last || line.find('\t', first + 1) != last)
+		return false;
+	const auto flag = line.substr(last + 1);
+	if (flag != "active" && flag != "saved") return false;
+	network.name = savedField(line.substr(0, first));
+	network.ssid = savedField(line.substr(first + 1, last - first - 1));
+	network.inUse = flag == "active";
+	return !network.name.empty() && !network.ssid.empty();
+}
+
+std::vector<WifiText::SavedNetwork> WifiText::profilesForSsid(const std::string& ssid, const std::vector<SavedNetwork>& saved)
+{
+	std::vector<SavedNetwork> result;
+	for (const auto& profile : saved)
+		if ((profile.ssid.empty() ? profile.name : profile.ssid) == ssid)
+			result.push_back(profile);
+	return result;
+}
+
+std::string WifiText::preferredProfile(const std::string& ssid, const std::vector<SavedNetwork>& saved)
+{
+	const auto matching = profilesForSsid(ssid, saved);
+	if (matching.size() == 1) return matching.front().name;
+	int active = 0;
+	std::string name, namesake;
+	for (const auto& profile : matching)
+	{
+		if (profile.name == ssid) namesake = profile.name;
+		if (profile.inUse) { ++active; name = profile.name; }
+		if (profile.inUse && profile.name == ssid) return profile.name;
+	}
+	if (active == 1) return name;
+	return active == 0 ? namesake : "";
+}
+
 std::vector<WifiText::SavedNetwork> WifiText::parseSaved(const std::vector<std::string>& lines)
 {
 	std::vector<SavedNetwork> networks;
@@ -64,17 +113,15 @@ std::vector<WifiText::PickerRow> WifiText::pickerRows(const std::vector<std::str
 		for (const auto& network : saved)
 			if (network.inUse)
 			{
-				joinedNow = network.name;
+				joinedNow = network.ssid.empty() ? network.name : network.ssid;
 				break;
 			}
 
-	auto isSaved = [&saved](const std::string& name)
-	{
-		for (const auto& network : saved)
-			if (network.name == name)
-				return true;
+	const bool detailed = [&saved] {
+		for (const auto& profile : saved) if (!profile.ssid.empty()) return true;
 		return false;
-	};
+	}();
+	auto isSaved = [&saved](const std::string& name) { return !profilesForSsid(name, saved).empty(); };
 
 	std::vector<PickerRow> rows;
 	auto listed = [&rows](const std::string& name)
@@ -102,7 +149,7 @@ std::vector<WifiText::PickerRow> WifiText::pickerRows(const std::vector<std::str
 	// profile known not to be this connection -- and the row joins by its
 	// name, as before.
 	std::string joinedProfile;
-	if (!joinedNow.empty() && savedKnown)
+	if (!joinedNow.empty() && savedKnown && !detailed)
 	{
 		int up = 0;
 		bool namedUp = false;
@@ -123,6 +170,8 @@ std::vector<WifiText::PickerRow> WifiText::pickerRows(const std::vector<std::str
 			joinedProfile = joinedNow;
 	}
 
+	if (detailed && savedKnown) joinedProfile = preferredProfile(joinedNow, saved);
+
 	if (!joinedNow.empty())
 	{
 		PickerRow row{ joinedNow, !joinedProfile.empty(), true, savedKnown };
@@ -137,7 +186,7 @@ std::vector<WifiText::PickerRow> WifiText::pickerRows(const std::vector<std::str
 			continue;
 		PickerRow row{ name, savedKnown && isSaved(name), false, savedKnown };
 		if (row.saved)
-			row.profile = name;
+			row.profile = preferredProfile(name, saved);
 		rows.push_back(row);
 	}
 	return rows;
@@ -186,7 +235,7 @@ WifiText::PressAction WifiText::manualAction(const std::string& name, const std:
 	if (!name.empty() && name == current)
 		return PressAction::Join;
 	for (const auto& network : saved)
-		if (network.name == name)
+		if ((network.ssid.empty() ? network.name : network.ssid) == name)
 			return PressAction::Join;
 	if (!savedKnown)
 		return PressAction::CheckAgain;

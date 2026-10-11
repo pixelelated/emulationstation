@@ -36,10 +36,10 @@ std::vector<std::vector<const char*>> kbUs {
 	{ "€", "", "", "", "", "", "", "", "", "", "", "ALT", "-colspan-" },
 	{ "€", "", "", "", "", "", "", "", "", "", "", "ALT", "-colspan-" },
 
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" }
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" }
 };
 
 std::vector<std::vector<const char*>> kbFr {
@@ -63,10 +63,10 @@ std::vector<std::vector<const char*>> kbFr {
 	{ "€", "[", "]", "{", "}", "", "", "", "", "", "", "ALT", "-colspan-" },
 	{ "€", "[", "]", "{", "}", "", "", "", "", "", "", "ALT", "-colspan-" },
 
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" }
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" }
 };
 
 std::vector<std::vector<const char*>> kbKr{
@@ -90,10 +90,10 @@ std::vector<std::vector<const char*>> kbKr{
 	{ "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "`", "ALT", "-colspan-" },
 	{ "Z", "X", "C", "V", "B", "N", "M", "<", ">", "?", "~", "ALT", "-colspan-" },
 
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" },
-	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "RESET", "-colspan-", "CANCEL", "-colspan-" }
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" },
+	{ "SHIFT", "-colspan-", "SPACE", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "-colspan-", "CLEAR", "-colspan-", "CANCEL", "-colspan-" }
 };
 
 GuiTextEditPopupKeyboard::GuiTextEditPopupKeyboard(Window* window, const std::string& title, const std::string& initValue,
@@ -451,7 +451,7 @@ std::vector<HelpPrompt> GuiTextEditPopupKeyboard::getHelpPrompts()
 	std::vector<HelpPrompt> prompts = mGrid.getHelpPrompts();
 
 	if (mOkCallback != nullptr)
-		prompts.push_back(HelpPrompt("x", _("RESET")));
+		prompts.push_back(HelpPrompt("x", _("CLEAR")));
 
 	prompts.push_back(HelpPrompt("y", _("SHIFT")));
 	prompts.push_back(HelpPrompt("start", _("OK")));
@@ -488,7 +488,7 @@ std::shared_ptr<ButtonComponent> GuiTextEditPopupKeyboard::makeButton(const std:
 			mText->startEditing(); mText->textInput(" "); mText->stopEditing();
 			return;
 		}
-		else if (key == _("RESET"))
+		else if (key == _("CLEAR"))
 		{
 			mOkCallback(""); 
 			delete this;

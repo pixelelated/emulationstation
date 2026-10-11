@@ -47,6 +47,7 @@ public:
 	// found the configured folder missing beside one with a near name (#127).
 	static void openCloudFolderEditor(Window* window, const std::string& current);
         static void openCloudAddRemote(Window* window);
+	static void openCloudConnections(Window* window);
         // MANAGE NETWORKS: the networks NetworkManager remembers, the one in
         // use marked, A to forget one (fork #191). Fetches the list behind a
         // spinner, then pushes the page.

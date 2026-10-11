@@ -44,14 +44,16 @@ private:
 	void load(const std::vector<WifiText::PickerRow>& rows);
 	void addRow(const WifiText::PickerRow& row);
 	void onSelect(const WifiText::PickerRow& row);
+	void chooseProfile(const std::string& name);
 	// name is the network as the player sees it; joinAs the name `wifictl
 	// join` takes (WifiText::joinName, manualJoinName).
 	void act(WifiText::PressAction action, const std::string& name, const std::string& joinAs);
 	void onManualInput();
 	void onRefresh(bool rescan = true);
 	void join(const std::string& name, const std::string& profile);
+	void checkSecurityAndConnect(const std::string& name);
 	void askKeyAndConnect(const std::string& name);
-	void connect(const std::string& name, const std::string& key);
+	void connect(const std::string& name, const std::string& key, bool openNetwork = false);
 	void joined(const std::string& name);
 
 	MenuComponent mMenu;

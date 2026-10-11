@@ -1,6 +1,7 @@
 #include "guis/GuiWifi.h"
 #include "guis/GuiMenu.h"
 #include "guis/GuiMsgBox.h"
+#include "guis/GuiSettings.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiTextEditPopupKeyboard.h"
 #include "components/TextComponent.h"
@@ -94,14 +95,39 @@ void GuiWifi::addRow(const WifiText::PickerRow& network)
 // NetworkManager holds -- it answers at once, or comes back if it had
 // dropped (#308 F-WF-05: this used to close on the list's snapshot); a
 // saved one is offered CONNECT / FORGET / CANCEL (#318, D-UI-118); any
-// other is asked for its key; one whose profile could not be asked about
+// unsaved open network connects without a key; protected or unknown ones ask
+// for their key. One whose profile could not be asked about
 // is asked about again first (F-WF-03/06). WifiText::pressAction decides.
 void GuiWifi::onSelect(const WifiText::PickerRow& row)
 {
 	if (mWaitingLoad)
 		return;
 
+	if (row.savedKnown && WifiText::profilesForSsid(row.name, mSaved).size() > 1 && row.profile.empty())
+	{
+		chooseProfile(row.name);
+		return;
+	}
 	act(WifiText::pressAction(row), row.name, WifiText::joinName(row));
+}
+
+// Several profiles can name one SSID. The player chooses a profile before
+// CONNECT or FORGET; neither operation guesses which stored key they meant.
+void GuiWifi::chooseProfile(const std::string& name)
+{
+	auto page = new GuiSettings(mWindow, _("SAVED NETWORKS"));
+	for (const auto& profile : WifiText::profilesForSsid(name, mSaved))
+		page->addEntry(profile.name, true, [this, name, profile, page]
+		{
+			// Closing page destroys this row's callback and its captures.
+			// Keep the values on the stack before opening the next dialog.
+			GuiWifi* picker = this;
+			const std::string networkName = name;
+			const std::string profileName = profile.name;
+			page->close();
+			picker->act(WifiText::PressAction::ChooseSaved, networkName, profileName);
+		});
+	mWindow->pushGui(page);
 }
 
 // A join goes by the profile's name, which need not be the SSID the row
@@ -136,7 +162,7 @@ void GuiWifi::act(WifiText::PressAction action, const std::string& name, const s
 		break;
 	}
 	case WifiText::PressAction::AskKey:
-		askKeyAndConnect(name);
+		checkSecurityAndConnect(name);
 		break;
 	case WifiText::PressAction::CheckAgain:
 		// Never taken for a network with no profile: the key path rebuilds a
@@ -159,8 +185,14 @@ void GuiWifi::onManualInput()
 	{
 		if (name.empty())
 			return;
+		const auto profile = WifiText::preferredProfile(name, mSaved);
+		if (mSavedKnown && WifiText::profilesForSsid(name, mSaved).size() > 1 && profile.empty())
+		{
+			chooseProfile(name);
+			return;
+		}
 		act(WifiText::manualAction(name, mCurrent, mSaved, mSavedKnown), name,
-			WifiText::manualJoinName(name, mCurrent, mCurrentProfile));
+			profile.empty() ? WifiText::manualJoinName(name, mCurrent, mCurrentProfile) : profile);
 	};
 
 	if (Settings::getInstance()->getBool("UseOSK"))
@@ -214,6 +246,21 @@ void GuiWifi::join(const std::string& name, const std::string& profile)
 // next time. On success the settings take the network and its key, as they
 // did when the row edited them: the network configured last, for the paths
 // that connect from the settings.
+void GuiWifi::checkSecurityAndConnect(const std::string& name)
+{
+	mWaitingLoad = true;
+	mWindow->pushGui(new GuiLoading<std::string>(mWindow, _("CHECKING WI-FI NETWORK"),
+		[name](IGuiLoadingHandler*) { return ApiSystem::getInstance()->getWifiSecurity(name); },
+		[this, name](const std::string& security)
+		{
+			mWaitingLoad = false;
+			if (security == "open")
+				connect(name, "", true);
+			else
+				askKeyAndConnect(name);
+		}));
+}
+
 void GuiWifi::askKeyAndConnect(const std::string& name)
 {
 	auto onKey = [this, name](const std::string& key) { connect(name, key); };
@@ -224,26 +271,26 @@ void GuiWifi::askKeyAndConnect(const std::string& name)
 		mWindow->pushGui(new GuiTextEditPopup(mWindow, _("WI-FI KEY"), "", onKey, false));
 }
 
-void GuiWifi::connect(const std::string& name, const std::string& key)
+void GuiWifi::connect(const std::string& name, const std::string& key, bool openNetwork)
 {
 	Window* window = mWindow;
 	mWaitingLoad = true;
 	LOG(LogInfo) << "wifi picker: connecting to " << name;
 #if !WIN32
 	const std::string country = SystemConf::getInstance()->get("wifi.country");
-	auto apply = [name, key, country](IGuiLoadingHandler*) { return ApiSystem::getInstance()->enableWifi(name, key, country); };
+	auto apply = [name, key, country, openNetwork](IGuiLoadingHandler*) { return openNetwork ? ApiSystem::getInstance()->connectOpenWifi(name) : ApiSystem::getInstance()->enableWifi(name, key, country); };
 #else
-	auto apply = [name, key](IGuiLoadingHandler*) { return ApiSystem::getInstance()->enableWifi(name, key); };
+	auto apply = [name, key, openNetwork](IGuiLoadingHandler*) { return openNetwork ? ApiSystem::getInstance()->connectOpenWifi(name) : ApiSystem::getInstance()->enableWifi(name, key); };
 #endif
 	window->pushGui(new GuiLoading<bool>(window, _("CONNECTING TO WI-FI"), apply,
-		[this, window, name, key](bool ok)
+		[this, window, name, key, openNetwork](bool ok)
 		{
 			mWaitingLoad = false;
 			if (!ok)
 			{
 				LOG(LogWarning) << "wifi picker: could not connect to " << name;
 				window->pushGui(new GuiMsgBox(window,
-					Utils::String::format(_("COULDN'T CONNECT TO %s.").c_str(), name.c_str()) + "\n\n" + _("CHECK THE KEY AND TRY AGAIN."), _("OK")));
+					Utils::String::format(_("COULDN'T CONNECT TO %s.").c_str(), name.c_str()) + "\n\n" + (openNetwork ? _("REFRESH THE NETWORK LIST AND TRY AGAIN.") : _("CHECK THE KEY AND TRY AGAIN.")), _("OK")));
 				return;
 			}
 			SystemConf::getInstance()->set("wifi.ssid", name);

@@ -25,6 +25,7 @@ namespace WifiText
 	{
 		std::string name;
 		bool inUse = false;
+		std::string ssid; // optional for legacy two-column readers
 	};
 
 	// One line of `wifictl saved`. False for a line that is not a network:
@@ -34,6 +35,11 @@ namespace WifiText
 	// the flag is read after the last tab, so a tab inside a name still
 	// leaves the flag whole.
 	bool parseSavedLine(const std::string& line, SavedNetwork& network);
+	// Current wifictl saved --ssid: escaped profile, escaped SSID, state.
+	bool parseSavedDetailsLine(const std::string& line, SavedNetwork& network);
+	std::vector<SavedNetwork> profilesForSsid(const std::string& ssid, const std::vector<SavedNetwork>& saved);
+	std::string preferredProfile(const std::string& ssid, const std::vector<SavedNetwork>& saved);
+
 
 	// Every network in the lines, in the order given (nmcli puts the one in
 	// use first); lines that are not networks are passed over.
