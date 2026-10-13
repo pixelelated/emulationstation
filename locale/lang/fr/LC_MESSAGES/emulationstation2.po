@@ -6946,7 +6946,7 @@ msgstr "RÉSULTATS PRÉCÉDENTS AFFICHÉS."
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "Supported emulators only. Save on exit and load on launch."
-msgstr "Émulateurs compatibles uniquement. Sauvegarde à la sortie, chargement au lancement."
+msgstr "Émulateurs compatibles. Sauvegarde à la sortie, chargement au lancement."
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "RetroArch only. Show the manager before launching a game."
