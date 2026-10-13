@@ -226,3 +226,20 @@ include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/libretro-
 include_directories(${COMMON_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/libretro-common/src/7zip)
 
 add_library(libcheevos STATIC ${CHEEVOS_SOURCES} ${CHEEVOS_HEADERS} ${LIBRETRO_COMMON_HEADERS} ${LIBRETRO_COMMON_SOURCES})
+
+# The distro enables this bounded GameCube reader; other builds may opt in.
+# No global file-reader override, extracted ISO, or emulator invocation.
+option(ENABLE_RVZ_HASH "Hash supported GameCube RVZ files" ${ROCKNIX})
+if(ENABLE_RVZ_HASH)
+    find_path(LIBCHEEVOS_ZSTD_INCLUDE_DIR zstd.h)
+    find_library(LIBCHEEVOS_ZSTD_LIBRARY NAMES zstd libzstd)
+    find_path(LIBCHEEVOS_SHA1_INCLUDE_DIR boost/uuid/detail/sha1.hpp
+        HINTS ${Boost_INCLUDE_DIRS} ${COMMON_INCLUDE_DIRS})
+    if(NOT LIBCHEEVOS_ZSTD_INCLUDE_DIR OR NOT LIBCHEEVOS_ZSTD_LIBRARY OR NOT LIBCHEEVOS_SHA1_INCLUDE_DIR)
+        message(FATAL_ERROR "ENABLE_RVZ_HASH requires target Zstandard and Boost SHA-1 headers")
+    endif()
+    target_sources(libcheevos PRIVATE rvz_hash.cpp rvz_hash.h)
+    target_compile_definitions(libcheevos PRIVATE HAVE_RVZ_HASH)
+    target_include_directories(libcheevos PRIVATE ${LIBCHEEVOS_ZSTD_INCLUDE_DIR} ${LIBCHEEVOS_SHA1_INCLUDE_DIR})
+    target_link_libraries(libcheevos PUBLIC ${LIBCHEEVOS_ZSTD_LIBRARY})
+endif()

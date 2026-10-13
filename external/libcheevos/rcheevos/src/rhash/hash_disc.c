@@ -425,6 +425,7 @@ static int rc_hash_nintendo_disc_partition(md5_state_t* md5, const rc_hash_itera
   uint8_t* buffer;
 
   uint64_t dol_offset;
+  uint64_t full_header_size;
   uint64_t dol_offsets[18];
   uint64_t dol_sizes[18];
 
@@ -435,23 +436,27 @@ static int rc_hash_nintendo_disc_partition(md5_state_t* md5, const rc_hash_itera
   /* GetApploaderSize */
   rc_file_seek(iterator, file_handle, part_offset + BASE_HEADER_SIZE + 0x14, SEEK_SET);
   apploader_header_size = 0x20;
-  rc_file_read(iterator, file_handle, quad_buffer, 4);
+  if (rc_file_read(iterator, file_handle, quad_buffer, 4) != 4)
+    return rc_hash_iterator_error(iterator, "Truncated Nintendo disc header");
   apploader_body_size =
-    (quad_buffer[0] << 24) | (quad_buffer[1] << 16) | (quad_buffer[2] << 8) | quad_buffer[3];
-  rc_file_read(iterator, file_handle, quad_buffer, 4);
+    ((uint32_t)quad_buffer[0] << 24) | (quad_buffer[1] << 16) | (quad_buffer[2] << 8) | quad_buffer[3];
+  if (rc_file_read(iterator, file_handle, quad_buffer, 4) != 4)
+    return rc_hash_iterator_error(iterator, "Truncated Nintendo disc header");
   apploader_trailer_size =
-    (quad_buffer[0] << 24) | (quad_buffer[1] << 16) | (quad_buffer[2] << 8) | quad_buffer[3];
-  header_size = BASE_HEADER_SIZE + apploader_header_size + apploader_body_size + apploader_trailer_size;
-  if (header_size > MAX_HEADER_SIZE) header_size = MAX_HEADER_SIZE;
+    ((uint32_t)quad_buffer[0] << 24) | (quad_buffer[1] << 16) | (quad_buffer[2] << 8) | quad_buffer[3];
+  full_header_size = (uint64_t)BASE_HEADER_SIZE + apploader_header_size + apploader_body_size + apploader_trailer_size;
+  header_size = (full_header_size > MAX_HEADER_SIZE) ? MAX_HEADER_SIZE : (uint32_t)full_header_size;
 
   /* Hash headers */
   buffer = (uint8_t*)malloc(header_size);
   if (!buffer) {
-    rc_file_close(iterator, file_handle);
     return rc_hash_iterator_error(iterator, "Could not allocate temporary buffer");
   }
   rc_file_seek(iterator, file_handle, part_offset, SEEK_SET);
-  rc_file_read(iterator, file_handle, buffer, header_size);
+  if (rc_file_read(iterator, file_handle, buffer, header_size) != header_size) {
+    free(buffer);
+    return rc_hash_iterator_error(iterator, "Truncated Nintendo disc header");
+  }
   rc_hash_iterator_verbose_formatted(iterator, "Hashing %u byte partition header", header_size);
   md5_append(md5, buffer, header_size);
 
@@ -466,7 +471,8 @@ static int rc_hash_nintendo_disc_partition(md5_state_t* md5, const rc_hash_itera
 
   /* Find offsets and sizes for the 7 main.dol code segments and 11 main.dol data segments */
   rc_file_seek(iterator, file_handle, part_offset + dol_offset, SEEK_SET);
-  rc_file_read(iterator, file_handle, addr_buffer, 0xD8);
+  if (rc_file_read(iterator, file_handle, addr_buffer, sizeof(addr_buffer)) != sizeof(addr_buffer))
+    return rc_hash_iterator_error(iterator, "Truncated Nintendo disc executable table");
   for (ix = 0; ix < 18; ix++) {
     dol_offsets[ix] = (((uint64_t)addr_buffer[0x0 + ix * 4] << 24) |
       ((uint64_t)addr_buffer[0x1 + ix * 4] << 16) |
@@ -481,7 +487,6 @@ static int rc_hash_nintendo_disc_partition(md5_state_t* md5, const rc_hash_itera
   /* Iterate through the 18 main.dol segments and hash each */
   buffer = (uint8_t*)malloc(MAX_CHUNK_SIZE);
   if (!buffer) {
-    rc_file_close(iterator, file_handle);
     return rc_hash_iterator_error(iterator, "Could not allocate temporary buffer");
   }
 
@@ -497,11 +502,17 @@ static int rc_hash_nintendo_disc_partition(md5_state_t* md5, const rc_hash_itera
 
     remaining_size = dol_sizes[ix];
     while (remaining_size > MAX_CHUNK_SIZE) {
-      rc_file_read(iterator, file_handle, buffer, MAX_CHUNK_SIZE);
+      if (rc_file_read(iterator, file_handle, buffer, MAX_CHUNK_SIZE) != MAX_CHUNK_SIZE) {
+        free(buffer);
+        return rc_hash_iterator_error(iterator, "Truncated Nintendo disc executable");
+      }
       md5_append(md5, buffer, MAX_CHUNK_SIZE);
       remaining_size -= MAX_CHUNK_SIZE;
     }
-    rc_file_read(iterator, file_handle, buffer, (int32_t)remaining_size);
+    if (rc_file_read(iterator, file_handle, buffer, (size_t)remaining_size) != remaining_size) {
+      free(buffer);
+      return rc_hash_iterator_error(iterator, "Truncated Nintendo disc executable");
+    }
     md5_append(md5, buffer, (int32_t)remaining_size);
   }
 
@@ -524,8 +535,9 @@ int rc_hash_gamecube(char hash[33], const rc_hash_iterator_t* iterator)
   md5_init(&md5);
   /* Check Magic Word */
   rc_file_seek(iterator, file_handle, 0x1c, SEEK_SET);
-  rc_file_read(iterator, file_handle, quad_buffer, 4);
-  if (quad_buffer[0] == 0xC2 && quad_buffer[1] == 0x33 && quad_buffer[2] == 0x9F && quad_buffer[3] == 0x3D)
+  if (rc_file_read(iterator, file_handle, quad_buffer, 4) != 4)
+    success = rc_hash_iterator_error(iterator, "Truncated GameCube disc magic");
+  else if (quad_buffer[0] == 0xC2 && quad_buffer[1] == 0x33 && quad_buffer[2] == 0x9F && quad_buffer[3] == 0x3D)
     success = rc_hash_nintendo_disc_partition(&md5, iterator, file_handle, 0, 0);
   else
     success = rc_hash_iterator_error(iterator, "Not a Gamecube disc");

@@ -1,4 +1,7 @@
 #include "cheevos.h"
+#ifdef HAVE_RVZ_HASH
+#include "rvz_hash.h"
+#endif
 #include "rcheevos/include/rc_hash.h"
 #include "rcheevos/include/rc_consoles.h"
 #include "libretro-common/include/formats/cdfs.h"
@@ -155,6 +158,10 @@ static void* rc_hash_handle_cd_open_track(
 
 bool generateHashFromFile(char hash[33], int console_id, const char* path)
 {
+#ifdef HAVE_RVZ_HASH
+    if (console_id == RC_CONSOLE_GAMECUBE && string_is_equal_noncase(path_get_extension(path), "rvz"))
+        return generateGameCubeRvzHash(hash, path);
+#endif
 	try
 	{
 		if (!readersinit)
