@@ -12,6 +12,9 @@
 #include "OfflineAchievements.h"
 #include "ProxyCards.h"
 #include "CheevosIndex.h"
+#include "GameCubeRvzHashRetry.h"
+#include "PlatformId.h"
+#include <libcheevos/cheevos.h>
 #include "utils/StringUtil.h"
 #include "Log.h"
 #include "Settings.h"
@@ -28,6 +31,20 @@ bool ThreadedHasher::mPaused = false;
 bool ThreadedHasher::sCheevosLibraryCame = false;
 
 static std::mutex mLoaderLock;
+
+static bool retryGameCubeRvzHash(FileData* game)
+{
+    if (!gameCubeRvzHashEnabled() || game->getSystem() == nullptr)
+        return false;
+    const auto& platforms = game->getSystem()->getPlatformIds();
+    // A mixed-platform system can select another console in getCheevosHash.
+    // Keep the repair confined to the unambiguous GameCube mapping.
+    const bool gameCubeOnly = platforms.size() == 1 &&
+        platforms.count(PlatformIds::NINTENDO_GAMECUBE) != 0;
+    return GameCubeRvzHashRetry::needed(true, gameCubeOnly,
+        Utils::FileSystem::getExtension(game->getPath()),
+        game->getMetadata(MetaDataId::CheevosHash), game->getMetadata(MetaDataId::CheevosId));
+}
 
 ThreadedHasher::ThreadedHasher(Window* window, HasherType type, std::queue<FileData*> searchQueue, const std::vector<FileData*>& lookupOnly, bool forceAllGames)
 	: mWindow(window), mWndNotification(nullptr)
@@ -205,7 +222,9 @@ void ThreadedHasher::run()
 		{
 			LOG(LogDebug) << "CheckCheevosHash : " << label;
 			if (!lookupOnly)
-				game->checkCheevosHash(mForce);
+				// Queue eligibility alone is insufficient: FileData skips every
+				// stored hash unless forced. Force only this failed RVZ entry.
+				game->checkCheevosHash(mForce || retryGameCubeRvzHash(game));
 
 			auto hash = Utils::String::toUpper(game->getMetadata(MetaDataId::CheevosHash));
 			if (!hash.empty())
@@ -302,7 +321,11 @@ void ThreadedHasher::start(Window* window, HasherType type, bool forceAllGames, 
 			bool netPlay = takeNetplay && (forceAllGames || file->getMetadata(MetaDataId::Crc32).empty());
 			CheevosIndex::Take take = CheevosIndex::Take::None;
 			if (takeCheevos)
+			{
 				take = CheevosIndex::take(forceAllGames, file->getMetadata(MetaDataId::CheevosHash), file->getMetadata(MetaDataId::CheevosId));
+				if (retryGameCubeRvzHash(file))
+					take = CheevosIndex::Take::Hash;
+			}
 			bool cheevos = take == CheevosIndex::Take::Hash;
 
 			if (cheevos)

@@ -156,6 +156,15 @@ static void* rc_hash_handle_cd_open_track(
     }
 }
 
+bool gameCubeRvzHashEnabled()
+{
+#ifdef HAVE_RVZ_HASH
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool generateHashFromFile(char hash[33], int console_id, const char* path)
 {
 #ifdef HAVE_RVZ_HASH
