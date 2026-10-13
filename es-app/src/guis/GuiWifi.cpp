@@ -42,9 +42,9 @@ GuiWifi::GuiWifi(Window* window, const std::string& title, const std::function<v
 	setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 	addChild(&mMenu);
 	mMenu.setUpdateType(ComponentListFlags::UPDATE_WHEN_SELECTED);
-	mMenu.addButton(_("REFRESH"), "refresh", [this] { onRefresh(); });
-	mMenu.addButton(_("INPUT MANUALLY"), "manual input", [this] { onManualInput(); });
-	mMenu.addButton(_("BACK"), "back", [this] { if (!mWaitingLoad) delete this; });
+	mMenu.addButton(_("REFRESH"), _("REFRESH"), [this] { onRefresh(); });
+	mMenu.addButton(_("INPUT MANUALLY"), _("INPUT MANUALLY"), [this] { onManualInput(); });
+	mMenu.addButton(_("BACK"), _("BACK"), [this] { if (!mWaitingLoad) delete this; });
 
 	// Reserve the viewport once, including an in-list status band. Never
 	// call updateSize/setSubTitle or rebuild buttons as scan answers arrive.
