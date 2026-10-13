@@ -19,6 +19,9 @@
 #include "LocaleES.h"
 
 #include <stdlib.h>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #include <sstream>
 #include <iostream>
 #include <fstream>
@@ -574,6 +577,10 @@ bool ApiSystem::launchCloudSignIn(Window *window, bool phoneKeyboard)
 	}
 
 	ApiSystem::launchExternalWindow_before(window);
+#if defined(__GLIBC__)
+	// Return freed renderer heaps before waiting for sign-in (distro #570).
+	malloc_trim(0);
+#endif
 	int exitCode = system("/usr/bin/cloud_oauth wait");
 	if (WIFEXITED(exitCode))
 		exitCode = WEXITSTATUS(exitCode);
