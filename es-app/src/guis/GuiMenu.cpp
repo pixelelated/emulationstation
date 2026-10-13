@@ -8464,7 +8464,17 @@ void GuiMenu::updateGameLists(Window* window, bool confirm)
 		return;
 	}
 
-	window->pushGui(new GuiMsgBox(window, _("REALLY UPDATE GAMELISTS?"), _("YES"), [window]
+	std::string confirmation = _("REALLY UPDATE GAMELISTS?");
+#if defined(ROCKNIX)
+	// UPDATE GAMELISTS uses the startup index; its offline top-up follows
+	// only when that index has work (fork #567). Explain the download before
+	// this existing question, without probing the connection or promising
+	// a download on every update. The index can be switched off separately.
+	if (OfflineAchievements::available() && OfflineAchievements::toggleOn() && Settings::CheevosCheckIndexesAtStart())
+		confirmation = _("THIS ALSO CHECKS NEW GAMES FOR OFFLINE ACHIEVEMENTS. AN INTERNET CONNECTION IS NEEDED TO DOWNLOAD THEIR ACHIEVEMENT DATA.")
+			+ std::string("\n\n") + confirmation;
+#endif
+	window->pushGui(new GuiMsgBox(window, confirmation, _("YES"), [window]
 		{
 			Scripting::fireEvent("update-gamelists");
 			ViewController::reloadAllGames(window, true, true, true);

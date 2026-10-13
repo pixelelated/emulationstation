@@ -318,7 +318,7 @@ void Settings::setDefaults()
 
 	// Audio out device for Video playback using OMX player.
 	mStringMap["OMXAudioDev"] = "both";
-	mStringMap["CollectionSystemsAuto"] = "favorites, recent"; // 2players,4players,favorites,recent
+	mStringMap["CollectionSystemsAuto"] = "favorites,recent"; // 2players,4players,favorites,recent
 	mStringMap["CollectionSystemsCustom"] = "";
 	mBoolMap["SortAllSystems"] = true; 
 	mStringMap["SortSystems"] = "manufacturer";
