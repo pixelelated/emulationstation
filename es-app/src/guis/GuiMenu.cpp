@@ -5798,7 +5798,11 @@ void GuiMenu::openGamesSettings()
 	// AUTO SAVE/LOAD
 	auto autosave_enabled = std::make_shared<SwitchComponent>(mWindow);
 	autosave_enabled->setState(SystemConf::getInstance()->get("global.autosave") == "1");
+#if defined(ROCKNIX)
+	s->addWithDescription(_("AUTO SAVE/LOAD"), _("Supported emulators only. Save on exit and load on launch."), autosave_enabled);
+#else
 	s->addWithDescription(_("AUTO SAVE/LOAD"), _("Load latest save state on game launch and save state when exiting game."), autosave_enabled);
+#endif
 	s->addSaveFunc([autosave_enabled] { SystemConf::getInstance()->set("global.autosave", autosave_enabled->getState() ? "1" : ""); });
 
 	// INCREMENTAL SAVESTATES
@@ -5825,7 +5829,11 @@ void GuiMenu::openGamesSettings()
 	// SHOW SAVE STATES
 	auto showSaveStates = std::make_shared<OptionListComponent<std::string>>(mWindow, _("SHOW SAVE STATE MANAGER"));
 	showSaveStates->addRange({ { _("NO"), "auto" },{ _("ALWAYS") , "1" },{ _("IF NOT EMPTY") , "2" } }, SystemConf::getInstance()->get("global.savestates"));
+#if defined(ROCKNIX)
+	s->addWithDescription(_("SHOW SAVE STATE MANAGER"), _("RetroArch only. Show the manager before launching a game."), showSaveStates);
+#else
 	s->addWithDescription(_("SHOW SAVE STATE MANAGER"), _("Display save state manager before launching a game."), showSaveStates);
+#endif
 	s->addSaveFunc([showSaveStates] { SystemConf::getInstance()->set("global.savestates", showSaveStates->getSelected()); });
 
 	s->addGroup(_("DEFAULT GLOBAL SETTINGS"));
@@ -10851,6 +10859,20 @@ void GuiMenu::popSpecificConfigurationGui(Window* mWindow, std::string title, st
 
 		systemConfiguration->addWithLabel(_("Emulator"), emulChoice);
 	}
+
+#if defined(ROCKNIX)
+	// Resolve AUTO through the same per-game/system selection used at launch.
+	// These launchers do not consume autosave; engine-native options are separate.
+	const std::string saveStateEmulator = fileData != nullptr ? fileData->getEmulator() : systemData->getEmulator();
+	if (saveStateEmulator == "dolphin" || saveStateEmulator == "flycast")
+	{
+		systemConfiguration->addEntry(_("SAVE STATE SUPPORT"), true, [mWindow]
+		{
+			mWindow->pushGui(new GuiMsgBox(mWindow,
+				_("THE AUTO SAVE/LOAD SETTING AND SAVE STATE MANAGER DO NOT APPLY TO THIS EMULATOR.\n\nUSE THE EMULATOR'S OWN SAVE OPTIONS. IN-GAME SAVES ARE SEPARATE."), _("OK")));
+		});
+	}
+#endif
 
 	// System settings
 	systemConfiguration->addEntry(_("SYSTEM OPTIONS"), true, [mWindow, configName] { openSystemOptionsConfiguration(mWindow, configName); });
