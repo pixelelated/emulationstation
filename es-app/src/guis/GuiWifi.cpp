@@ -1,10 +1,13 @@
 #include "guis/GuiWifi.h"
+#include "guis/WifiScanProcess.h"
 #include "guis/GuiMenu.h"
 #include "guis/GuiMsgBox.h"
 #include "guis/GuiSettings.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiTextEditPopupKeyboard.h"
 #include "components/TextComponent.h"
+#include "components/BusyComponent.h"
+#include "components/ButtonComponent.h"
 #include "ApiSystem.h"
 #include "GuiLoading.h"
 #include "LocaleES.h"
@@ -15,51 +18,103 @@
 #include "Window.h"
 #include "utils/StringUtil.h"
 
-GuiWifi::GuiWifi(Window* window, const std::string& title, const std::function<void()>& onJoined)
-	: GuiComponent(window), mMenu(window, title.c_str()), mTitle(title), mOnJoined(onJoined), mSavedKnown(true), mWaitingLoad(false)
+#include <algorithm>
+#include <exception>
+#include <utility>
+#include <thread>
+
+namespace
 {
+void releasePickerButtons(GuiComponent* component)
+{
+	// Called only after hitTest(-1, -1) has cleared every hover flag. A
+	// held mouse press is then released without invoking a button action.
+	if (auto button = dynamic_cast<ButtonComponent*>(component))
+		button->onMouseClick(1, false, -1, -1);
+	for (int i = 0; i < component->getChildCount(); ++i)
+		releasePickerButtons(component->getChild(i));
+}
+}
+
+GuiWifi::GuiWifi(Window* window, const std::string& title, const std::function<void()>& onJoined)
+	: GuiComponent(window), mMenu(window, title.c_str()), mTitle(title), mOnJoined(onJoined), mSavedKnown(false), mWaitingLoad(false)
+{
+	setSize(Renderer::getScreenWidth(), Renderer::getScreenHeight());
 	addChild(&mMenu);
+	mMenu.setUpdateType(ComponentListFlags::UPDATE_WHEN_SELECTED);
+	mMenu.addButton(_("REFRESH"), "refresh", [this] { onRefresh(); });
+	mMenu.addButton(_("INPUT MANUALLY"), "manual input", [this] { onManualInput(); });
+	mMenu.addButton(_("BACK"), "back", [this] { if (!mWaitingLoad) delete this; });
 
-	// Fetched off the interface thread. wifictl list is itself a rescan --
-	// it waits for the adapter, asks NetworkManager to scan, sleeps, then
-	// lists -- so this constructor used to run up to twenty seconds of
-	// nmcli with nothing drawn, and with NetworkManager unresponsive (fork
-	// #102) nothing bounded it at all. Posted rather than pushed here,
-	// because the page has to be on the stack before anything can go over
-	// it; an empty first answer still turns into the full scan it always did.
-	mWindow->postToUiThread([this]() { onRefresh(false); });
+	// Reserve the viewport once, including an in-list status band. Never
+	// call updateSize/setSubTitle or rebuild buttons as scan answers arrive.
+	const bool fullScreen = Renderer::ScreenSettings::fullScreenMenus();
+	mMenu.setSize(fullScreen ? mSize.x() : std::min(mSize.y(), mSize.x() * 0.90f),
+		fullScreen ? mSize.y() : mSize.y() * 0.75f);
+	mMenu.setPosition((mSize.x() - mMenu.getSize().x()) / 2,
+		fullScreen ? 0 : mSize.y() * 0.15f);
 
-	mMenu.addButton(_("REFRESH"), "refresh", [&] { onRefresh(); });
-	mMenu.addButton(_("INPUT MANUALLY"), "manual input", [&] { onManualInput(); });
-	mMenu.addButton(_("BACK"), "back", [&] { delete this; });
+	auto theme = ThemeData::getMenuTheme();
+	auto list = mMenu.getList();
+	const auto position = list->getPosition();
+	const auto size = list->getSize();
+	// Prime this shared font before measuring its maximum glyph height.
+	theme->Text.font->sizeText(_("SEARCHING WI-FI NETWORKS") + std::string(_("COULDN'T SEARCH WI-FI NETWORKS. TRY AGAIN.")) +
+		_("SHOWING PREVIOUS RESULTS.") + _("COULDN'T CHECK WHICH NETWORKS ARE SAVED.") + _("NO WI-FI NETWORKS FOUND"));
+	const float statusHeight = theme->Text.font->sizeText("A\nA", 1.0f).y() + mSize.y() * 0.01f;
+	const float inset = ComponentList::rowInset();
+	const float spinnerWidth = theme->Text.font->getLetterHeight() * 2.0f;
+	mStatus = std::make_shared<TextComponent>(mWindow, "", theme->Text.font, theme->Text.color);
+	mStatus->setMultiLine(TextComponent::MultiLineType::MULTILINE);
+	mStatus->setLineSpacing(1.0f);
+	mStatus->setVerticalAlignment(ALIGN_CENTER);
+	if (EsLocale::isRTL())
+		mStatus->setHorizontalAlignment(ALIGN_RIGHT);
+	mStatus->setSize(size.x() - 2 * inset - spinnerWidth, statusHeight);
+	mStatus->setPosition(position.x() + inset + spinnerWidth, position.y());
+	mStatus->setZIndex(20);
+	mMenu.addChild(mStatus.get());
+	list->setPosition(position.x(), position.y() + statusHeight);
+	list->setSize(size.x(), std::max(0.0f, size.y() - statusHeight));
 
-	if (Renderer::ScreenSettings::fullScreenMenus())
-		mMenu.setPosition((Renderer::getScreenWidth() - mMenu.getSize().x()) / 2, (Renderer::getScreenHeight() - mMenu.getSize().y()) / 2);
-	else
-		mMenu.setPosition((Renderer::getScreenWidth() - mMenu.getSize().x()) / 2, Renderer::getScreenHeight() * 0.15f);
+	// No posted callback capturing this. The worker starts after the native
+	// components are ready and publishes values for update() to consume.
+	onRefresh(false);
 }
 
 void GuiWifi::load(const std::vector<WifiText::PickerRow>& rows)
 {
-	mMenu.clear();
+	auto list = mMenu.getList();
+	const bool buttonsFocused = mMenu.isCursorToButtons();
+	const int previousIndex = list->getCursorIndex();
+	const std::string selected = list->getSelectedUserData();
+	const bool unchanged = rows.size() == mRows.size() && std::equal(rows.begin(), rows.end(), mRows.begin(),
+		[](const WifiText::PickerRow& a, const WifiText::PickerRow& b)
+		{
+			return a.name == b.name && a.saved == b.saved && a.connected == b.connected &&
+				a.savedKnown == b.savedKnown && a.profile == b.profile;
+		});
 
-	// A list whose SAVED marks could not be read says so, once, under the
-	// title (#308 F-WF-03): the rows are then neither saved nor unsaved, and
-	// a press on one asks before it acts.
-	mMenu.setSubTitle(mSavedKnown ? "" : _("COULDN'T CHECK WHICH NETWORKS ARE SAVED."));
-
-	if (rows.empty())
-		mMenu.addEntry(_("NO WI-FI NETWORKS FOUND"), false, [this] { onRefresh(); });
-	else
-		for (const auto& row : rows)
+	// Keep the actual list and scroll offset on identical refreshes. When
+	// rows change, restore the SSID, or the nearest surviving index. The
+	// native list keeps that row visible instead of jumping to the top.
+	if (!unchanged)
+	{
+		mMenu.clear();
+		mRows = rows;
+		for (const auto& row : mRows)
 			addRow(row);
-
-	mMenu.updateSize();
-
-	if (Renderer::ScreenSettings::fullScreenMenus())
-		mMenu.setPosition((Renderer::getScreenWidth() - mMenu.getSize().x()) / 2, (Renderer::getScreenHeight() - mMenu.getSize().y()) / 2);
-
-	mWaitingLoad = false;
+		if (!mRows.empty())
+		{
+			auto match = std::find_if(mRows.begin(), mRows.end(), [&selected](const WifiText::PickerRow& row) { return row.name == selected; });
+			const int index = match == mRows.end() ? std::min(previousIndex, (int)mRows.size() - 1) : (int)(match - mRows.begin());
+			list->setCursorIndex(std::max(0, index), true);
+		}
+	}
+	if (mRows.empty())
+		mMenu.setCursorToButton(0);
+	else if (!buttonsFocused)
+		mMenu.setCursorToList();
 }
 
 // The name as NetworkManager has it -- case and spaces kept, since a
@@ -88,7 +143,7 @@ void GuiWifi::addRow(const WifiText::PickerRow& network)
 
 	const WifiText::PickerRow chosen = network;
 	row.makeAcceptInputHandler([this, chosen] { onSelect(chosen); });
-	mMenu.addRow(row);
+	mMenu.addRow(row, false, false, network.name);
 }
 
 // A press: the network the device is on joins again with the key
@@ -100,7 +155,7 @@ void GuiWifi::addRow(const WifiText::PickerRow& network)
 // is asked about again first (F-WF-03/06). WifiText::pressAction decides.
 void GuiWifi::onSelect(const WifiText::PickerRow& row)
 {
-	if (mWaitingLoad)
+	if (mWaitingLoad || mScan)
 		return;
 
 	if (row.savedKnown && WifiText::profilesForSsid(row.name, mSaved).size() > 1 && row.profile.empty())
@@ -181,6 +236,9 @@ void GuiWifi::act(WifiText::PressAction action, const std::string& name, const s
 // begin or end with a space, and it is matched as NetworkManager has it.
 void GuiWifi::onManualInput()
 {
+	if (mWaitingLoad || mScan)
+		return;
+
 	auto onName = [this](const std::string& name)
 	{
 		if (name.empty())
@@ -318,70 +376,181 @@ void GuiWifi::joined(const std::string& name)
 
 bool GuiWifi::input(InputConfig* config, Input input)
 {
-	if (GuiComponent::input(config, input))
-		return true;
-
 	if (input.value != 0 && config->isMappedTo(BUTTON_BACK, input))
 	{
 		if (!mWaitingLoad)
 			delete this;
-
 		return true;
 	}
 
-	return false;
+	// A press during a scan cannot join an old row, open a key editor or
+	// queue another scan. BACK remains available without joining the worker.
+	if (mScan || mWaitingLoad)
+		return true;
+	return GuiComponent::input(config, input);
+}
+
+bool GuiWifi::hitTest(int x, int y, Transform4x4f& parentTransform, std::vector<GuiComponent*>* result)
+{
+	if (!mScan)
+		return GuiComponent::hitTest(x, y, parentTransform, result);
+
+	// Mouse/touch bypass input(). During scanning only the native BACK
+	// button may capture a press, so a release after completion cannot act
+	// on a refreshed row or start the action of a previously pressed button.
+	std::vector<GuiComponent*> hits;
+	const bool hit = GuiComponent::hitTest(x, y, parentTransform, &hits);
+	if (result)
+		for (auto component : hits)
+			if (auto button = dynamic_cast<ButtonComponent*>(component))
+				if (button->getText() == _("BACK"))
+					result->push_back(button);
+	return hit;
 }
 
 std::vector<HelpPrompt> GuiWifi::getHelpPrompts()
 {
-	std::vector<HelpPrompt> prompts = mMenu.getHelpPrompts();
+	std::vector<HelpPrompt> prompts;
+	if (!mScan && !mWaitingLoad)
+		prompts = mMenu.getHelpPrompts();
 	prompts.push_back(HelpPrompt(BUTTON_BACK, _("BACK")));
 	return prompts;
 }
 
-// rescan: ask NetworkManager for a fresh scan first (REFRESH, and an empty
-// first list); false lists what it already knows, which is what the page
-// opens with. The saved profiles and the network joined now come with the
-// same wait, behind the spinner, each time-boxed in ApiSystem.
+void GuiWifi::update(int deltaTime)
+{
+	GuiComponent::update(deltaTime);
+	if (!mScan || !mScan->ready.load(std::memory_order_acquire))
+		return;
+
+	const Answer answer = mScan->answer;
+	mScan.reset();
+	mBusy.reset();
+	mWindow->releaseMouseCapture();
+
+	// A failed range query keeps prior network names. Saved/current metadata
+	// is freshly read even then; unknown metadata keeps the existing guarded
+	// CheckAgain route rather than interpreting an unknown profile as absent.
+	std::vector<std::string> inRange = answer.inRange;
+	const bool retainedResults = !answer.inRangeKnown && !mRows.empty();
+	if (!answer.inRangeKnown)
+		for (const auto& row : mRows)
+			inRange.push_back(row.name);
+	const auto rows = WifiText::pickerRows(inRange, answer.saved, answer.current,
+		answer.savedKnown, answer.currentKnown);
+	mSaved = answer.saved;
+	mSavedKnown = answer.savedKnown;
+	mCurrent.clear();
+	mCurrentProfile.clear();
+	for (const auto& row : rows)
+		if (row.connected)
+		{
+			mCurrent = row.name;
+			mCurrentProfile = row.profile;
+		}
+	load(rows);
+
+	std::string status;
+	if (!answer.inRangeKnown)
+	{
+		status = _("COULDN'T SEARCH WI-FI NETWORKS. TRY AGAIN.");
+		if (retainedResults)
+			status += "\n" + std::string(_("SHOWING PREVIOUS RESULTS."));
+	}
+	else if (rows.empty())
+		status = _("NO WI-FI NETWORKS FOUND");
+	else if (!mSavedKnown)
+		status = _("COULDN'T CHECK WHICH NETWORKS ARE SAVED.");
+	mStatus->setText(status);
+	LOG(LogInfo) << "wifi picker: scan " << (answer.inRangeKnown ? "completed" : "failed")
+		<< "; rows=" << rows.size() << "; retained=" << retainedResults;
+	updateHelpPrompts();
+}
+
 void GuiWifi::onRefresh(bool rescan)
 {
-	Window* window = mWindow;
-	mWaitingLoad = true;
+	if (mScan || mWaitingLoad)
+		return;
 
-	window->pushGui(new GuiLoading<Answer>(window, _("SEARCHING WI-FI NETWORKS"),
-		[rescan](IGuiLoadingHandler*)
+	// UI-thread-only weak registry. Closing a picker leaves at most the one
+	// bounded read job; reopening attaches to it instead of starting a rival.
+	// A completed answer is never reused for a later explicit refresh.
+	static std::weak_ptr<Scan> activeScan;
+	mScan = activeScan.lock();
+	if (mScan && mScan->ready.load(std::memory_order_acquire))
+		mScan.reset();
+	const bool reused = mScan != nullptr;
+	if (!mScan)
+	{
+		mScan = std::make_shared<Scan>();
+		activeScan = mScan;
+		auto scan = mScan;
+		try
 		{
-			// Each getter says whether it could ask at all (true for an
-			// answer, "none" included), and that is kept: "could not ask"
-			// used to be read as "none" (#308 F-WF-03/06).
-			Answer answer;
-			answer.inRange = ApiSystem::getInstance()->getWifiNetworks(rescan);
-			answer.savedKnown = ApiSystem::getInstance()->getSavedWifiNetworks(answer.saved);
-			answer.currentKnown = ApiSystem::getInstance()->getCurrentWifiSsid(answer.current);
-			return answer;
-		},
-		[this, rescan](Answer answer)
-		{
-			mWaitingLoad = false;
-			if (answer.inRange.empty() && !rescan)
+			std::thread([scan, rescan]
 			{
-				onRefresh(true);
-				return;
-			}
-			const std::vector<WifiText::PickerRow> rows = WifiText::pickerRows(answer.inRange, answer.saved, answer.current,
-				answer.savedKnown, answer.currentKnown);
-			mSaved = answer.saved;
-			mSavedKnown = answer.savedKnown;
-			// The network the device is on, as the rows have it: from the
-			// saved list's active profile when current could not say.
-			mCurrent.clear();
-			mCurrentProfile.clear();
-			for (const auto& row : rows)
-				if (row.connected)
+				try
 				{
-					mCurrent = row.name;
-					mCurrentProfile = row.profile;
+					Answer answer;
+					const auto range = WifiScanProcess::read({"wifictl", rescan ? "scanlist" : "list"}, std::chrono::seconds(rescan ? 45 : 30));
+					answer.inRangeKnown = range.code == 0;
+					answer.inRange = range.lines;
+
+					// Match ApiSystem's saved/current protocol, but reject signal
+					// and read failures too. No singleton or GUI is worker-owned.
+					const auto saved = WifiScanProcess::read({"wifictl", "saved", "--ssid"}, std::chrono::seconds(15));
+					answer.savedKnown = saved.code == 0;
+					if (answer.savedKnown)
+						for (const auto& line : saved.lines)
+						{
+							WifiText::SavedNetwork network;
+							if (!WifiText::parseSavedDetailsLine(line, network))
+							{
+								answer.savedKnown = false;
+								break;
+							}
+							answer.saved.push_back(network);
+						}
+					if (!answer.savedKnown)
+						answer.saved.clear();
+
+					const auto current = WifiScanProcess::read({"wifictl", "current"}, std::chrono::seconds(10));
+					answer.current = WifiText::parseCurrent(current.lines);
+					answer.currentKnown = (current.code == 0 && !answer.current.empty()) || current.code == 1;
+					if (current.code != 0)
+						answer.current.clear();
+					scan->answer = std::move(answer);
 				}
-			load(rows);
-		}));
+				catch (...)
+				{
+					// The default answer is unknown, not a successful empty scan.
+					LOG(LogWarning) << "wifi picker: scan worker failed";
+				}
+				LOG(LogInfo) << "wifi picker: scan worker finished";
+				scan->ready.store(true, std::memory_order_release);
+			}).detach();
+		}
+		catch (const std::exception&)
+		{
+			LOG(LogWarning) << "wifi picker: could not start scan worker";
+			mScan->ready.store(true, std::memory_order_release);
+		}
+	}
+
+	if (mMenu.getList()->getScrollingVelocity() != 0)
+		mMenu.getList()->stopScrolling();
+	auto transform = Transform4x4f::Identity();
+	mMenu.hitTest(-1, -1, transform);
+	releasePickerButtons(&mMenu);
+	mWindow->releaseMouseCapture();
+	mStatus->setText(_("SEARCHING WI-FI NETWORKS"));
+	const float spinnerWidth = ThemeData::getMenuTheme()->Text.font->getLetterHeight() * 2.0f;
+	mBusy = std::make_shared<BusyComponent>(mWindow, "");
+	mBusy->setBackgroundVisible(false);
+	mBusy->setSize(spinnerWidth, mStatus->getSize().y());
+	mBusy->setPosition(mStatus->getPosition().x() - spinnerWidth, mStatus->getPosition().y());
+	mBusy->setZIndex(20);
+	mMenu.addChild(mBusy.get());
+	LOG(LogInfo) << "wifi picker: " << (reused ? "attached to pending scan" : "scan started");
+	updateHelpPrompts();
 }

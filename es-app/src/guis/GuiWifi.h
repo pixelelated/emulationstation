@@ -4,9 +4,13 @@
 #include "components/MenuComponent.h"
 #include "WifiText.h"
 
+#include <atomic>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+class BusyComponent;
 
 // The Wi-Fi picker behind NETWORK SETTINGS' WI-FI NETWORK row (fork #191,
 // renamed from WI-FI SSID by D-UI-071; the
@@ -25,6 +29,8 @@ class GuiWifi : public GuiComponent
 public:
 	GuiWifi(Window* window, const std::string& title, const std::function<void()>& onJoined);
 	bool input(InputConfig* config, Input input) override;
+	void update(int deltaTime) override;
+	bool hitTest(int x, int y, Transform4x4f& parentTransform, std::vector<GuiComponent*>* result = nullptr) override;
 	std::vector<HelpPrompt> getHelpPrompts() override;
 
 private:
@@ -33,12 +39,21 @@ private:
 	struct Answer
 	{
 		std::vector<std::string> inRange;
+		bool inRangeKnown = false;
 		std::vector<WifiText::SavedNetwork> saved;
 		std::string current;
 		// Whether `wifictl saved` and `wifictl current` answered at all: an
 		// empty list and no list are different answers (#308 F-WF-03/06).
 		bool savedKnown = false;
 		bool currentKnown = false;
+	};
+
+	// The worker owns only this value. No GUI or Window pointer crosses into
+	// it, and the UI consumes the answer only after the release/acquire pair.
+	struct Scan
+	{
+		Answer answer;
+		std::atomic<bool> ready{false};
 	};
 
 	void load(const std::vector<WifiText::PickerRow>& rows);
@@ -57,6 +72,10 @@ private:
 	void joined(const std::string& name);
 
 	MenuComponent mMenu;
+	std::shared_ptr<TextComponent> mStatus;
+	std::shared_ptr<BusyComponent> mBusy;
+	std::shared_ptr<Scan> mScan;
+	std::vector<WifiText::PickerRow> mRows;
 	std::string mTitle;
 	std::function<void()> mOnJoined;
 	std::vector<WifiText::SavedNetwork> mSaved;
