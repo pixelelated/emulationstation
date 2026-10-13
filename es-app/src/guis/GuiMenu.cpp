@@ -7485,8 +7485,8 @@ struct CloudOAuthReady
 	std::string exitHint = "SELECT + START";
 };
 
-static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
-	const std::string& remoteName, GuiSettings* prev, bool usePhone,
+static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
+	std::string remoteName, GuiSettings* prev, bool usePhone,
 	const CloudOAuthReady& ready);
 static void cloudOAuthPresentChoice(Window* window, const CloudBackend& backend,
 	const std::string& remoteName, GuiSettings* prev,
@@ -7666,8 +7666,51 @@ static void cloudOAuthPresentChoice(Window* window, const CloudBackend& backend,
 	cloudSetupPresent(window, s, prev);
 }
 
-static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
-	const std::string& remoteName, GuiSettings* prev, bool usePhone,
+// Both keyboard routes use the same window and can fail before it opens
+// (fork #570). The page beneath this dialog still owns the authorization.
+// Copy onReturn: checking completion can replace and delete that page.
+static void cloudOAuthOpenSignIn(Window* window, CloudBackend backend,
+	std::string remoteName, GuiSettings* page, bool usePhone,
+	std::function<void()> onReturn)
+{
+	if (ApiSystem::getInstance()->launchCloudSignIn(window, usePhone))
+	{
+		if (onReturn)
+			onReturn();
+		return;
+	}
+
+	// A completed authorization wins even if the window failed to return.
+	const auto lines = Utils::Platform::GetShOutputLines("/usr/bin/cloud_oauth status");
+	const std::string status = lines.empty() ? "" : Utils::String::trim(lines.front());
+	if (status == "signed-in")
+	{
+		cloudOAuthShowConnected(window, backend, remoteName, page);
+		return;
+	}
+
+	// The bool also covers a failed wait, so do not claim every failure was
+	// at startup. No OK action returns to a page still claiming to open.
+	window->pushGui(new GuiMsgBox(window,
+		_("THE SIGN-IN WINDOW DID NOT OPEN OR STOPPED WORKING.\n\nTRY AGAIN, OR CANCEL SIGN-IN."),
+		_("TRY AGAIN"), [window, backend, remoteName, page, usePhone, onReturn]
+		{
+			// Recheck on the press: authorization can finish or expire while
+			// the question is open. A waiting attempt keeps its phone pairing.
+			const auto lines = Utils::Platform::GetShOutputLines("/usr/bin/cloud_oauth status");
+			const std::string status = lines.empty() ? "" : Utils::String::trim(lines.front());
+			if (status == "signed-in")
+				cloudOAuthShowConnected(window, backend, remoteName, page);
+			else if (status == "waiting")
+				cloudOAuthOpenSignIn(window, backend, remoteName, page, usePhone, onReturn);
+			else
+				cloudOAuthStart(window, backend, remoteName, page);
+		},
+		_("CANCEL SIGN-IN"), [page] { page->close(); }, GuiMsgBoxIcon::ICON_ERROR));
+}
+
+static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
+	std::string remoteName, GuiSettings* prev, bool usePhone,
 	const CloudOAuthReady& ready)
 {
 	auto s = new GuiSettings(window, _("CONNECT CLOUD STORAGE"));
@@ -7755,24 +7798,10 @@ static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
 	// Ask cloud_oauth, which asks rclone. Nothing here decides on its own
 	// that a sign-in worked.
 	//
-	// openOnContinue is false when the page is already open: pressing
-	// CONTINUE then means "I am done", not "open it".
-	const bool openOnContinue = onDevice && usePhone;
-	cloudSetupSetButtons(s, [window, backend, remoteName, s, openOnContinue]
+	// Keep this callback separate so a successful phone-window retry runs
+	// the same completion check as its original CONTINUE press.
+	auto finishSignIn = [window, backend, remoteName, s]
 	{
-		if (openOnContinue)
-		{
-			auto info = Utils::Platform::GetShOutputLines("/usr/bin/cloud_oauth status");
-			std::string now = info.empty() ? "" : Utils::String::trim(info.front());
-			if (now == "waiting")
-			{
-				// Blocks until the player comes back out of the page, so
-				// there is no dialog to dismiss afterwards and no second
-				// CONTINUE to press -- fall through and say what happened.
-				ApiSystem::getInstance()->launchCloudSignIn(window, true);
-			}
-		}
-
 		auto lines = Utils::Platform::GetShOutputLines("/usr/bin/cloud_oauth status");
 		std::string status = lines.empty() ? "" : Utils::String::trim(lines.front());
 		LOG(LogInfo) << "cloud_oauth status=" << status;
@@ -7798,6 +7827,27 @@ static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
 				Utils::Platform::runSystemCommand("/usr/bin/cloud_oauth cancel", "", nullptr);
 				s->close();
 			}));
+	};
+
+	// Native CONTINUE checks completion; phone CONTINUE first opens the
+	// window while the session is waiting. A failed launch owns its dialog
+	// and must not fall through to the generic still-waiting message.
+	const bool openOnContinue = onDevice && usePhone;
+	cloudSetupSetButtons(s, [window, backend, remoteName, s, openOnContinue, finishSignIn]
+	{
+		if (openOnContinue)
+		{
+			auto info = Utils::Platform::GetShOutputLines("/usr/bin/cloud_oauth status");
+			std::string now = info.empty() ? "" : Utils::String::trim(info.front());
+			if (now == "waiting")
+			{
+				cloudOAuthOpenSignIn(window, backend, remoteName, s, true, finishSignIn);
+				return;
+			}
+		}
+		// Completion can delete s and its buttons; own the invocation first.
+		auto finish = finishSignIn;
+		finish();
 	});
 
 	cloudOAuthOwnSession(s);
@@ -7806,8 +7856,10 @@ static void cloudOAuthShowSignIn(Window* window, const CloudBackend& backend,
 	// After the page is on the stack, never while it is being built: this
 	// blocks for as long as somebody is signing in, and ES is suspended for
 	// the duration. The page has to already be there for ES to come back to.
+	// backend and remoteName are owned values: presenting s deleted prev,
+	// which may have held the callback that supplied them.
 	if (openImmediately)
-		ApiSystem::getInstance()->launchCloudSignIn(window, false);
+		cloudOAuthOpenSignIn(window, backend, remoteName, s, false, nullptr);
 }
 
 // What it means to have connected something, said once, at the only moment
