@@ -6950,7 +6950,7 @@ msgstr "Émulateurs compatibles. Sauvegarde à la sortie, chargement au lancemen
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "RetroArch only. Show the manager before launching a game."
-msgstr "RetroArch uniquement. Afficher le gestionnaire avant de lancer un jeu."
+msgstr "RetroArch uniquement. Affiche le gestionnaire avant le jeu."
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "SAVE STATE SUPPORT"
