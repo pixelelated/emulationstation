@@ -4075,3 +4075,19 @@ msgstr "COULDN'T SEARCH WI-FI NETWORKS. TRY AGAIN."
 #: es-app/src/guis/GuiWifi.cpp
 msgid "SHOWING PREVIOUS RESULTS."
 msgstr "SHOWING PREVIOUS RESULTS."
+
+#: es-app/src/guis/GuiMenu.cpp
+msgid "Supported emulators only. Save on exit and load on launch."
+msgstr "Supported emulators only. Save on exit and load on launch."
+
+#: es-app/src/guis/GuiMenu.cpp
+msgid "RetroArch only. Show the manager before launching a game."
+msgstr "RetroArch only. Show the manager before launching a game."
+
+#: es-app/src/guis/GuiMenu.cpp
+msgid "SAVE STATE SUPPORT"
+msgstr "SAVE STATE SUPPORT"
+
+#: es-app/src/guis/GuiMenu.cpp
+msgid "THE AUTO SAVE/LOAD SETTING AND SAVE STATE MANAGER DO NOT APPLY TO THIS EMULATOR.\n\nUSE THE EMULATOR'S OWN SAVE OPTIONS. IN-GAME SAVES ARE SEPARATE."
+msgstr "THE AUTO SAVE/LOAD SETTING AND SAVE STATE MANAGER DO NOT APPLY TO THIS EMULATOR.\n\nUSE THE EMULATOR'S OWN SAVE OPTIONS. IN-GAME SAVES ARE SEPARATE."
