@@ -3020,8 +3020,7 @@ msgid "AUTO SAVE/LOAD ON GAME LAUNCH"
 msgstr "SAUV./CHARG. AUTO AU LANCEMENT"
 
 msgid "Load latest save state on game launch and save state when exiting game."
-msgstr ""
-"Charge la dernière sauvegarde automatiquement et sauve en quittant le jeu."
+msgstr "Charge le dernier état au lancement et le sauve à la sortie."
 
 msgid "SHOW CONTROLLER OVERLAYS"
 msgstr "AFFICHER LA MANETTE EN SURIMPRESSION"
