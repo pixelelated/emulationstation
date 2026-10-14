@@ -68,8 +68,17 @@
  * doesn't work.
  */
 #if defined(__i386__) || defined(__x86_64__) || defined(__vax__)
+/* These hosts are little-endian, but input need not satisfy C alignment or
+ * effective-type requirements. memcpy preserves the unaligned fast path
+ * without dereferencing an incompatible or misaligned word pointer. */
+static MD5_u32plus MD5_load_word(const unsigned char *input)
+{
+	MD5_u32plus word;
+	memcpy(&word, input, sizeof(word));
+	return word;
+}
 #define MD5_SET(n) \
-	(*(MD5_u32plus *)&ptr[(n) * 4])
+	MD5_load_word(&ptr[(n) * 4])
 #define MD5_GET(n) \
 	MD5_SET(n)
 #else
