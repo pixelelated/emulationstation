@@ -63,7 +63,7 @@ struct Window {
     std::vector<GuiSettings*> stack;
     void pushGui(GuiSettings* gui) { stack.push_back(gui); }
 };
-struct Menu { void setSize(float, float) {} };
+struct Menu { void setSize(float, float) {} void setPosition(float, float) {} };
 struct GuiSettings {
     Window* window;
     Menu menu;
