@@ -4030,3 +4030,7 @@ msgstr ""
 #. cloud folder path refusal (#524 PL-003)
 msgid "CHECK THE PATH AND YOUR CONNECTION, THEN TRY AGAIN."
 msgstr ""
+
+#: es-app/src/scrapers/ScreenScraper.cpp
+msgid "SCREENSCRAPER REJECTED THIS SYSTEM'S ACCESS.\nCHECK FOR A SYSTEM UPDATE OR REPORT THE PROBLEM."
+msgstr ""

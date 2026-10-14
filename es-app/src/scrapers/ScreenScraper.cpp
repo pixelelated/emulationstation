@@ -26,11 +26,11 @@ using namespace PlatformIds;
 
 #if defined(SCREENSCRAPER_DEV_LOGIN) || defined(SCREENSCRAPER_RUNTIME_DEV_LOGIN)
 
-// Upstream compiles the developer pair in. A fork build without one reads it
-// from settings, entered by the player under the scraper's options beside the
-// account it belongs to, so no image carries a key and images can be shared
-// (#64). Callers check for empty and say what is missing rather than letting
-// the API answer with a login error.
+// A compiled developer pair takes precedence. Runtime-only builds read it
+// from settings under SCRAPER > ACCOUNTS (#64); normal distribution builds
+// supply it at build time and hide those developer rows (#566). Callers check
+// for empty and say what is missing rather than letting the API answer with
+// a login error.
 std::string screenScraperDevLogin()
 {
 #if defined(SCREENSCRAPER_DEV_LOGIN)
@@ -971,8 +971,8 @@ ScreenScraperUser ScreenScraperRequest::processUserInfo(const pugi::xml_document
 // EmulationStation used to put that body on screen as it came. So: the body
 // goes to the log; a login failure is told apart by one call with the pair
 // alone -- made only after a failure, so a scrape that starts makes no
-// extra request -- and the screen names the credential and the tab it lives
-// under, in English. No code on screen: it is in the log (D-UI-028).
+// extra request -- and the screen gives recovery guidance for this build's
+// credential source. No code on screen: it is in the log (D-UI-028).
 static std::string screenScraperFailureMessage(HttpReq& req, const ScreenScraperRequest::ScreenScraperConfig& config)
 {
 	const int status = req.status();
@@ -1043,7 +1043,13 @@ static std::string screenScraperFailureMessage(HttpReq& req, const ScreenScraper
 	if (pair == PairUnknown)
 		return _("COULDN'T REACH SCREENSCRAPER. TRY AGAIN.");
 	if (pair == PairRejected)
+	{
+#if defined(SCREENSCRAPER_DEV_LOGIN)
+		return _("SCREENSCRAPER REJECTED THIS SYSTEM'S ACCESS.\nCHECK FOR A SYSTEM UPDATE OR REPORT THE PROBLEM.");
+#else
 		return _("SCREENSCRAPER REJECTED THE DEVELOPER ID OR PASSWORD.\nCHECK THEM UNDER SCRAPER > ACCOUNTS.");
+#endif
+	}
 
 	// The pair is fine and the API still refused: it needs an account on
 	// this request and on every game request, so with none configured the
