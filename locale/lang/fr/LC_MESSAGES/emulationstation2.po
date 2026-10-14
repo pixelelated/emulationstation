@@ -3020,8 +3020,7 @@ msgid "AUTO SAVE/LOAD ON GAME LAUNCH"
 msgstr "SAUV./CHARG. AUTO AU LANCEMENT"
 
 msgid "Load latest save state on game launch and save state when exiting game."
-msgstr ""
-"Charge la dernière sauvegarde automatiquement et sauve en quittant le jeu."
+msgstr "Charge le dernier état au lancement et le sauve à la sortie."
 
 msgid "SHOW CONTROLLER OVERLAYS"
 msgstr "AFFICHER LA MANETTE EN SURIMPRESSION"
@@ -6946,11 +6945,11 @@ msgstr "RÉSULTATS PRÉCÉDENTS AFFICHÉS."
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "Supported emulators only. Save on exit and load on launch."
-msgstr "Émulateurs compatibles uniquement. Sauvegarde à la sortie, chargement au lancement."
+msgstr "Émulateurs compatibles. Sauvegarde à la sortie, chargement au lancement."
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "RetroArch only. Show the manager before launching a game."
-msgstr "RetroArch uniquement. Afficher le gestionnaire avant de lancer un jeu."
+msgstr "RetroArch uniquement. Affiche le gestionnaire avant le jeu."
 
 #: es-app/src/guis/GuiMenu.cpp
 msgid "SAVE STATE SUPPORT"
