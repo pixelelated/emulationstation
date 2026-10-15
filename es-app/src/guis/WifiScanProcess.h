@@ -3,6 +3,7 @@
 // A bounded, read-only subprocess for the Wi-Fi picker (#577). No shell,
 // GUI, singleton or callback is owned here. Kept separate so a disposable
 // process fixture can exercise the actual runner without linking ES.
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -70,11 +71,14 @@ private:
 };
 #endif
 
-inline Answer read(const std::vector<std::string>& command, std::chrono::milliseconds timeout)
+inline Answer read(const std::vector<std::string>& command, std::chrono::milliseconds timeout,
+	const std::atomic<bool>* cancelled = nullptr)
 {
 	Answer answer;
 #if !WIN32
-	if (command.empty() || timeout.count() <= 0)
+	const auto stopped = [cancelled]
+	{ return cancelled && cancelled->load(std::memory_order_acquire); };
+	if (command.empty() || timeout.count() <= 0 || stopped())
 		return answer;
 	std::vector<char*> argv;
 	for (const auto& part : command)
@@ -118,7 +122,7 @@ inline Answer read(const std::vector<std::string>& command, std::chrono::millise
 		posix_spawn_file_actions_addclose(&actions, output[1]) == 0 &&
 		posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP) == 0 &&
 		posix_spawnattr_setpgroup(&attributes, 0) == 0;
-	const int spawned = configured ? posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), environ) : -1;
+	const int spawned = configured && !stopped() ? posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), environ) : -1;
 	posix_spawnattr_destroy(&attributes);
 	posix_spawn_file_actions_destroy(&actions);
 	close(output[1]);
@@ -137,9 +141,13 @@ inline Answer read(const std::vector<std::string>& command, std::chrono::millise
 	bool eof = false;
 	while (true)
 	{
+		if (stopped())
+			return answer;
 		char buffer[4096];
 		while (!eof)
 		{
+			if (stopped())
+				return answer;
 			const ssize_t count = ::read(child.fd, buffer, sizeof(buffer));
 			if (count > 0)
 			{
@@ -171,7 +179,7 @@ inline Answer read(const std::vector<std::string>& command, std::chrono::millise
 		if (poll(&descriptor, 1, 25) < 0 && errno != EINTR)
 			return answer;
 	}
-	if (!child.finish() || !WIFEXITED(child.status))
+	if (stopped() || !child.finish() || !WIFEXITED(child.status))
 		return answer;
 	answer.code = WEXITSTATUS(child.status);
 	if (answer.code == 0)

@@ -28,6 +28,8 @@ class GuiWifi : public GuiComponent
 {
 public:
 	GuiWifi(Window* window, const std::string& title, const std::function<void()>& onJoined);
+	// Main-thread normal-exit hook; closing a picker does not stop its scan.
+	static void shutdownScans();
 	bool input(InputConfig* config, Input input) override;
 	void update(int deltaTime) override;
 	bool hitTest(int x, int y, Transform4x4f& parentTransform, std::vector<GuiComponent*>* result = nullptr) override;
@@ -54,7 +56,12 @@ private:
 	{
 		Answer answer;
 		std::atomic<bool> ready{false};
+		std::atomic<bool> cancelled{false};
 	};
+
+	static bool sScansStopping; // main-thread-only; also blocks first use during teardown
+	struct ScanWorker;
+	static ScanWorker* scanWorker(bool create);
 
 	void load(const std::vector<WifiText::PickerRow>& rows);
 	void addRow(const WifiText::PickerRow& row);

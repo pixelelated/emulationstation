@@ -4,6 +4,7 @@
 #include "services/HttpServerThread.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiMenu.h"
+#include "guis/GuiWifi.h"
 #include "guis/GuiMsgBox.h"
 #include "guis/GuiCloudTransfer.h"
 #include "SystemConf.h"
@@ -345,6 +346,7 @@ bool loadSystemConfigFile(Window* window, const char** errorString)
 //called on exit, assuming we get far enough to have the log initialized
 void onExit()
 {
+	GuiWifi::shutdownScans();
 	// A deletion still on the worker is finished, then the log closes
 	// (D-UI-073, third rule). Idempotent: main's tail has usually done it.
 	SaveStateBookkeeper::shutdown();
@@ -1318,6 +1320,9 @@ int main(int argc, char* argv[])
 	// nothing (AppWindow; #308 8-es claude F-ES-26). Before any teardown, so
 	// no post lands in a window on its way out.
 	AppWindow::closing();
+	// Stop only the read-only picker worker before tearing down the frontend.
+	// SIGTERM keeps its existing immediate semantics (D-CLOUD-133).
+	GuiWifi::shutdownScans();
 
 	if (Utils::Platform::isFastShutdown())
 		Settings::getInstance()->setBool("IgnoreGamelist", true);

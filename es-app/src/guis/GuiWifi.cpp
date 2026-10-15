@@ -36,6 +36,44 @@ void releasePickerButtons(GuiComponent* component)
 }
 }
 
+// Owned by the main thread, independently of any picker. Like the save-state
+// bookkeeper, keep the owner alive until the explicit shutdown/atexit join;
+// a static joinable thread could otherwise be destroyed before that hook.
+bool GuiWifi::sScansStopping = false;
+
+struct GuiWifi::ScanWorker
+{
+	std::shared_ptr<Scan> scan;
+	std::thread thread;
+	bool stopping = false;
+};
+
+GuiWifi::ScanWorker* GuiWifi::scanWorker(bool create)
+{
+	static ScanWorker* worker = nullptr;
+	if (create && worker == nullptr)
+		worker = new ScanWorker();
+	return worker;
+}
+
+void GuiWifi::shutdownScans()
+{
+	sScansStopping = true;
+	auto worker = scanWorker(false);
+	if (worker == nullptr || worker->stopping)
+		return;
+	worker->stopping = true;
+	if (worker->scan)
+		worker->scan->cancelled.store(true, std::memory_order_release);
+	if (worker->thread.joinable())
+	{
+		LOG(LogInfo) << "wifi picker: stopping scan worker";
+		worker->thread.join();
+		LOG(LogInfo) << "wifi picker: scan worker joined";
+	}
+	worker->scan.reset();
+}
+
 GuiWifi::GuiWifi(Window* window, const std::string& title, const std::function<void()>& onJoined)
 	: GuiComponent(window), mMenu(window, title.c_str()), mTitle(title), mOnJoined(onJoined), mSavedKnown(false), mWaitingLoad(false)
 {
@@ -469,56 +507,69 @@ void GuiWifi::update(int deltaTime)
 
 void GuiWifi::onRefresh(bool rescan)
 {
-	if (mScan || mWaitingLoad)
+	if (mScan || mWaitingLoad || sScansStopping)
 		return;
 
-	// UI-thread-only weak registry. Closing a picker leaves at most the one
-	// bounded read job; reopening attaches to it instead of starting a rival.
-	// A completed answer is never reused for a later explicit refresh.
-	static std::weak_ptr<Scan> activeScan;
-	mScan = activeScan.lock();
+	// The process owns the one worker; picker Back never waits for it.
+	// Reopening attaches to a pending scan. A later explicit refresh joins
+	// the completed worker and starts a new job instead of reusing its answer.
+	auto worker = scanWorker(true);
+	if (worker->stopping)
+		return;
+	mScan = worker->scan;
 	if (mScan && mScan->ready.load(std::memory_order_acquire))
+	{
+		if (worker->thread.joinable())
+			worker->thread.join();
+		worker->scan.reset();
 		mScan.reset();
+	}
 	const bool reused = mScan != nullptr;
 	if (!mScan)
 	{
 		mScan = std::make_shared<Scan>();
-		activeScan = mScan;
+		worker->scan = mScan;
 		auto scan = mScan;
 		try
 		{
-			std::thread([scan, rescan]
+			worker->thread = std::thread([scan, rescan]
 			{
 				try
 				{
 					Answer answer;
-					const auto range = WifiScanProcess::read({"wifictl", rescan ? "scanlist" : "list"}, std::chrono::seconds(rescan ? 45 : 30));
+					const auto range = WifiScanProcess::read({"wifictl", rescan ? "scanlist" : "list"}, std::chrono::seconds(rescan ? 45 : 30), &scan->cancelled);
 					answer.inRangeKnown = range.code == 0;
 					answer.inRange = range.lines;
 
 					// Match ApiSystem's saved/current protocol, but reject signal
 					// and read failures too. No singleton or GUI is worker-owned.
-					const auto saved = WifiScanProcess::read({"wifictl", "saved", "--ssid"}, std::chrono::seconds(15));
-					answer.savedKnown = saved.code == 0;
-					if (answer.savedKnown)
-						for (const auto& line : saved.lines)
-						{
-							WifiText::SavedNetwork network;
-							if (!WifiText::parseSavedDetailsLine(line, network))
+					if (!scan->cancelled.load(std::memory_order_acquire))
+					{
+						const auto saved = WifiScanProcess::read({"wifictl", "saved", "--ssid"}, std::chrono::seconds(15), &scan->cancelled);
+						answer.savedKnown = saved.code == 0;
+						if (answer.savedKnown)
+							for (const auto& line : saved.lines)
 							{
-								answer.savedKnown = false;
-								break;
+								WifiText::SavedNetwork network;
+								if (!WifiText::parseSavedDetailsLine(line, network))
+								{
+									answer.savedKnown = false;
+									break;
+								}
+								answer.saved.push_back(network);
 							}
-							answer.saved.push_back(network);
-						}
-					if (!answer.savedKnown)
-						answer.saved.clear();
+						if (!answer.savedKnown)
+							answer.saved.clear();
+					}
 
-					const auto current = WifiScanProcess::read({"wifictl", "current"}, std::chrono::seconds(10));
-					answer.current = WifiText::parseCurrent(current.lines);
-					answer.currentKnown = (current.code == 0 && !answer.current.empty()) || current.code == 1;
-					if (current.code != 0)
-						answer.current.clear();
+					if (!scan->cancelled.load(std::memory_order_acquire))
+					{
+						const auto current = WifiScanProcess::read({"wifictl", "current"}, std::chrono::seconds(10), &scan->cancelled);
+						answer.current = WifiText::parseCurrent(current.lines);
+						answer.currentKnown = (current.code == 0 && !answer.current.empty()) || current.code == 1;
+						if (current.code != 0)
+							answer.current.clear();
+					}
 					scan->answer = std::move(answer);
 				}
 				catch (...)
@@ -528,7 +579,7 @@ void GuiWifi::onRefresh(bool rescan)
 				}
 				LOG(LogInfo) << "wifi picker: scan worker finished";
 				scan->ready.store(true, std::memory_order_release);
-			}).detach();
+			});
 		}
 		catch (const std::exception&)
 		{
