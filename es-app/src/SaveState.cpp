@@ -85,22 +85,11 @@ std::string SaveState::setupSaveState(FileData* game, const std::string& command
 		{
 			cmd = cmd + " -autosave 0";
 		}
-		else if (incrementalSaveStates)
-		{
-			if (racommands)
-			{
-				cmd = cmd + " -state_slot " + std::to_string(slot); // slot
-
-				// Run game, and activate AutoSave to load it
-				if (!fileName.empty())
-					cmd = cmd + " -autosave 1";
-			}
-			else
-			  if (!fileName.empty())
-			    cmd = cmd + " -state_slot " + std::to_string(slot) + LaunchTemplate::stateFileOption(fileName);
-		}
 		else
 		{
+			// One arm for incremental and fixed slots: upstream's two were the
+			// same text (PL-035); incrementalSaveStates decides only the copy
+			// to a new slot below.
 			if (racommands)
 			{
 				cmd = cmd + " -state_slot " + std::to_string(slot);
@@ -109,9 +98,8 @@ std::string SaveState::setupSaveState(FileData* game, const std::string& command
 				if (!fileName.empty())
 					cmd = cmd + " -autosave 1";
 			}
-			else
-			  if (!fileName.empty())
-			    cmd = cmd + " -state_slot " + std::to_string(slot) + LaunchTemplate::stateFileOption(fileName);
+			else if (!fileName.empty())
+				cmd = cmd + " -state_slot " + std::to_string(slot) + LaunchTemplate::stateFileOption(fileName);
 		}
 
 		if (racommands) 
