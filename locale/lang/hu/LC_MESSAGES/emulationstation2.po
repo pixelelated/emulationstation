@@ -3606,7 +3606,7 @@ msgstr "HIÁNYZIK AZ EMULÁTOR"
 msgid "CORE IS MISSING"
 msgstr "A MAG HIÁNYZIK"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ISMERETLEN HIBA"
 
 msgid "Checking for latest upgrade script..."

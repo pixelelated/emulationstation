@@ -3583,7 +3583,7 @@ msgstr "EMULATOR HILANG"
 msgid "CORE IS MISSING"
 msgstr "CORE HILANG"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ERROR TAK DIKETAHUI"
 
 msgid "Checking for latest upgrade script..."

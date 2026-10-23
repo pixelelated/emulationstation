@@ -3606,7 +3606,7 @@ msgstr "EMULADOR INEXISTENT"
 msgid "CORE IS MISSING"
 msgstr "NUCLI INEXISTENT"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ERROR DESCONEGUT"
 
 msgid "Checking for latest upgrade script..."

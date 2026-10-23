@@ -3550,7 +3550,7 @@ msgstr "模拟器缺失"
 msgid "CORE IS MISSING"
 msgstr "核心缺失"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "未知错误"
 
 msgid "Checking for latest upgrade script..."

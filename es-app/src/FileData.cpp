@@ -802,7 +802,7 @@ std::string FileData::getMessageFromExitCode(int exitCode)
 		}
 	}
 
-	return _("UKNOWN ERROR") + " : " + std::to_string(exitCode);
+	return _("UNKNOWN ERROR") + " : " + std::to_string(exitCode);
 }
 
 // The save state the launch was handed, by its file, while the pointer is

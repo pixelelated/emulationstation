@@ -3586,7 +3586,7 @@ msgstr "Emulátor chýba"
 msgid "CORE IS MISSING"
 msgstr "Jadro chýba"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "Neznáma chyba"
 
 msgid "Checking for latest upgrade script..."

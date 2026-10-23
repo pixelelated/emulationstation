@@ -3609,7 +3609,7 @@ msgstr "L’ÉMULATEUR EST MANQUANT"
 msgid "CORE IS MISSING"
 msgstr "LE CŒUR EST MANQUANT"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ERREUR INCONNUE"
 
 msgid "Checking for latest upgrade script..."

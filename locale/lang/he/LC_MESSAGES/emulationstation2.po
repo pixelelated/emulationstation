@@ -3538,7 +3538,7 @@ msgstr ""
 msgid "CORE IS MISSING"
 msgstr ""
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr ""
 
 msgid "Checking for latest upgrade script..."

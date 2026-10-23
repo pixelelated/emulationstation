@@ -3589,7 +3589,7 @@ msgstr "EMULATORN SAKNAS"
 msgid "CORE IS MISSING"
 msgstr "KÄRNAN SAKNAS"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "OKÄNT FEL"
 
 msgid "Checking for latest upgrade script..."

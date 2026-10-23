@@ -3584,7 +3584,7 @@ msgstr "CHYBÍ EMULÁTOR"
 msgid "CORE IS MISSING"
 msgstr "CHYBÍ JÁDRO"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "NEZNÁMA CHYBA"
 
 msgid "Checking for latest upgrade script..."

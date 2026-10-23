@@ -3602,7 +3602,7 @@ msgstr "BRAK EMULATORA"
 msgid "CORE IS MISSING"
 msgstr "BRAK JĄDRA EMULATORA"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "NIEZNANY BŁĄD"
 
 msgid "Checking for latest upgrade script..."

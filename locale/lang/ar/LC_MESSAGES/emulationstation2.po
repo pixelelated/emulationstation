@@ -3622,7 +3622,7 @@ msgstr "المحاكي مفقود"
 msgid "CORE IS MISSING"
 msgstr "النواة مفقودة"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "خطأ مجهول"
 
 msgid "Checking for latest upgrade script..."

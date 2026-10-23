@@ -3573,8 +3573,8 @@ msgstr "EMULATOR IS MISSING"
 msgid "CORE IS MISSING"
 msgstr "CORE IS MISSING"
 
-msgid "UKNOWN ERROR"
-msgstr "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
+msgstr "UNKNOWN ERROR"
 
 msgid "Checking for latest upgrade script..."
 msgstr ""

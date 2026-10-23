@@ -3611,7 +3611,7 @@ msgstr "EMULATORUL LIPSEȘTE"
 msgid "CORE IS MISSING"
 msgstr "NUCLEUL LIPSEȘTE"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "EROARE NECUNOSCUTĂ"
 
 msgid "Checking for latest upgrade script..."

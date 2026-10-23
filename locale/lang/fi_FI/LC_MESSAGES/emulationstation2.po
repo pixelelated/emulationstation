@@ -3571,7 +3571,7 @@ msgstr "EMULAATTORIA EI OLE"
 msgid "CORE IS MISSING"
 msgstr "YDIN PUUTTUU"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "TUNTEMATON VIRHE"
 
 msgid "Checking for latest upgrade script..."

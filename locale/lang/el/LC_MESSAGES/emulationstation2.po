@@ -3563,7 +3563,7 @@ msgstr "ΛΕΙΠΕΙ ΕΞΟΜΟΙΩΤΗΣ"
 msgid "CORE IS MISSING"
 msgstr "ΛΕΙΠΕΙ Ο ΠΥΡΗΝΑΣ"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ΑΓΝΩΣΤΟ ΛΑΘΟΣ"
 
 msgid "Checking for latest upgrade script..."

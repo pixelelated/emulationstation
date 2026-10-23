@@ -3591,7 +3591,7 @@ msgstr "FALTA EL EMULADOR"
 msgid "CORE IS MISSING"
 msgstr "FALTA EL NÚCLEO"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ERROR DESCONOCIDO"
 
 msgid "Checking for latest upgrade script..."

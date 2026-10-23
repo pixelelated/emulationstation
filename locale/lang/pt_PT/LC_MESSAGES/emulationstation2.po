@@ -3599,7 +3599,7 @@ msgstr "O EMULADOR ESTÁ EM FALTA"
 msgid "CORE IS MISSING"
 msgstr "O CORE ESTÁ EM FALTA"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ERRO DESCONHECIDO"
 
 msgid "Checking for latest upgrade script..."

@@ -3585,7 +3585,7 @@ msgstr "TRÌNH GIẢ LẬP BỊ THIẾU"
 msgid "CORE IS MISSING"
 msgstr "LÕI BỊ THIẾU"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "LỖI KHÔNG XÁC ĐỊNH"
 
 msgid "Checking for latest upgrade script..."

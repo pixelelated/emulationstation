@@ -3614,7 +3614,7 @@ msgstr "EMULATOR FEHLT"
 msgid "CORE IS MISSING"
 msgstr "CORE FEHLT"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "UNBEKANNTER FEHLER"
 
 msgid "Checking for latest upgrade script..."

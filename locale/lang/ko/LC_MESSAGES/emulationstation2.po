@@ -3568,7 +3568,7 @@ msgstr "에뮬레이터 누락"
 msgid "CORE IS MISSING"
 msgstr "코어 누락"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "알 수 없는 오류"
 
 msgid "Checking for latest upgrade script..."

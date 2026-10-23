@@ -3586,7 +3586,7 @@ msgstr "EMULATORE MANCANTE"
 msgid "CORE IS MISSING"
 msgstr "CORE MANCANTE"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ERRORE SCONOSCIUTO"
 
 msgid "Checking for latest upgrade script..."

@@ -3589,7 +3589,7 @@ msgstr "ЭМУЛЯТОР ОТСУТСТВУЕТ"
 msgid "CORE IS MISSING"
 msgstr "ЯДРО ОТСУТСТВУЕТ"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "НЕИЗВЕСТНАЯ ОШИБКА"
 
 msgid "Checking for latest upgrade script..."

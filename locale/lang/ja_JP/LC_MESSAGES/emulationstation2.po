@@ -3584,7 +3584,7 @@ msgstr "エミュレーターがありません"
 msgid "CORE IS MISSING"
 msgstr "コアがありません"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "不明なエラー"
 
 msgid "Checking for latest upgrade script..."

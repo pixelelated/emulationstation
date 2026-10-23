@@ -3578,7 +3578,7 @@ msgstr "emulator mangler"
 msgid "CORE IS MISSING"
 msgstr "KJERNE MANGLER"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "Ukjent feil"
 
 msgid "Checking for latest upgrade script..."

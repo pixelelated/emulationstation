@@ -3608,7 +3608,7 @@ msgstr "EMULATOR ONTBREEKT"
 msgid "CORE IS MISSING"
 msgstr "CORE ONTBREEKT"
 
-msgid "UKNOWN ERROR"
+msgid "UNKNOWN ERROR"
 msgstr "ONBEKENDE FOUT"
 
 msgid "Checking for latest upgrade script..."
