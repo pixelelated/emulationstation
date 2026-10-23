@@ -11,6 +11,11 @@ static std::mutex mLock;
 static SaveStateConfigFile* mInstance;
 
 static std::shared_ptr<SaveStateConfig> _default;
+// The default config and the per-system cache below are read from the
+// interface thread and from workers (CaptureRotation), so each has a lock
+// of its own (pixelelated/distribution#649 PL-023). Not mLock: the cache
+// is filled through Instance(), which takes it.
+static std::mutex _defaultLock;
 
 SaveStateConfig::SaveStateConfig()
 {
@@ -26,6 +31,7 @@ SaveStateConfig::SaveStateConfig()
 
 std::shared_ptr<SaveStateConfig> SaveStateConfig::Default()
 {
+	std::unique_lock<std::mutex> lock(_defaultLock);
 	if (_default == nullptr)
 	{
 		_default = std::make_shared<SaveStateConfig>();
@@ -269,19 +275,41 @@ std::shared_ptr<SaveStateConfig> SaveStateConfigFile::getSaveStateConfig(const s
 }
 
 static std::map<std::string, std::vector<std::shared_ptr<SaveStateConfig>>> _cache;
+static std::mutex _cacheLock;
+
+// The cache's key: the system's name and what the configs are computed
+// from -- its emulators, their cores, and its default pair. Keyed by name
+// alone, a system kept the configs of its old emulators after UPDATE
+// GAMELISTS read a changed systems file, until a restart (PL-023).
+static std::string saveStateCacheKey(SystemData* system)
+{
+	std::string key = system->getName() + "\n" + system->getDefaultEmulator() + "/" + system->getDefaultCore();
+	for (const EmulatorData& emul : system->getEmulators())
+	{
+		key += "\n" + emul.name + ":";
+		for (const CoreData& core : emul.cores)
+			key += core.name + ",";
+	}
+	return key;
+}
 
 std::vector<std::shared_ptr<SaveStateConfig>> SaveStateConfigFile::getSaveStateConfigs(SystemData* system)
 {
-	auto it = _cache.find(system->getName());
-	if (it != _cache.cend())
-		return it->second;
+	const std::string key = saveStateCacheKey(system);
+	{
+		std::unique_lock<std::mutex> lock(_cacheLock);
+		auto it = _cache.find(key);
+		if (it != _cache.cend())
+			return it->second;
+	}
 	
 	std::vector<std::shared_ptr<SaveStateConfig>> ret;
 
 	if (!isEnabled())
 	{
 		ret.push_back(SaveStateConfig::Default());
-		_cache.insert(std::pair<std::string, std::vector<std::shared_ptr<SaveStateConfig>>>(system->getName(), ret));
+		std::unique_lock<std::mutex> lock(_cacheLock);
+		_cache.insert(std::pair<std::string, std::vector<std::shared_ptr<SaveStateConfig>>>(key, ret));
 		return ret;
 	}
 
@@ -332,6 +360,7 @@ std::vector<std::shared_ptr<SaveStateConfig>> SaveStateConfigFile::getSaveStateC
 		}
 	}
 
-	_cache.insert(std::pair<std::string, std::vector<std::shared_ptr<SaveStateConfig>>>(system->getName(), ret));
+	std::unique_lock<std::mutex> lock(_cacheLock);
+	_cache.insert(std::pair<std::string, std::vector<std::shared_ptr<SaveStateConfig>>>(key, ret));
 	return ret;
 }
