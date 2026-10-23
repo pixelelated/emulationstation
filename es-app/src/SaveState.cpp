@@ -7,6 +7,7 @@
 #include "FileData.h"
 #include "SaveStateRepository.h"
 #include "SystemConf.h"
+#include "LaunchTemplate.h"
 
 std::string SaveState::makeStateFilename(int slot, bool fullPath, bool useImageGenerator) const
 {
@@ -74,7 +75,7 @@ std::string SaveState::setupSaveState(FileData* game, const std::string& command
 		if (racommands || fileName.empty())
 			cmd = cmd + " -autosave 1 -state_slot " + std::to_string(slot);
 		else
-			cmd = cmd + " -autosave 1 -state_file \"" + fileName + "\"";
+			cmd = cmd + " -autosave 1" + LaunchTemplate::stateFileOption(fileName);
 	}
 	else
 	{
@@ -94,7 +95,7 @@ std::string SaveState::setupSaveState(FileData* game, const std::string& command
 			}
 			else
 			  if (!fileName.empty())
-			    cmd = cmd + " -state_slot " + std::to_string(slot) + " -state_file \"" + fileName + "\"";
+			    cmd = cmd + " -state_slot " + std::to_string(slot) + LaunchTemplate::stateFileOption(fileName);
 		}
 		else
 		{
@@ -108,7 +109,7 @@ std::string SaveState::setupSaveState(FileData* game, const std::string& command
 			}
 			else
 			  if (!fileName.empty())
-			    cmd = cmd + " -state_slot " + std::to_string(slot) + " -state_file \"" + fileName + "\"";
+			    cmd = cmd + " -state_slot " + std::to_string(slot) + LaunchTemplate::stateFileOption(fileName);
 		}
 
 		if (racommands) 
