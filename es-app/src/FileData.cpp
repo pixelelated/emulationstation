@@ -50,6 +50,7 @@
 #include "resources/TextureData.h"
 #include "views/gamelist/GameNameFormatter.h"
 #include "LaunchCommand.h"
+#include "LaunchTemplate.h"
 #include "watchers/WatchersManager.h"
 
 using namespace Utils::Platform;
@@ -525,14 +526,6 @@ FileData* FileData::getSourceFileData()
 	return this;
 }
 
-static std::string formatCommandLineArgument(const std::string& name)
-{
-	if (name.find(" ") != std::string::npos)
-		return "\"" + Utils::String::replace(name, "\"", "\\\"") + "\"";
-
-	return Utils::String::replace(name, "\"", "\\\"");
-};
-
 std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeControllers)
 {
 	FileData* gameToUpdate = getSourceFileData();
@@ -542,21 +535,6 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 	SystemData* system = gameToUpdate->getSystem();
 	if (system == nullptr)
 		return "";
-
-	// must really;-) be done before window->deinit while it closes joysticks
-	std::string controllersConfig = InputManager::getInstance()->configureEmulators();
-
-	if (gameToUpdate->isLightGunGame())
-		controllersConfig = controllersConfig + "-lightgun ";
-
-        if (gameToUpdate->isWheelGame())
-		controllersConfig = controllersConfig + "-wheel ";
-
-        if (gameToUpdate->isTrackballGame())
-		controllersConfig = controllersConfig + "-trackball ";
-
-        if (gameToUpdate->isSpinnerGame())
-		controllersConfig = controllersConfig + "-spinner ";
 
 	std::string systemName = system->getName();
 	std::string emulator = getEmulator();
@@ -608,26 +586,35 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 
 	if (forceCore)
 	{
-		if (command.find("%EMULATOR%") == std::string::npos && command.find("-emulator") == std::string::npos)
+		if (command.find("%EMULATOR%") == std::string::npos && !LaunchTemplate::hasOption(command, "-emulator"))
 			command = command + " -emulator %EMULATOR%";
 
-		if (command.find("%CORE%") == std::string::npos && command.find("-core") == std::string::npos)
+		if (command.find("%CORE%") == std::string::npos && !LaunchTemplate::hasOption(command, "-core"))
 			command = command + " -core %CORE%";
 	}
 
-	const std::string rom = Utils::FileSystem::getEscapedPath(getPath());
-	const std::string basename = Utils::FileSystem::getStem(getPath());
-	const std::string rom_raw = Utils::FileSystem::getPreferredPath(getPath());
-	
-	command = Utils::String::replace(command, "%SYSTEM%", systemName);
-	command = Utils::String::replace(command, "%ROM%", rom);
-	command = Utils::String::replace(command, "%BASENAME%", basename);
-	command = Utils::String::replace(command, "%ROM_RAW%", rom_raw);
-	command = Utils::String::replace(command, "%EMULATOR%", emulator);
-	command = Utils::String::replace(command, "%CORE%", core);
-	command = Utils::String::replace(command, "%HOME%", Paths::getHomePath());
-	command = Utils::String::replace(command, "%GAMENAME%", formatCommandLineArgument(gameToUpdate->getName()));
-	command = Utils::String::replace(command, "%SYSTEMNAME%", formatCommandLineArgument(system->getFullName()));
+	// The controllers' configuration only for a command that carries it
+	// (PL-034): it scans every pad, and the boot game's stored command and a
+	// template without the placeholder discarded the result. Still before
+	// window->deinit, which closes the joysticks.
+	const bool useControllers = includeControllers && command.find("%CONTROLLERSCONFIG%") != std::string::npos;
+	std::string controllersConfig;
+	if (useControllers)
+	{
+		controllersConfig = InputManager::getInstance()->configureEmulators();
+
+		if (gameToUpdate->isLightGunGame())
+			controllersConfig = controllersConfig + "-lightgun ";
+
+		if (gameToUpdate->isWheelGame())
+			controllersConfig = controllersConfig + "-wheel ";
+
+		if (gameToUpdate->isTrackballGame())
+			controllersConfig = controllersConfig + "-trackball ";
+
+		if (gameToUpdate->isSpinnerGame())
+			controllersConfig = controllersConfig + "-spinner ";
+	}
 
 	// Export Game info XML is requested
 #ifdef WIN32
@@ -636,16 +623,11 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 	std::string fileInfo = "/tmp/game.xml";
 #endif
 
+	std::string gameInfo;
 	if (command.find("%GAMEINFOXML%") != std::string::npos && saveToXml(gameToUpdate, fileInfo, true))
-		command = Utils::String::replace(command, "%GAMEINFOXML%", Utils::FileSystem::getEscapedPath(fileInfo));
+		gameInfo = Utils::FileSystem::getEscapedPath(fileInfo);
 	else
-	{
-		command = Utils::String::replace(command, "%GAMEINFOXML%", "");
 		Utils::FileSystem::removeFile(fileInfo);
-	}
-	
-	if (includeControllers)
-		command = Utils::String::replace(command, "%CONTROLLERSCONFIG%", controllersConfig);
 
 	if (options.netPlayMode != DISABLED && (forceCore || gameToUpdate->isNetplaySupported()) && command.find("%NETPLAY%") == std::string::npos)
 		command = command + " %NETPLAY%"; // Add command line parameter if the netplay option is defined at <core netplay="true"> level
@@ -656,6 +638,7 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 		SystemConf::getInstance()->saveSystemConf();
 	}
 
+	std::string netplay;
 	if (options.netPlayMode == CLIENT || options.netPlayMode == SPECTATOR)
 	{
 		std::string mode = (options.netPlayMode == SPECTATOR ? "spectator" : "client");
@@ -671,30 +654,48 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 
 #if WIN32
 		if (Utils::String::toLower(command).find("retroarch.exe") != std::string::npos)
-			command = Utils::String::replace(command, "%NETPLAY%", "--connect " + options.ip + " --port " + std::to_string(options.port) + " --nick " + SystemConf::getInstance()->get("global.netplay.nickname"));
+			netplay = "--connect " + options.ip + " --port " + std::to_string(options.port) + " --nick " + SystemConf::getInstance()->get("global.netplay.nickname");
 		else
 #endif
 #if ROCKNIX
-			command = Utils::String::replace(command, "%NETPLAY%", "--connect " + Utils::String::shellQuote(options.ip) + " --port " + std::to_string(options.port) + " --nick " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.nickname"))); // fork #275
+			netplay = "--connect " + Utils::String::shellQuote(options.ip) + " --port " + std::to_string(options.port) + " --nick " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.nickname")); // fork #275
 #else
-			command = Utils::String::replace(command, "%NETPLAY%", "-netplaymode " + mode + " -netplayport " + std::to_string(options.port) + " -netplayip " + options.ip + session + pass);
+			netplay = "-netplaymode " + mode + " -netplayport " + std::to_string(options.port) + " -netplayip " + options.ip + session + pass;
 #endif
 	}
 	else if (options.netPlayMode == SERVER)
 	{
 #if WIN32
 		if (Utils::String::toLower(command).find("retroarch.exe") != std::string::npos)
-			command = Utils::String::replace(command, "%NETPLAY%", "--host --port " + SystemConf::getInstance()->get("global.netplay.port") + " --nick " + SystemConf::getInstance()->get("global.netplay.nickname"));
+			netplay = "--host --port " + SystemConf::getInstance()->get("global.netplay.port") + " --nick " + SystemConf::getInstance()->get("global.netplay.nickname");
 		else
 #endif
 #if ROCKNIX
-			command = Utils::String::replace(command, "%NETPLAY%", "--host --port " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.port")) + " --nick " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.nickname"))); // fork #275
+			netplay = "--host --port " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.port")) + " --nick " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.nickname")); // fork #275
 #else
-			command = Utils::String::replace(command, "%NETPLAY%", "-netplaymode host");
+			netplay = "-netplaymode host";
 #endif
 	}
-	else
-		command = Utils::String::replace(command, "%NETPLAY%", "");
+
+	// Every placeholder in one pass (PL-007): the text a value inserts is
+	// never scanned again, and a name or a path from a file or the scraper
+	// is one quoted word (formatCommandLineArgument quoted only a name with
+	// a space, and only against a double quote). %ROM% keeps getEscapedPath,
+	// the shipped template's form; the system, emulator and core are the
+	// systems table's names.
+	command = LaunchTemplate::expand(command, {
+		{ "%SYSTEM%", systemName },
+		{ "%ROM%", Utils::FileSystem::getEscapedPath(getPath()) },
+		{ "%BASENAME%", Utils::String::shellQuote(Utils::FileSystem::getStem(getPath())) },
+		{ "%ROM_RAW%", Utils::String::shellQuote(Utils::FileSystem::getPreferredPath(getPath())) },
+		{ "%EMULATOR%", emulator },
+		{ "%CORE%", core },
+		{ "%HOME%", Paths::getHomePath() },
+		{ "%GAMENAME%", Utils::String::shellQuote(gameToUpdate->getName()) },
+		{ "%SYSTEMNAME%", Utils::String::shellQuote(system->getFullName()) },
+		{ "%GAMEINFOXML%", gameInfo },
+		{ "%CONTROLLERSCONFIG%", useControllers ? controllersConfig : std::string("%CONTROLLERSCONFIG%") },
+		{ "%NETPLAY%", netplay } });
 
 	int monitorId = Settings::getInstance()->getInt("MonitorID");
 	if (monitorId >= 0 && command.find(" -system ") != std::string::npos)
