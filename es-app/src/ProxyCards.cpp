@@ -37,39 +37,39 @@ namespace
 	const int SEND_BOUND_SECONDS = 45;
 
 	std::atomic<bool> sSendRunning{ false };
-	// One top-up watcher at a time (audit #307 PL-056): a second one read
-	// the same progress file and raised a second card beside the first,
-	// whose ctl had refused it (75) and whose card then said COULDN'T
-	// FINISH. A request that arrives while the watcher runs is not dropped
-	// either -- the index's run (--after-index) is the one that lists the
-	// games the index just found, and nothing else would run it -- so it
-	// is kept here, one bit a kind, for the watcher to run when its run
-	// ends: 1 the link's return, 2 the index's.
+	// One top-up watcher at a time, and a request that arrives while it
+	// runs is kept here, one bit a kind, for the watcher to run when its
+	// run ends: 1 the link's return, 2 the index's. It is not dropped: the
+	// index's run (--after-index) is the one that lists the games the index
+	// just found, and nothing else would run it. A second watcher read the
+	// same progress file and raised a second card beside the first, whose
+	// ctl had refused it (75) and whose card then said COULDN'T FINISH
+	// (audit #307 PL-056).
 	static std::atomic<bool> sTopUpRunning{ false };
 	static std::atomic<int> sTopUpWanted{ 0 };
 	// The launch's STOP IT AND PLAY stopped the run (stopTopUp): its 143 is
 	// the player's choice, said in the sync card's words for the same
 	// choice, not a failure (#308 1-raoffline F-RA-09 / F-RA-17).
 	static std::atomic<bool> sTopUpStoppedForGame{ false };
-	// And the queue waits for that game (audit of the fixes, E2 claude
-	// G-E2-02 / gpt G-E2-04): the launch waits only for the ctl to be gone,
-	// so when the stopped run's card ended no game was running yet -- the
-	// launch was on its way -- and the queued run started under it. Set by
-	// stopTopUp, spent by waitForTheGame before the next run, whichever
-	// watcher makes it.
+	// And the queue waits for that game: set by stopTopUp, spent by
+	// waitForTheGame before the next run, whichever watcher makes it. The
+	// launch waits only for the ctl to be gone, so when the stopped run's
+	// card ended no game was running yet -- the launch was on its way --
+	// and the queued run started under it (audit of the fixes, E2 claude
+	// G-E2-02 / gpt G-E2-04).
 	//
-	// Held as the moment it lapses, not as a flag (audit of the fix round,
-	// G2-E-app-05 claude / G2-E-app-02 gpt): the flag was honoured only by
-	// the same watcher's next run and cleared as that watcher let go, so a
-	// request that came after the stopped run's card -- or that raced the
-	// watcher's letting go and started a successor -- ran under the game.
-	// Now the watcher spends a hold before it lets go, and one no watcher
-	// spends (a stop that met a scan's run, not a top-up's) lapses on its
-	// own. 0 is no hold; else steady-clock milliseconds. With it, how many
-	// games had started at the stop: a game that started and ended while
-	// the stopped run's card still showed its outcome has spent the hold,
-	// where watching for a running game alone waited out the whole bound
-	// for one already gone.
+	// Held as the moment it lapses, not as a flag: the watcher spends a
+	// hold before it lets go, and one no watcher spends (a stop that met a
+	// scan's run, not a top-up's) lapses on its own. 0 is no hold; else
+	// steady-clock milliseconds. With it, how many games had started at the
+	// stop: a game that started and ended while the stopped run's card
+	// still showed its outcome has spent the hold, where watching for a
+	// running game alone waited out the whole bound for one already gone.
+	// A flag was honoured only by the same watcher's next run and cleared
+	// as that watcher let go, so a request that came after the stopped
+	// run's card -- or that raced the watcher's letting go and started a
+	// successor -- ran under the game (audit of the fix round, G2-E-app-05
+	// claude / G2-E-app-02 gpt).
 	static std::atomic<long long> sTopUpHeldUntilMs{ 0 };
 	static std::atomic<unsigned> sTopUpHeldGames{ 0 };
 	// How long the watcher waits for the launch a stop was for to become a
@@ -80,13 +80,14 @@ namespace
 	{
 		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 	}
-	// #305 (the maintainer: saves first, then the RetroAchievements work as
-	// one batch): at the link's return the owed saves sync goes first when
-	// one is owed, and the batch -- the send card, the top-up -- starts when
-	// its card ends (afterSync); with no saves owed the batch runs at once.
-	// It was the other way round (#298), and the send card's stamp, written
-	// by the proxy seconds after its queue empties, was found by the probe
-	// at the saves card's end and shown as a second card for the same batch.
+	// Saves first, then the RetroAchievements work as one batch: at the
+	// link's return the owed saves sync goes first when one is owed, and
+	// the batch -- the send card, the top-up -- starts when its card ends
+	// (afterSync); with no saves owed the batch runs at once (#305, the
+	// maintainer). The other way round (#298), the send card's stamp,
+	// written by the proxy seconds after its queue empties, was found by
+	// the probe at the saves card's end and shown as a second card for the
+	// same batch.
 	static std::atomic<bool> sBatchOwed{ false };
 	// A stamp the proxy writes after the queue has emptied is the send
 	// card's to take: it waits this long for it before saying the outcome.
@@ -398,7 +399,7 @@ namespace
 		card->close();
 	}
 
-	// The one watcher (PL-056): runs what was asked for, and what is asked
+	// The one watcher: runs what was asked for, and what is asked
 	// for while it runs, then lets go. The index's run goes first when both
 	// are waiting. A run asked for while a game has the screen waits for the
 	// game to end rather than start under it: the ctl reads the network and
@@ -407,9 +408,10 @@ namespace
 	// Before every run, the first included: a stop for a game holds the
 	// queue until that game has started (or LaunchStartSeconds from the stop
 	// passed without it), and no run starts while a game has the screen.
-	// The first run skipped this (PL-056 kept its old at-once start), so a
-	// request made under a game -- the index ending as one launched --
-	// started the ctl under it (audit of the fix round, G2-E-app-05).
+	// A first run that skipped this, at once as before, started the ctl
+	// under a game when the request was made under one -- the index ending
+	// as one launched (audit #307 PL-056; audit of the fix round,
+	// G2-E-app-05).
 	void waitForTheGame()
 	{
 		long long until = sTopUpHeldUntilMs.load();
@@ -529,12 +531,12 @@ namespace ProxyCards
 		}).detach();
 	}
 
-	// The RetroAchievements batch of a link's return (#305): the send card
-	// when the proxy holds awards or its stamp says a batch went, and the
-	// top-up (the ctl decides whether it has anything to do). After the
-	// owed saves when there were any, at once otherwise. Beside probe(),
-	// which it calls: the first cut declared it in the file's anonymous
-	// namespace and the link found no such function (x64 run 84).
+	// The RetroAchievements batch of a link's return: the send card when
+	// the proxy holds awards or its stamp says a batch went, and the top-up
+	// (the ctl decides whether it has anything to do). After the owed saves
+	// when there were any, at once otherwise (#305). It sits beside probe(),
+	// which it calls: declared in the file's anonymous namespace, the link
+	// found no such function (x64 run 84).
 	static void batch(Window* window)
 	{
 		LOG(LogInfo) << "ProxyCards: the link's RetroAchievements batch starts";
