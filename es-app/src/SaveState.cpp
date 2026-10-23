@@ -168,7 +168,11 @@ void SaveState::onGameEnded(FileData* game)
 {
 	if (racommands)
 	{
-		if (slot < 0)
+		// START NEW GAME (slot -2) parks the auto save as a numbered slot
+		// does (setupSaveState's racommands block), so it is put back here
+		// too: this returned for every slot below 0, and the auto save stayed
+		// renamed to .bak for good (PL-017). Slot -1 parks nothing.
+		if (slot == -1)
 			return;
 
 		if (!mNewSlotCheckSum.empty() && Utils::FileSystem::exists(mNewSlotFile))
