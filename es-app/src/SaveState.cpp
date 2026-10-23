@@ -8,6 +8,8 @@
 #include "SaveStateRepository.h"
 #include "SystemConf.h"
 #include "LaunchTemplate.h"
+#include "SaveStateFiles.h"
+#include "Log.h"
 
 std::string SaveState::makeStateFilename(int slot, bool fullPath, bool useImageGenerator) const
 {
@@ -199,18 +201,31 @@ void SaveState::onGameEnded(FileData* game)
 	// to the highest slot plus one whatever lies below.
 }
 
-void SaveState::remove() const
+// Utils::FileSystem's operations, for SaveStateFiles (PL-016).
+static SaveStateFiles::Ops saveStateFileOps()
 {
-	if (!isSlotValid())
-		return;
-
-	if (!fileName.empty())
-		Utils::FileSystem::removeFile(fileName);
-
-	if (!getScreenShot().empty())
-		Utils::FileSystem::removeFile(getScreenShot());
+	SaveStateFiles::Ops ops;
+	ops.move = [](const std::string& src, const std::string& dst) { return Utils::FileSystem::renameFile(src, dst); };
+	ops.copy = [](const std::string& src, const std::string& dst) { return Utils::FileSystem::copyFile(src, dst); };
+	ops.remove = [](const std::string& path) { return Utils::FileSystem::removeFile(path); };
+	return ops;
 }
 
+bool SaveState::remove() const
+{
+	if (!isSlotValid())
+		return false;
+
+	const auto r = SaveStateFiles::removeFiles(saveStateFileOps(), fileName, getScreenShot());
+	if (!r.state || !r.image)
+		LOG(LogWarning) << "SaveState: could not remove " << (!r.state ? fileName : getScreenShot());
+
+	return r.state && r.image;
+}
+
+// True when the state file reached its slot; the copy or move of its image
+// is logged when it did not, and the tile then has no picture (PL-016: it
+// was true whatever the operations returned).
 bool SaveState::copyToSlot(int slot, bool move) const
 {
 	if (slot < 0)
@@ -221,21 +236,13 @@ bool SaveState::copyToSlot(int slot, bool move) const
 
 	std::string destState = makeStateFilename(slot);
 	std::string destStateImage = makeStateFilename(slot, true, true);
-	
-	if (move)
-	{
-		Utils::FileSystem::renameFile(fileName, destState);
-		if (!getScreenShot().empty())
-			Utils::FileSystem::renameFile(getScreenShot(), destStateImage);
 
-	}
-	else
-	{
-		Utils::FileSystem::copyFile(fileName, destState);
-		if (!getScreenShot().empty())
-			Utils::FileSystem::copyFile(getScreenShot(), destStateImage);
-	}
+	const auto r = SaveStateFiles::transfer(saveStateFileOps(), move, fileName, getScreenShot(), destState, destStateImage);
+	if (!r.state)
+		LOG(LogWarning) << "SaveState: could not " << (move ? "move " : "copy ") << fileName << " to " << destState;
+	else if (!r.image)
+		LOG(LogWarning) << "SaveState: could not " << (move ? "move " : "copy ") << getScreenShot() << " to " << destStateImage;
 
-	return true;
+	return r.state;
 }
 

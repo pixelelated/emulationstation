@@ -22,7 +22,7 @@ struct SaveState
 	std::string getScreenShot() const;
 	int slot;
 
-	void remove() const;
+	bool remove() const;
 	bool copyToSlot(int slot, bool move = false) const;
 
 	Utils::Time::DateTime creationDate;
