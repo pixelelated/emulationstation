@@ -1267,8 +1267,9 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 	// #290); the command is built here and run below, on the worker that
 	// then starts the exit sync, so it still finishes before the sync
 	// starts and the manifest the push carries is current. The paths are
-	// read here, after onGameEnded above, which renumbers slot files
-	// and restores .state.auto -- the paths only settle there. The emulator
+	// read here, after onGameEnded above, which restores a parked
+	// .state.auto and drops an unchanged copied slot (no slot is renumbered
+	// since D-UI-069) -- the paths only settle there. The emulator
 	// and core are the ones the command carried (launchedEmulator/
 	// launchedCore), never getEmulator()/getCore() re-read now. --started is
 	// tstart: a member with no entry is recorded only if this session wrote

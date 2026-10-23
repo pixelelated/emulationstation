@@ -621,7 +621,7 @@ void launchStartupGame()
 // - No default route, no wait. `ip route show default`, the same test
 //   cloud_backup's check_network_link makes, and exit CloudExit::NoNetwork
 //   at once -- the scripts' own "no network", so the card says SKIPPED -
-//   NO NETWORK CONNECTION within a second and the launch gate is never
+//   YOU'RE NOT ONLINE (D-UI-031) within a second and the launch gate is never
 //   held on a device booted offline. The wait is for the other case: a
 //   link that is up while the connection behind it has not settled.
 // - The wait itself is cloud_net_ready's (fork #103): NetworkManager's
@@ -643,10 +643,10 @@ void launchStartupGame()
 //
 // The command runs under setsid with a ">>> pid" first line, which
 // ThreadedCloudSync gives every command (see there). A game launched while
-// this sync runs cancels it in whatever phase it is in, waits for it to be
-// gone, and goes ahead (#101, maintainer's decision, superseding the
-// refusal of D-CLOUD-038/053 and #87 for the syncs EmulationStation starts
-// on its own; FileData::launchGame has the reasoning). Behind it, the
+// this sync runs asks first (D-CLOUD-130, which replaced #101's cancel):
+// STOP IT AND PLAY stops it, waits for it to be gone and launches; KEEP
+// WAITING leaves it running (FileData::launchGatesClear has the
+// reasoning). Behind it, the
 // scripts' flock answers CloudExit::LockHeld to any second writer.
 static void startStartupSavesSync(Window* window)
 {
@@ -1146,8 +1146,8 @@ int main(int argc, char* argv[])
 	// Not after a one-touch restore. The journey prompt above offers
 	// `cloud_content_restore --all && cloud_restore --yes` on this same
 	// boot, and both take the sync lock: a startup sync already holding it
-	// would turn the player's YES into "Another cloud sync is already
-	// running. Skipped." in a console. That restore brings the saves down
+	// would turn the player's YES into SKIPPED - A SYNC IS ALREADY RUNNING
+	// on the transfer page the restore runs on (#114). That restore brings the saves down
 	// anyway, so nothing is lost by sitting this boot out.
 	if (sStartupCaptureFailed)
 		window.displayNotificationMessage(_U("\uF0C2  ") + _("COULDN'T RECORD THIS SESSION'S SAVES. THEY'RE STILL ON THIS DEVICE."));
