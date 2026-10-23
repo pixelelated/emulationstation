@@ -344,27 +344,28 @@ bool verifyHomeFolderExists()
 }
 
 // Returns true if everything is OK,
-bool loadSystemConfigFile(Window* window, const char** errorString)
+bool loadSystemConfigFile(Window* window, std::string* errorString)
 {
-	*errorString = NULL;
+	errorString->clear();
 
 	StopWatch stopWatch("loadSystemConfigFile :", LogDebug);
 
 	if(!SystemData::loadConfig(window))
 	{
 		LOG(LogError) << "Error while parsing systems configuration file!";
-		*errorString = "IT LOOKS LIKE YOUR SYSTEMS CONFIGURATION FILE HAS NOT BEEN SET UP OR IS INVALID. YOU'LL NEED TO DO THIS BY HAND, UNFORTUNATELY.\n\n"
-			"VISIT EMULATIONSTATION.ORG FOR MORE INFORMATION.";
+		// Through _() (PL-025); the words are upstream's (D-UI-079).
+		*errorString = _("IT LOOKS LIKE YOUR SYSTEMS CONFIGURATION FILE HAS NOT BEEN SET UP OR IS INVALID. YOU'LL NEED TO DO THIS BY HAND, UNFORTUNATELY.\n\n"
+			"VISIT EMULATIONSTATION.ORG FOR MORE INFORMATION.");
 		return false;
 	}
 
 	if(SystemData::sSystemVector.size() == 0)
 	{
 		LOG(LogError) << "No systems found! Does at least one system have a game present? (check that extensions match!)\n(Also, make sure you've updated your es_systems.cfg for XML!)";
-		*errorString = "WE CAN'T FIND ANY SYSTEMS!\n"
+		*errorString = _("WE CAN'T FIND ANY SYSTEMS!\n"
 			"CHECK THAT YOUR PATHS ARE CORRECT IN THE SYSTEMS CONFIGURATION FILE, "
 			"AND YOUR GAME DIRECTORY HAS AT LEAST ONE GAME WITH THE CORRECT EXTENSION.\n\n"
-			"VISIT EMULATIONSTATION.ORG FOR MORE INFORMATION.";
+			"VISIT EMULATIONSTATION.ORG FOR MORE INFORMATION.");
 		return false;
 	}
 
@@ -875,11 +876,11 @@ int main(int argc, char* argv[])
 	
 	threadPool->waitAllExcept(vlcInit); // Wait for what's necessary for loadSystemConfigFile
 
-	const char* errorMsg = NULL;
+	std::string errorMsg;
 	if (!loadSystemConfigFile(splashScreen && splashScreenProgress ? &window : nullptr, &errorMsg))
 	{
 		// something went terribly wrong
-		if (errorMsg == NULL)
+		if (errorMsg.empty())
 		{
 			LOG(LogError) << "Unknown error occured while parsing system config file.";
 			Renderer::deinit();
@@ -931,7 +932,7 @@ int main(int argc, char* argv[])
 	// tts
 	TextToSpeech::getInstance()->enable(Settings::getInstance()->getBool("TTS"), false);
 	
-	if (errorMsg == NULL)
+	if (errorMsg.empty())
 	{
 		if (splashScreen)
 			window.renderSplashScreen(_("Loading theme"));
@@ -955,8 +956,10 @@ int main(int argc, char* argv[])
 		std::getline(f, val);
 		f.close();
 
+		// Through _() with its French (PL-025, D-UI-051); it was a literal,
+		// shown in English whatever the language.
 		if (val == "1")
-		window.pushGui(new GuiMsgBox(&window, "pixelelated IS FREE SOFTWARE.\n\n IF YOU PAID FOR pixelelated YOU HAVE BEEN SCAMMED.\n\n PLEASE REQUEST A REFUND FROM THE SELLER!", _("AGREE")));
+			window.pushGui(new GuiMsgBox(&window, _("pixelelated IS FREE SOFTWARE.\n\nIF YOU PAID FOR pixelelated YOU HAVE BEEN SCAMMED.\n\nPLEASE REQUEST A REFUND FROM THE SELLER!"), _("AGREE")));
 
 		std::remove(markerFile.c_str());
 	}
