@@ -55,6 +55,9 @@ namespace
 		std::vector<bool> ctlAfterIndex;
 		CloudText::ScanStamp scan;
 		std::atomic<bool> stopSent{ false };
+		// Run before a posted function runs: a case starts a sync there, between
+		// a worker's check of the screen and the post it made (PL-022).
+		std::function<void()> beforePost;
 
 		void reset()
 		{
@@ -73,6 +76,7 @@ namespace
 			ctlAfterIndex.clear();
 			scan = CloudText::ScanStamp();
 			stopSent = false;
+			beforePost = nullptr;
 		}
 	};
 	Fake fake;
@@ -150,7 +154,17 @@ void ThreadedCloudSync::writeStamp(const std::string& path, int rc, const std::s
 	fake.stamps.push_back({ path, rc, token, why });
 }
 
-void Window::postToUiThread(const std::function<void()>& func, void*) { func(); }
+void Window::postToUiThread(const std::function<void()>& func, void*)
+{
+	std::function<void()> before;
+	{
+		std::lock_guard<std::mutex> g(fake.m);
+		before = fake.beforePost;
+	}
+	if (before)
+		before();
+	func();
+}
 AsyncNotificationComponent* Window::createAsyncNotificationComponent(bool)
 {
 	std::lock_guard<std::mutex> g(fake.m);
@@ -462,6 +476,33 @@ TEST_CASE("top-up: a first request while a game runs waits for the game to end")
 // still shows its outcome (a game quit at once). The hold is spent by that
 // game; watching for a running game alone would wait out the whole minute
 // for one already gone, and hold every request behind it.
+// PL-022 (pixelelated/distribution#649, #788): the worker checks that the
+// screen is free and posts the card, and a sync that starts in between got
+// a second floating card beside its own (D-UI-093). The posted function
+// asks again and makes none; the card comes once the sync has gone.
+TEST_CASE("top-up: a sync that starts between the check and the post gets no top-up card beside it")
+{
+	fake.reset();
+	fake.ctl = [](bool) { std::this_thread::sleep_for(std::chrono::milliseconds(2500)); return 0; };
+	auto once = std::make_shared<std::atomic<bool>>(false);
+	{
+		std::lock_guard<std::mutex> g(fake.m);
+		fake.beforePost = [once] { if (fake.ctlActive && !once->exchange(true)) fake.syncRunning = true; };
+	}
+	ProxyCards::topUp(&window, true);
+	REQUIRE(waitFor([] { return fake.ctlActive.load(); }, 10));
+	REQUIRE(waitFor([once] { return once->load(); }, 10));
+	std::this_thread::sleep_for(std::chrono::milliseconds(300));
+	CHECK_MESSAGE(openCards() == 0, "a top-up card was made beside the sync's");
+	{
+		std::lock_guard<std::mutex> g(fake.m);
+		fake.beforePost = nullptr;
+	}
+	fake.syncRunning = false;
+	REQUIRE(waitFor([] { return openCards() == 0 && fake.ctlActive == false; }, 30));
+	std::this_thread::sleep_for(std::chrono::milliseconds(6000));   // the watcher lets go
+}
+
 TEST_CASE("top-up: a game that came and went during the stopped run's card spends the hold")
 {
 	fake.reset();

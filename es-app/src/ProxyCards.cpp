@@ -241,7 +241,11 @@ namespace
 		// the loop that runs posted tasks is not turning -- a game has the
 		// screen -- the run goes on without a card, and the lambda, run
 		// later, makes none.
-		auto attach = [window]() -> AsyncNotificationComponent*
+		auto screenFree = []
+		{
+			return !sSendRunning && !ThreadedCloudSync::isRunning() && FileData::GetRunningGame() == nullptr;
+		};
+		auto attach = [window, screenFree]() -> AsyncNotificationComponent*
 		{
 			// `wanted` is flipped once, by whichever side gets there
 			// first: the lambda, which then makes the card and hands it
@@ -250,10 +254,19 @@ namespace
 			auto made = std::make_shared<std::promise<AsyncNotificationComponent*>>();
 			auto wanted = std::make_shared<std::atomic<bool>>(true);
 			auto got = made->get_future();
-			AppWindow::post(window, [window, made, wanted]
+			AppWindow::post(window, [window, made, wanted, screenFree]
 			{
 				if (!wanted->exchange(false))
 					return;
+				// Asked again here, where the card would be made: a send or a
+				// sync that started after the worker's check would get this
+				// card beside its own (PL-022, D-UI-093). None is made; the
+				// worker asks for one once the screen is free.
+				if (!screenFree())
+				{
+					made->set_value(nullptr);
+					return;
+				}
 				AsyncNotificationComponent* c = window->createAsyncNotificationComponent(true);
 				c->updateTitle(TROPHY + _("RETROACHIEVEMENTS (OFFLINE)"));
 				c->updateText(_("STARTING..."));
@@ -263,10 +276,6 @@ namespace
 			if (got.wait_for(std::chrono::seconds(3)) == std::future_status::ready || !wanted->exchange(false))
 				return got.get();
 			return nullptr;
-		};
-		auto screenFree = []
-		{
-			return !sSendRunning && !ThreadedCloudSync::isRunning() && FileData::GetRunningGame() == nullptr;
 		};
 		while (!finished)
 		{
