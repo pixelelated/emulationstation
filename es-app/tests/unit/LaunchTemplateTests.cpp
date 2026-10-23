@@ -135,3 +135,50 @@ TEST_CASE("template: the forced options are found as whole words, in either form
 	CHECK_FALSE(LaunchTemplate::hasOption("/usr/bin/my-emulator-wrapper %ROM%", "-emulator"));
 	CHECK_FALSE(LaunchTemplate::hasOption("/usr/bin/tool --hardcore %ROM%", "-core"));
 }
+
+// PL-010 (pixelelated/distribution#649, #776; the seam's contract is
+// D-WORKFLOW-192): on ROCKNIX the netplay part of the line names the mode
+// and the relay session in RetroArch's own words, and the launcher reads
+// the host, the port and the password from settings.
+namespace
+{
+	bool has(const std::vector<std::string>& args, const std::string& word)
+	{
+		for (const auto& a : args)
+			if (a == word)
+				return true;
+		return false;
+	}
+}
+
+TEST_CASE("netplay: a client join is the connect, the port and the nick, each one word")
+{
+	const auto args = words(LaunchTemplate::netplayArguments(false, false, "192.168.1.20", 55435, "", NAME, ""));
+	CHECK(after(args, "--connect") == "192.168.1.20");
+	CHECK(after(args, "--port") == "55435");
+	CHECK(after(args, "--nick") == NAME);
+	CHECK_FALSE(has(args, "--netplaymode"));
+}
+
+TEST_CASE("netplay: a spectator join says so beside the connect (PL-010)")
+{
+	const auto args = words(LaunchTemplate::netplayArguments(false, true, "192.168.1.20", 55435, "", "Bob", ""));
+	CHECK(after(args, "--netplaymode") == "spectator");
+	CHECK(after(args, "--connect") == "192.168.1.20");
+}
+
+TEST_CASE("netplay: a lobby entry's relay session is one word (PL-010)")
+{
+	const auto args = words(LaunchTemplate::netplayArguments(false, false, "10.0.0.1", 55435, "", "Bob", "abc123"));
+	CHECK(has(args, "--mitm-session=abc123"));
+	const auto none = words(LaunchTemplate::netplayArguments(false, false, "10.0.0.1", 55435, "", "Bob", ""));
+	for (const auto& a : none)
+		CHECK(a.compare(0, 15, "--mitm-session=") != 0);
+}
+
+TEST_CASE("netplay: a host with no port set takes the shipped default (PL-010)")
+{
+	CHECK(after(words(LaunchTemplate::netplayArguments(true, false, "", 0, "", "Bob", "")), "--port") == "55435");
+	CHECK(after(words(LaunchTemplate::netplayArguments(true, false, "", 0, "55500", "Bob", "")), "--port") == "55500");
+	CHECK(has(words(LaunchTemplate::netplayArguments(true, false, "", 0, "", "Bob", "")), "--host"));
+}

@@ -81,6 +81,26 @@ namespace LaunchTemplate
 		}
 		return false;
 	}
+
+	// The netplay part of a ROCKNIX launch line (PL-010; the seam's
+	// contract with runemu.sh is D-WORKFLOW-192). The mode and a lobby
+	// entry's relay session are named on the line in RetroArch's own words;
+	// the launcher reads the host, the port and the password from settings.
+	// A spectator join went as a plain client and the relay session was
+	// dropped. A host with no port set takes the shipped default
+	// (system.cfg's global.netplay.port=55435), not an empty word.
+	inline std::string netplayArguments(bool host, bool spectator, const std::string& ip, int port, const std::string& hostPort, const std::string& nick, const std::string& session)
+	{
+		if (host)
+			return "--host --port " + Utils::String::shellQuote(hostPort.empty() ? std::string("55435") : hostPort) + " --nick " + Utils::String::shellQuote(nick);
+
+		std::string line = "--connect " + Utils::String::shellQuote(ip) + " --port " + std::to_string(port) + " --nick " + Utils::String::shellQuote(nick);
+		if (spectator)
+			line += " --netplaymode spectator";
+		if (!session.empty())
+			line += " " + Utils::String::shellQuote("--mitm-session=" + session);
+		return line;
+	}
 }
 
 #endif // ES_APP_LAUNCH_TEMPLATE_H

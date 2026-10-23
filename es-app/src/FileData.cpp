@@ -699,7 +699,7 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 		else
 #endif
 #if ROCKNIX
-			netplay = "--connect " + Utils::String::shellQuote(options.ip) + " --port " + std::to_string(options.port) + " --nick " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.nickname")); // fork #275
+			netplay = LaunchTemplate::netplayArguments(false, options.netPlayMode == SPECTATOR, options.ip, options.port, "", SystemConf::getInstance()->get("global.netplay.nickname"), options.session); // fork #275, PL-010
 #else
 			netplay = "-netplaymode " + mode + " -netplayport " + std::to_string(options.port) + " -netplayip " + options.ip + session + pass;
 #endif
@@ -712,7 +712,7 @@ std::string FileData::getlaunchCommand(LaunchGameOptions& options, bool includeC
 		else
 #endif
 #if ROCKNIX
-			netplay = "--host --port " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.port")) + " --nick " + Utils::String::shellQuote(SystemConf::getInstance()->get("global.netplay.nickname")); // fork #275
+			netplay = LaunchTemplate::netplayArguments(true, false, "", 0, SystemConf::getInstance()->get("global.netplay.port"), SystemConf::getInstance()->get("global.netplay.nickname"), ""); // fork #275, PL-010
 #else
 			netplay = "-netplaymode host";
 #endif
