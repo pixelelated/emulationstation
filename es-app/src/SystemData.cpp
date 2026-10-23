@@ -607,17 +607,15 @@ void SystemData::populateFolder(FolderData* folder, std::unordered_map<std::stri
 		//see issue #75: https://github.com/Aloshi/EmulationStation/issues/75
 
 		isGame = false;
-		if(mEnvData->isValidExtension(extension))
+		// preventing new arcade assets to be added: asked before the object
+		// is made (PL-036), since one made for an asset was neither kept nor
+		// freed, and freeing it would take entries out of the live index.
+		if(mEnvData->isValidExtension(extension) && !FileData::isArcadeAssetPath(this, filePath))
 		{
 			FileData* newGame = new FileData(GAME, filePath, this);
-
-			// preventing new arcade assets to be added
-			if(!newGame->isArcadeAsset())
-			{
-				folder->addChild(newGame);
-				fileMap[filePath] = newGame;
-				isGame = true;
-			}
+			folder->addChild(newGame);
+			fileMap[filePath] = newGame;
+			isGame = true;
 		}
 
 		//add directories that also do not match an extension as folders

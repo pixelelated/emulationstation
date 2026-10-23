@@ -513,9 +513,17 @@ std::string FileData::getKey()
 
 const bool FileData::isArcadeAsset()
 {
-	if (mSystem && (mSystem->hasPlatformId(PlatformIds::ARCADE) || mSystem->hasPlatformId(PlatformIds::NEOGEO)))
+	return isArcadeAssetPath(mSystem, getPath());
+}
+
+// The same test without an object, so the folder scan asks it before it
+// makes one (PL-036): it made a FileData for every file and then dropped
+// an asset's, neither kept nor freed.
+bool FileData::isArcadeAssetPath(SystemData* system, const std::string& path)
+{
+	if (system && (system->hasPlatformId(PlatformIds::ARCADE) || system->hasPlatformId(PlatformIds::NEOGEO)))
 	{	
-		const std::string stem = Utils::FileSystem::getStem(getPath());
+		const std::string stem = Utils::FileSystem::getStem(path);
 		return MameNames::getInstance()->isBiosOrDevice(stem);		
 	}
 

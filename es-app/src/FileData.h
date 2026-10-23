@@ -168,6 +168,7 @@ public:
 
 	virtual std::string getKey();
 	const bool isArcadeAsset();
+	static bool isArcadeAssetPath(SystemData* system, const std::string& path);
 	const bool isVerticalArcadeGame();
 	const bool isLightGunGame();
   	const bool isWheelGame();
