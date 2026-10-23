@@ -55,6 +55,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/SaveStateFilesTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/SystemFoldersTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/SystemOverlaysTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/SortIdTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
 	${ES_ROOT}/es-app/src/CheevosRetry.cpp

@@ -52,6 +52,7 @@
 #include "LaunchCommand.h"
 #include "LaunchTemplate.h"
 #include "GameFiles.h"
+#include "SortId.h"
 #if !WIN32
 #include <climits>
 #include <stdlib.h>
@@ -1710,9 +1711,10 @@ const std::vector<FileData*> FolderData::getChildrenListToDisplay()
 		ret.push_back(*it);
 	}
 
-	unsigned int currentSortId = sys->getSortId();
-	if (currentSortId > FileSorts::getSortTypes().size())
-		currentSortId = 0;
+	// Bounded at the index too, since getSortId's id may come from any
+	// setter (PL-005: an id equal to the count passed `>` and ended the
+	// interface at at()).
+	unsigned int currentSortId = SortId::bounded(sys->getSortId(), FileSorts::getSortTypes().size());
 
 	const FileSorts::SortType& sort = FileSorts::getSortTypes().at(currentSortId);
 

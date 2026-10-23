@@ -1,6 +1,7 @@
 #include "SystemData.h"
 #include "SystemFolders.h"
 #include "SystemOverlays.h"
+#include "SortId.h"
 
 #include "SystemConf.h"
 #include "utils/FileSystemUtil.h"
@@ -85,7 +86,9 @@ SystemData::SystemData(const SystemMetadata& meta, SystemEnvironmentData* envDat
 	mIsGroupSystem = groupedSystem;
 	mGameListHash = 0;
 	mGameCountInfo = nullptr;
-	mSortId = Settings::getInstance()->getInt(getName() + ".sort");
+	// Bounded as it is read (PL-005): a build with fewer sort types leaves
+	// a stored id past the end, which then reads as the default.
+	mSortId = SortId::bounded(Settings::getInstance()->getInt(getName() + ".sort"), FileSorts::getSortTypes().size());
 	mGridSizeOverride = Vector2f(0, 0);
 
 	mFilterIndex = nullptr;
