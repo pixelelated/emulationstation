@@ -46,7 +46,7 @@ def definition(signature):
 # LaunchGameRef, and launchNow takes one; at the pin, the pointer.
 by_ref = "static void launchNow(Window* window, const LaunchGameRef&" in source
 LAUNCH_NOW_DOUBLE = ("struct LaunchGameRef { std::string system; std::string path; };\n"
-                     "struct FileData { static LaunchGameRef launchRef(FileData*) { return { \"snes\", \"/storage/roms/snes/game.sfc\" }; } };\n"
+                     "struct FileData { static LaunchGameRef launchRef(FileData*) { return { \"snes\", \"/storage/roms/snes/game.sfc\" }; } static FileData* GetRunningGame() { return nullptr; } };\n"
                      "struct LaunchGameOptions {};\n"
                      "static std::atomic<int> gLaunched{ 0 };\n"
                      "static void launchNow(Window*, const LaunchGameRef&, const LaunchGameOptions&) { gLaunched++; }\n"
@@ -55,6 +55,15 @@ LAUNCH_NOW_DOUBLE = ("struct LaunchGameRef { std::string system; std::string pat
                      "struct LaunchGameOptions {};\n"
                      "static std::atomic<int> gLaunched{ 0 };\n"
                      "static void launchNow(Window*, FileData*, const LaunchGameOptions&) { gLaunched++; }\n")
+
+# The exit's own decision, asked once the capture is done (PL-009): the
+# shipped exitSyncIsThisExits where the tree has it; at the pin, the post's
+# two tests as the pin's launchGame wrote them (generation unchanged and no
+# game running, then no launch waiting on the capture), no game running.
+has_exit_rule = "static bool exitSyncIsThisExits(" in source
+EXIT_SYNC_RULE = ("exitSyncIsThisExits(11)" if has_exit_rule else
+                  "(11 == sExitGeneration.load() && sCaptureWaitedOn.load() != 11)")
+EXIT_SYNC_DEF = definition("static bool exitSyncIsThisExits(") if has_exit_rule else ""
 
 harness = r'''
 #include <atomic>
@@ -93,7 +102,7 @@ static std::atomic<unsigned> sCaptureWaitedOn{ 0 };
 static std::atomic<long> gAgeSeconds{ 0 };
 static long captureAgeSeconds() { return gAgeSeconds.load(); }
 static const long CaptureHungSeconds = 120;
-''' + LAUNCH_NOW_DOUBLE + definition('static bool captureGate(') + r'''
+''' + LAUNCH_NOW_DOUBLE + definition('static bool captureGate(') + '\n' + EXIT_SYNC_DEF + r'''
 
 static void finishIn(unsigned gen, int ms) {
     std::thread([gen, ms] { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); unsigned g = gen; sCaptureInFlight.compare_exchange_strong(g, 0); }).detach();
@@ -129,7 +138,22 @@ int main()
         while (page && !page->done && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(8))
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         check(gLaunched == 1 && sCaptureInFlight == 0, "a slow capture: the game starts once, after it");
-        check(sExitGeneration == gen + 1, "a slow capture: the launch that goes owns the exit sync");
+        // PL-009: the relaunch is not yet a started game, so the exit sync is
+        // held for it, not taken: the generation does not move here.
+        check(sExitGeneration == gen && sCaptureWaitedOn == 8, "a slow capture: the waiting launch holds the exit sync until its game starts");
+        sCaptureWaitedOn = 0;
+    }
+    { // PL-009: the relaunch is then refused at a later gate (KEEP WAITING), and no game starts
+        Window w; sExitGeneration = 11; sCaptureInFlight = 11; finishIn(11, 600); gLaunched = 0;
+        captureGate(&w, &game, options);
+        auto* page = dynamic_cast<GuiLoading<bool>*>(w.stack.empty() ? nullptr : w.stack.back().get());
+        const auto t0 = std::chrono::steady_clock::now();
+        while (page && !page->done && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(8))
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        check(gLaunched == 1, "a refused relaunch: the relaunch was made");
+        // The capture's post, once its wait for the claim is over, with no game running.
+        check(''' + EXIT_SYNC_RULE + r''', "a refused relaunch: the capture still runs its own exit sync");
+        sCaptureWaitedOn = 0;
     }
     { // still recording at the bound: nothing launches under it, and it says why
         Window w; sCaptureInFlight = 9; gLaunched = 0; gRefused = 0; gAgeSeconds = 12;

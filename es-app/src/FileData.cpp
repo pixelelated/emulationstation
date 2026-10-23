@@ -114,6 +114,29 @@ static std::atomic<long long> sCaptureStartedMs{ 0 };
 // leaves it to the capture), so the capture's own post leaves it alone.
 static std::atomic<unsigned> sCaptureWaitedOn{ 0 };
 static const long CaptureHungSeconds = 120;
+// How long a capture's worker waits, after the capture, for the launch
+// that waited on it to start its game before the exit sync is the
+// capture's again (PL-009). Past the gates a game starts within the
+// transition, at most 1.5 s; the rest is margin.
+static const long ExitSyncClaimMs = 5000;
+
+// Whether the exit whose capture is `generation` runs its own exit sync,
+// asked once the capture is done and the worker's wait for a claim is
+// over: not when another game has been launched since (it owns it, and
+// its exit's --recent run carries these saves); otherwise yes, taking back
+// a waiting launch's claim that never started a game (PL-009).
+static bool exitSyncIsThisExits(unsigned generation)
+{
+	if (generation != sExitGeneration.load() || FileData::GetRunningGame() != nullptr)
+	{
+		LOG(LogInfo) << "exit: another game was launched since; its exit syncs";
+		return false;
+	}
+	unsigned waited = generation;
+	if (sCaptureWaitedOn.compare_exchange_strong(waited, 0))
+		LOG(LogInfo) << "exit: the launch that waited for this capture did not start a game; this exit syncs";
+	return true;
+}
 
 static long long steadyMs()
 {
@@ -898,12 +921,16 @@ static void launchWhenGone(Window* window, const LaunchGameRef& game, const Laun
 // a player kept from every game for bookkeeping is the worse failure.
 //
 // The exit sync is the gate's to decide while a launch waits (claude
-// G-E2-06): a launch that goes owns it -- the generation moves at the
-// moment it goes, so the capture's post leaves the sync to that game's
-// exit and the player is not asked about a sync that started while they
-// waited -- and a launch refused at the bound leaves it to the capture,
-// whose post runs it when the capture ends. The generation used to move as
-// the spinner went up, before the launch was certain.
+// G-E2-06): a launch whose game starts owns it -- its exit's --recent run
+// carries this session's saves too, and the player is not asked about a
+// sync that started while they waited -- and a launch refused at the bound
+// leaves it to the capture, whose post runs it when the capture ends. The
+// generation used to move as the spinner went up, before the launch was
+// certain, and then as the relaunch went, which a later gate could still
+// refuse: KEEP WAITING there left the session's saves unsynced until the
+// next game's exit (PL-009). Now the claim (sCaptureWaitedOn) is held until
+// the game starts, and the capture's worker gives up on a claim that has
+// not started a game within ExitSyncClaimMs (exitSyncIsThisExits).
 static bool captureGate(Window* window, FileData* game, const LaunchGameOptions& options)
 {
 	const LaunchGameRef ref = FileData::launchRef(game);   // the wait carries the game by name (PL-008)
@@ -950,8 +977,9 @@ static bool captureGate(Window* window, FileData* game, const LaunchGameOptions&
 				window->pushGui(new GuiMsgBox(window, _("YOUR LAST GAME'S SAVES ARE STILL BEING RECORDED. TRY AGAIN IN A MOMENT.")));
 				return;
 			}
-			++sExitGeneration;
-			sCaptureWaitedOn = 0;
+			// The claim stays until the relaunch's game starts (launchGame)
+			// or the capture's worker gives up on it (PL-009): a relaunch a
+			// later gate refuses no longer takes this exit's sync with it.
 			launchNow(window, ref, options);
 		}));
 	return false;
@@ -1185,6 +1213,7 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 
 	mRunningGame = gameToUpdate;
 	sGamesStarted++;
+	sCaptureWaitedOn = 0;   // a launch that waited on a capture has started its game, and owns that exit's sync (PL-009)
 
 	// Pause watchers before game launch
 	WatchersManager::pause();
@@ -1371,6 +1400,13 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 			// Only this exit's: a later exit's capture owns the slot now.
 			unsigned mine = generation;
 			sCaptureInFlight.compare_exchange_strong(mine, 0);
+
+			// A launch waited on this capture: give it the moment its game
+			// needs to start, which makes the sync that game's (PL-009).
+			const long long until = steadyMs() + ExitSyncClaimMs;
+			while (sCaptureWaitedOn.load() == generation && sExitGeneration.load() == generation
+				&& FileData::GetRunningGame() == nullptr && steadyMs() < until)
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		AppWindow::post(window, [window, exitSync, generation, captureFailed]
 		{
@@ -1384,19 +1420,8 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 			// 8a-es-app gpt F-ES-05; the check below returned before it).
 			if (captureFailed)
 				window->displayNotificationMessage(_U("\uF0C2  ") + _("COULDN'T RECORD THIS SESSION'S SAVES. THEY'RE STILL ON THIS DEVICE."));
-			if (generation != sExitGeneration.load() || mRunningGame != nullptr)
-			{
-				LOG(LogInfo) << "exit: another game was launched since; its exit syncs";
+			if (!exitSyncIsThisExits(generation))
 				return;
-			}
-			// A launch is waiting on this capture behind the spinner: if it
-			// goes it owns the sync, as above; it can only be refused while
-			// the capture runs, and this capture has ended (captureGate).
-			if (sCaptureWaitedOn.load() == generation)
-			{
-				LOG(LogInfo) << "exit: a launch waited for this capture; its game's exit syncs";
-				return;
-			}
 			if (exitSync && !ThreadedCloudSync::isRunning())
 			{
 				ThreadedCloudSync::start(window, "/usr/bin/cloud_backup --yes --saves-only --recent --automatic",
