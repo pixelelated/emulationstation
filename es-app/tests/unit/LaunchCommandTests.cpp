@@ -226,3 +226,21 @@ TEST_CASE("launch command: a nick that is a whole option word (where runemu.sh p
 	CHECK(launchArgument(cmd, "--core", "fallback") == "snes9x");
 	CHECK(runemu(cmd, "--core=") == "x");
 }
+
+// PL-024 (pixelelated/distribution#649): the launch error box shows the
+// text a launcher wrote to /tmp/launch_error.log, as it was written. It is
+// bounded, without its trailing line breaks, and never cut inside a UTF-8
+// character.
+TEST_CASE("launch error: the launcher's text is bounded for the box (PL-024)")
+{
+	CHECK(launchErrorText("CORE IS MISSING\n\n", 300) == "CORE IS MISSING");
+	const std::string longText(1000, 'A');
+	const std::string bounded = launchErrorText(longText, 300);
+	CHECK(bounded.size() <= 303);
+	CHECK(bounded.compare(bounded.size() - 3, 3, "...") == 0);
+	// A two-byte character across the bound is dropped whole, not split.
+	const std::string accented = std::string(299, 'A') + "\xC3\xA9" + "B";
+	const std::string cut = launchErrorText(accented, 300);
+	CHECK(cut == std::string(299, 'A') + "...");
+	CHECK(launchErrorText("", 300) == "");
+}

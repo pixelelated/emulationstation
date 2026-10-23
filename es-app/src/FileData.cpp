@@ -788,9 +788,12 @@ std::string FileData::getMessageFromExitCode(int exitCode)
 	#else
 			std::string messageFile = "/tmp/launch_error.log";
 	#endif
-			if (Utils::FileSystem::exists(messageFile))
+			// Read uncached: the launcher writes it while the interface runs,
+			// and a cached miss read it as absent (PL-024). Bounded for the
+			// box, which showed the file whatever its length.
+			if (Utils::FileSystem::exists(messageFile, false))
 			{
-				auto message = Utils::FileSystem::readAllText(messageFile);
+				auto message = launchErrorText(Utils::FileSystem::readAllText(messageFile), 300);
 				Utils::FileSystem::removeFile(messageFile);
 
 				if (!message.empty())

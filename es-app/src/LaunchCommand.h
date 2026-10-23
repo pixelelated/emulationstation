@@ -108,4 +108,23 @@ inline std::string launchArgument(const std::string& command, const std::string&
 	return findLaunchToken(command, key + "=", value) ? value : fallback;
 }
 
+// The text a launcher left in /tmp/launch_error.log, as the launch error
+// box shows it (pixelelated/distribution#649, PL-024): without its trailing
+// line breaks and spaces, and at most `max` bytes, ending in "..." when cut.
+// A cut lands before a UTF-8 character, never inside one. The box showed
+// the file as it was written, whatever its length.
+inline std::string launchErrorText(const std::string& text, size_t max)
+{
+	size_t end = text.size();
+	while (end > 0 && (text[end - 1] == '\n' || text[end - 1] == '\r' || text[end - 1] == ' ' || text[end - 1] == '\t'))
+		end--;
+	if (end <= max)
+		return text.substr(0, end);
+
+	size_t cut = max;
+	while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80)
+		cut--;
+	return text.substr(0, cut) + "...";
+}
+
 #endif // ES_APP_LAUNCH_COMMAND_H
