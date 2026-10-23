@@ -248,6 +248,7 @@ int SaveStateRepository::getNextFreeSlot(FileData* game, std::shared_ptr<SaveSta
 	return -99;
 }
 
+// No caller on the fork since D-UI-069 (a slot's number never changes); kept because upstream still calls it from SaveState.cpp and GuiSaveState.cpp (PL-027).
 void SaveStateRepository::renumberSlots(FileData* game, std::shared_ptr<SaveStateConfig> config)
 {
 	if (!isEnabled(game))
