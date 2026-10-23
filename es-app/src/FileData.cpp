@@ -1222,6 +1222,10 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 	process.window = hideWindow ? NULL : window;
 	
 	int exitCode = process.run();
+	// The session ends when the command returns (PL-019): taken later, after
+	// the save states' refresh, the capture's start and the window's return,
+	// the play time counted the way back to the interface too.
+	const time_t tend = time(NULL);
 	
 	// Resume watchers when returning to ES
 	WatchersManager::resume();
@@ -1317,7 +1321,6 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 
 		// How long have you played that game? (more than 10 seconds, otherwise
 		// you might have experienced a loading problem)
-		time_t tend = time(NULL);
 		long elapsedSeconds = difftime(tend, tstart);
 		long gameTime = gameToUpdate->getMetadata().getInt(MetaDataId::GameTime) + elapsedSeconds;
 		if (elapsedSeconds >= 10)
