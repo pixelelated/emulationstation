@@ -1,5 +1,6 @@
 #include "SystemData.h"
 #include "SystemFolders.h"
+#include "SystemOverlays.h"
 
 #include "SystemConf.h"
 #include "utils/FileSystemUtil.h"
@@ -1028,74 +1029,80 @@ bool SystemData::isFeatureSupported(std::string emulatorName, std::string coreNa
 // Load custom additionnal config from es_systems_*.cfg files
 void SystemData::loadAdditionnalConfig(pugi::xml_node& srcSystems)
 {	
-	std::vector<std::string> rootPaths = { Paths::getUserEmulationStationPath(), Paths::getEmulationStationPath() };
-	for (auto rootPath : VectorHelper::distinct(rootPaths, [](auto x) { return x; }))
+	// The overlays in order, the image's first and the player's last, each
+	// folder by name, and a file that cannot be read passed over with its
+	// name logged rather than ending the read (PL-004, SystemOverlays.h).
+	const std::string userPath = Paths::getUserEmulationStationPath();
+	const std::string imagePath = Paths::getEmulationStationPath();
+	auto entries = [](const std::string& dir)
 	{
-		for (auto customPath : Utils::FileSystem::getDirContent(rootPath, false, false))
+		const auto list = Utils::FileSystem::getDirContent(dir, false, false);
+		return std::vector<std::string>(list.cbegin(), list.cend());
+	};
+	auto overlays = SystemOverlays::order(userPath, entries(userPath), imagePath, imagePath == userPath ? std::vector<std::string>() : entries(imagePath));
+
+	auto refused = SystemOverlays::readEach(overlays, [&srcSystems](const std::string& customPath)
+	{
+		pugi::xml_document doc;
+		pugi::xml_parse_result res = doc.load_file(WINSTRINGW(customPath).c_str());
+		if (!res)
+			return SystemOverlays::Read::Unparsable;
+
+		pugi::xml_node systemList = doc.child("systemList");
+		if (!systemList)
+			return SystemOverlays::Read::NoSystemList;
+
+		for (pugi::xml_node system = systemList.child("system"); system; system = system.next_sibling("system"))
 		{
-			if (Utils::FileSystem::getExtension(customPath) != ".cfg")
+			if (!system.child("name"))
 				continue;
 
-			if (!Utils::String::startsWith(Utils::FileSystem::getFileName(customPath), "es_systems_"))
+			std::string name = system.child("name").text().get();
+			if (name.empty())
 				continue;
 
-			pugi::xml_document doc;
-			pugi::xml_parse_result res = doc.load_file(WINSTRINGW(customPath).c_str());
-			if (!res)
-			{
-				LOG(LogError) << "Could not parse " << Utils::FileSystem::getFileName(customPath) << " file!";
-				return;
-			}
+			bool found = false;
 
-			pugi::xml_node systemList = doc.child("systemList");
-			if (!systemList)
+			// Remove existing one
+			for (pugi::xml_node& srcSystem : srcSystems.children())
 			{
-				LOG(LogError) << Utils::FileSystem::getFileName(customPath) << " is missing the <systemList> tag !";
-				return;
-			}
-
-			for (pugi::xml_node system = systemList.child("system"); system; system = system.next_sibling("system"))
-			{
-				if (!system.child("name"))
+				if (std::string(srcSystem.name()) != "system")
 					continue;
 
-				std::string name = system.child("name").text().get();
-				if (name.empty())
+				std::string srcName = srcSystem.child("name").text().get();
+				if (srcName != name)
 					continue;
 
-				bool found = false;
+				found = true;
 
-				// Remove existing one
-				for (pugi::xml_node& srcSystem : srcSystems.children())
+				for (pugi::xml_node& child : system.children())
 				{
-					if (std::string(srcSystem.name()) != "system")
+					std::string tag = child.name();
+					if (tag == "name")
 						continue;
 
-					std::string srcName = srcSystem.child("name").text().get();
-					if (srcName != name)
-						continue;
+					srcSystem.remove_child(tag.c_str());
 
-					found = true;
-
-					for (pugi::xml_node& child : system.children())
-					{
-						std::string tag = child.name();
-						if (tag == "name")
-							continue;
-
-						srcSystem.remove_child(tag.c_str());
-
-						if (tag == "emulators" || !std::string(child.text().get()).empty())
-							srcSystem.append_copy(child);
-					}
-
-					break;
+					if (tag == "emulators" || !std::string(child.text().get()).empty())
+						srcSystem.append_copy(child);
 				}
 
-				if (!found)
-					srcSystems.append_copy(system);
+				break;
 			}
+
+			if (!found)
+				srcSystems.append_copy(system);
 		}
+
+		return SystemOverlays::Read::Ok;
+	});
+
+	for (const auto& r : refused)
+	{
+		if (r.second == SystemOverlays::Read::Unparsable)
+			LOG(LogError) << "Could not parse " << Utils::FileSystem::getFileName(r.first) << " file! The other overlays are still read";
+		else
+			LOG(LogError) << Utils::FileSystem::getFileName(r.first) << " is missing the <systemList> tag ! The other overlays are still read";
 	}
 }
 
