@@ -568,6 +568,14 @@ void ViewController::launch(FileData* game, LaunchGameOptions options, Vector3f 
 		return;
 	}
 
+	// The launch gates ask here, over the list, before the transition and
+	// the splash (PL-014): asked from launchGame, at the transition's end,
+	// the question came over the zoomed-in art, and a refusal left the list
+	// hidden. A gate that asks relaunches through here when answered.
+	if (!game->launchGatesClear(mWindow, options))
+		return;
+	options.gatesCleared = true;
+
 	if (!SystemConf::getInstance()->getBool("global.netplay") || ApiSystem::getInstance()->getIpAddress() == "NOT CONNECTED" || !game->isNetplaySupported())
 		options.netPlayMode = DISABLED;
 	else if (options.netPlayMode == DISABLED && Settings::getInstance()->getBool("NetPlayAutomaticallyCreateLobby"))
@@ -625,6 +633,7 @@ void ViewController::launch(FileData* game, LaunchGameOptions options, Vector3f 
 			{
 				setAnimation(new LambdaAnimation(fadeFunc, 800), 0, [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); }, true, 3);
 				this->onFileChanged(game, FILE_METADATA_CHANGED);
+				if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
 			}
 		});
 	} 
@@ -646,6 +655,7 @@ void ViewController::launch(FileData* game, LaunchGameOptions options, Vector3f 
 				mCamera = origCamera;
 				setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 600), 0, [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); }, true, 3);
 				this->onFileChanged(game, FILE_METADATA_CHANGED);
+				if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
 			}
 		});
 	} 
@@ -665,6 +675,7 @@ void ViewController::launch(FileData* game, LaunchGameOptions options, Vector3f 
 				mCamera = origCamera;
 				setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); }, true, 3);
 				this->onFileChanged(game, FILE_METADATA_CHANGED);
+				if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
 			}
 		});
 	}

@@ -58,6 +58,7 @@ struct LaunchGameOptions
 		isSaveStateInfoTemporary = false;
 		launchedEmulator = "";
 		launchedCore = "";
+		gatesCleared = false;
 	}
 
 	int netPlayMode;
@@ -83,6 +84,12 @@ struct LaunchGameOptions
 	// Out-fields: getlaunchCommand fills them, launchGame reads them.
 	std::string launchedEmulator;
 	std::string launchedCore;
+
+	// The launch gates were asked and let this launch go, before the
+	// transition (ViewController::launch, PL-014); launchGame does not ask
+	// them again. A launch that does not come through ViewController -- the
+	// screensaver's -- leaves it false and is asked in launchGame.
+	bool gatesCleared;
 };
 
 class FolderData;
@@ -161,6 +168,12 @@ public:
 	std::string getlaunchCommand(LaunchGameOptions& options, bool includeControllers = true);
 
 	bool		launchGame(Window* window, LaunchGameOptions options = LaunchGameOptions());
+	// The questions a launch must answer before it may go -- the last game's
+	// saves still being recorded, a sync, a transfer, the offline
+	// achievements' send or top-up (D-UI-095) -- each asked over the list.
+	// True when the launch may go on now; false when a question or a
+	// spinner was put up, whose answer relaunches.
+	bool		launchGatesClear(Window* window, LaunchGameOptions& options);
 
 	static void resetSettings();
 	

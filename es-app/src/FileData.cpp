@@ -942,10 +942,8 @@ static bool captureGate(Window* window, FileData* game, const LaunchGameOptions&
 	return false;
 }
 
-bool FileData::launchGame(Window* window, LaunchGameOptions options)
+bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 {
-	LOG(LogInfo) << "Attempting to launch game...";
-
 	// PLAY NOW's answer is for the launch it leads to and no other (#308
 	// 8-es-menus-and-core claude F-ES-07): taken here, on the way in,
 	// whether or not the send is still running. It was taken only where the
@@ -1072,6 +1070,19 @@ bool FileData::launchGame(Window* window, LaunchGameOptions options)
 			_("KEEP WAITING"), nullptr));
 		return false;
 	}
+
+	return true;
+}
+
+bool FileData::launchGame(Window* window, LaunchGameOptions options)
+{
+	LOG(LogInfo) << "Attempting to launch game...";
+
+	// Asked by ViewController::launch before the transition, so the list
+	// stays behind the question (PL-014); asked here only for a launch that
+	// did not come that way.
+	if (!options.gatesCleared && !launchGatesClear(window, options))
+		return false;
 
 	FileData* gameToUpdate = getSourceFileData();
 	if (gameToUpdate == nullptr)
