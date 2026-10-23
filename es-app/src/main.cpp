@@ -1009,8 +1009,12 @@ int main(int argc, char* argv[])
 	if (journeyPending)
 	{
 		std::string question;
+		// An earlier build's marker restores ROMs and BIOS (cloud_content_restore
+		// --all, which brings no game content) and then the saves, so it asks
+		// with the verb and tiers its siblings use (PL-026, D-UI-022): it said
+		// DOWNLOAD and named "games" and "BIOS files".
 		if (!journeyTiers.known)
-			question = _("YOUR SETTINGS WERE RESTORED.\n\nDOWNLOAD YOUR GAMES, BIOS FILES, AND SAVES FROM THE CLOUD NOW?");
+			question = _("YOUR SETTINGS WERE RESTORED.\n\nRESTORE YOUR SAVES, ROMS, AND BIOS FROM THE CLOUD NOW?");
 		else if (journeyTiers.saves && journeyTiers.content && journeyTiers.media)
 			question = _("YOUR SETTINGS WERE RESTORED.\n\nRESTORE YOUR SAVES, ROMS, BIOS, AND GAME CONTENT FROM THE CLOUD NOW?");
 		else if (journeyTiers.saves && journeyTiers.content)
