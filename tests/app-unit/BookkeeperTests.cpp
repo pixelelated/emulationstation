@@ -167,6 +167,34 @@ TEST_CASE("bookkeeper: a lock file that cannot be opened is taken as held")
 	REQUIRE(waitFor([&state] { return !fileExists(state); }, 5000));
 }
 
+// PL-012 (pixelelated/distribution#649, #778): a lock file that stays
+// unopenable kept the deletion waiting, and every job behind it, for the
+// whole session. After a bounded number of open errors the job ends
+// unmade: the file stays, completed() moves, and the manager shows the tile
+// again. The lock is made openable before the case ends either way, so a
+// failing run does not hold up the cases after it.
+TEST_CASE("bookkeeper: a lock that stays unopenable ends the deletion unmade, within the bound")
+{
+	const std::string lock = CLOUD_SYNC_LOCK_PATH;
+	std::remove(lock.c_str());
+	REQUIRE(::symlink(lock.c_str(), lock.c_str()) == 0);
+	const std::string state = stateFile("f");
+	const unsigned before = SaveStateBookkeeper::completed();
+
+	SaveStateBookkeeper::deleteLater(state, "");
+	const bool ended = waitFor([before] { return SaveStateBookkeeper::completed() > before; }, 12000);
+
+	std::remove(lock.c_str());
+	{ std::ofstream touch(lock); }
+
+	CHECK_MESSAGE(ended, "the deletion was still waiting on an unopenable lock after 12 s");
+	CHECK_MESSAGE(fileExists(state), "the state was deleted past a lock nobody could ask");
+	CHECK_FALSE(SaveStateBookkeeper::isPending(state));
+	CHECK(runsNamed("--retire --unlink " + state) == 0);
+	waitFor([before] { return SaveStateBookkeeper::completed() > before; }, 6000);
+	std::remove(state.c_str());
+}
+
 // gpt's coverage note on PL-068 (audit of the fixes, E2): the bookkeeper
 // asked whether the lock was held and then deleted, so a transfer that
 // started between the answer and the deletion ran beside it. The lock is

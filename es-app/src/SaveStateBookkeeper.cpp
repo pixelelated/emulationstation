@@ -24,6 +24,14 @@
 #define CLOUD_SYNC_LOCK_PATH "/var/run/cloud_sync.lock"
 #endif
 
+// How many times in a row the lock file may fail to open before a queued
+// deletion is given up, at half a second each (PL-012). A file nobody can
+// open is not a transfer that will end, and waiting on it kept the
+// deletion and every job behind it queued for the session.
+#ifndef SAVE_STATE_LOCK_OPEN_TRIES
+#define SAVE_STATE_LOCK_OPEN_TRIES 10
+#endif
+
 namespace
 {
 	const char* const CAPTURE = "/usr/bin/cloud_capture";
@@ -65,13 +73,34 @@ namespace
 	// DELETE and COPY refusal makes (E1, PL-068), so the two cannot answer
 	// differently -- and it fails closed: a lock file that exists and
 	// cannot be opened is a transfer we cannot rule out. RunLock::held,
-	// which this used first, took that as free.
+	// which this used first, took that as free. It is waited on for
+	// SAVE_STATE_LOCK_OPEN_TRIES polls, not for the session: then the
+	// deletion is not made, as at exit (PL-012).
+	// Whether the lock file exists and cannot be opened: what isFlockHeld
+	// answers "held" for, failing closed, which a deletion must not wait on
+	// for ever (PL-012).
+	bool lockUnopenable()
+	{
+#if defined(_WIN32)
+		return false;
+#else
+		const int fd = ::open(CLOUD_SYNC_LOCK_PATH, O_RDONLY | O_CLOEXEC);
+		if (fd >= 0)
+		{
+			::close(fd);
+			return false;
+		}
+		return errno != ENOENT;
+#endif
+	}
+
 	bool transferGone(Worker* w, const SaveStateJob& job)
 	{
 		if (!Utils::AtomicFile::isFlockHeld(CLOUD_SYNC_LOCK_PATH))
 			return true;
 		LOG(LogInfo) << "save state deletion waits: a cloud transfer holds the lock (" << job.stateFile << ")";
 		bool stopping = false;
+		int unopenable = 0;
 		std::chrono::steady_clock::time_point giveUpAt;
 		for (;;)
 		{
@@ -86,6 +115,13 @@ namespace
 			{
 				LOG(LogInfo) << "save state deletion goes ahead: the cloud transfer has ended (" << job.stateFile << ")";
 				return true;
+			}
+			if (!lockUnopenable())
+				unopenable = 0;
+			else if (++unopenable >= SAVE_STATE_LOCK_OPEN_TRIES)
+			{
+				LOG(LogWarning) << "save state deletion not made: the transfer lock " << CLOUD_SYNC_LOCK_PATH << " cannot be opened; " << job.stateFile << " stays";
+				return false;
 			}
 			if (!stop)
 				continue;
@@ -115,15 +151,17 @@ namespace
 
 	struct TransferLock
 	{
+		enum class Take { Taken, Held, Unopenable };
+
 		int fd = -1;
-		bool take()
+		Take take()
 		{
 #if defined(_WIN32)
-			return true;   // no transfer scripts, no lock (isFlockHeld's own answer there)
+			return Take::Taken;   // no transfer scripts, no lock (isFlockHeld's own answer there)
 #else
 			fd = ::open(CLOUD_SYNC_LOCK_PATH, O_RDWR | O_CREAT | O_CLOEXEC, 0644);
 			if (fd < 0)
-				return false;
+				return Take::Unopenable;
 			int r;
 			do
 				r = ::flock(fd, LOCK_EX | LOCK_NB);
@@ -131,11 +169,11 @@ namespace
 			if (r == 0)
 			{
 				gHoldsTransferLock = true;
-				return true;
+				return Take::Taken;
 			}
 			::close(fd);
 			fd = -1;
-			return false;
+			return Take::Held;
 #endif
 		}
 		~TransferLock()
@@ -143,8 +181,8 @@ namespace
 #if !defined(_WIN32)
 			if (fd >= 0)
 			{
-				gHoldsTransferLock = false;
 				::close(fd);   // and the lock with it
+				gHoldsTransferLock = false;   // after, so "ours" never names a lock already let go of (PL-012)
 			}
 #endif
 		}
@@ -156,14 +194,33 @@ namespace
 		// sends the deletion back to waiting for it; a lock that cannot be
 		// taken at all fails closed, as isFlockHeld does -- it waits.
 		TransferLock held;
+		int openErrors = 0;
 		for (;;)
 		{
 			if (!transferGone(w, job))
 				return;
-			if (held.take())
+			const TransferLock::Take taken = held.take();
+			if (taken == TransferLock::Take::Taken)
 				break;
-			LOG(LogInfo) << "save state deletion waits: the transfer lock was taken as the deletion began (" << job.stateFile << ")";
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			if (taken == TransferLock::Take::Unopenable)
+			{
+				// Asked free, and still not to be opened for the taking (a file
+				// this process may read and not write): bounded like the wait
+				// above, not retried for the session (PL-012).
+				if (++openErrors >= SAVE_STATE_LOCK_OPEN_TRIES)
+				{
+					LOG(LogWarning) << "save state deletion not made: the transfer lock " << CLOUD_SYNC_LOCK_PATH << " cannot be opened; " << job.stateFile << " stays";
+					return;
+				}
+				LOG(LogInfo) << "save state deletion waits: the transfer lock cannot be opened (" << job.stateFile << ")";
+				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			}
+			else
+			{
+				openErrors = 0;
+				LOG(LogInfo) << "save state deletion waits: the transfer lock was taken as the deletion began (" << job.stateFile << ")";
+				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			}
 			std::unique_lock<std::mutex> lock(w->mutex);
 			if (w->stop)
 			{
