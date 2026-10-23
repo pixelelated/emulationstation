@@ -1,4 +1,5 @@
 #include "SystemData.h"
+#include "SystemFolders.h"
 
 #include "SystemConf.h"
 #include "utils/FileSystemUtil.h"
@@ -623,12 +624,11 @@ void SystemData::populateFolder(FolderData* folder, std::unordered_map<std::stri
 			if (mMetadata.name == "vpinball" && fn == "roms")
 				continue;			
 
-			// Skip ports folders, as many folders in ports causes slow down at startup
-			if (fileInfo.path.rfind("ports") != std::string::npos)
-				continue;
-
-			// Skip windows folder for the same reason as ports folder
-			if (fileInfo.path.rfind("windows") != std::string::npos)
+			// Skip the ports and windows systems' sub-folders, as their many
+			// folders slow the start down: by the system, not by the letters
+			// anywhere in the path, which skipped a gb folder named Sports
+			// (PL-003).
+			if (SystemFolders::skipsSubfolder(mMetadata.name, mEnvData->mStartPath, filePath))
 				continue;
 
 			FolderData* newFolder = new FolderData(filePath, this);

@@ -53,6 +53,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchTemplateTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/GameFilesTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/SaveStateFilesTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/SystemFoldersTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
 	${ES_ROOT}/es-app/src/CheevosRetry.cpp
