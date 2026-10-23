@@ -100,12 +100,6 @@ unsigned FileData::GetGamesStarted()
 {
 	return sGamesStarted.load();
 }
-// PLAY NOW through the offline achievements' send card: the launch it
-// leads to comes back through this function (launchNow goes through
-// ViewController::launch), so the answer is kept for that one launch or
-// the question would be asked again on the next frame, without end (the
-// #292 proof on the VM, 2026-09-26).
-static std::atomic<bool> sPlayThroughSend{ false };
 // The exit capture still recording (audit #307 PL-061): the exit generation
 // whose cloud_capture is running, 0 when none. The launch waits for it, as
 // it waits for a sync or a transfer to be gone: a game launched under it
@@ -975,7 +969,15 @@ bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 	// send was, so a send that ended between the press and the relaunch left
 	// it set, and a later launch over a later send asked nothing. A relaunch
 	// that meets another question first asks the send's again after it.
-	const bool playThroughSend = sPlayThroughSend.exchange(false);
+	//
+	// The answer is the launch's own (LaunchGameOptions::playThroughSend,
+	// PL-018): PLAY NOW's relaunch comes back through ViewController::launch,
+	// so the answer has to reach it or the question is asked again on the
+	// next frame, without end (the #292 proof on the VM, 2026-09-26). It was
+	// one flag for the process, so a launch arriving first -- the API's, a
+	// press on another game -- took it and skipped its own question.
+	const bool playThroughSend = options.playThroughSend;
+	options.playThroughSend = false;
 	rememberSaveState(this, options);
 
 	// Not while saves are moving -- unless the sync is one EmulationStation
@@ -1075,8 +1077,9 @@ bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 			_("PLAY NOW"), [ref, window, options]
 			{
 				LOG(LogInfo) << "launch: the player chose to play through the send";
-				sPlayThroughSend = true;
-				launchNow(window, ref, options);
+				LaunchGameOptions through = options;
+				through.playThroughSend = true;
+				launchNow(window, ref, through);
 			},
 			_("KEEP WAITING"), nullptr));
 		return false;

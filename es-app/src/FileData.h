@@ -60,6 +60,7 @@ struct LaunchGameOptions
 		launchedEmulator = "";
 		launchedCore = "";
 		gatesCleared = false;
+		playThroughSend = false;
 	}
 
 	int netPlayMode;
@@ -91,6 +92,12 @@ struct LaunchGameOptions
 	// them again. A launch that does not come through ViewController -- the
 	// screensaver's -- leaves it false and is asked in launchGame.
 	bool gatesCleared;
+
+	// PLAY NOW through the offline achievements' send, for this launch: the
+	// relaunch it leads to carries it, and no other launch sees it (PL-018).
+	// The gates take it on the way in, so a relaunch that meets another
+	// question first is asked the send's again after it.
+	bool playThroughSend;
 };
 
 class FolderData;
