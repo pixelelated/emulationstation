@@ -268,7 +268,7 @@ private:
 	void populateFolder(FolderData* folder, std::unordered_map<std::string, FileData*>& fileMap);
 	void indexAllGameFilters(const FolderData* folder);
 	void setIsGameSystemStatus();
-	void removeMultiDiskContent(std::unordered_map<std::string, FileData*>& fileMap);
+	void removeMultiDiskContent(std::unordered_map<std::string, FileData*>& fileMap, FolderData* root = nullptr);
 
 	static SystemData* loadSystem(pugi::xml_node system, bool fullMode = true);
 	static void loadAdditionnalConfig(pugi::xml_node& srcSystems);
@@ -276,7 +276,10 @@ private:
 	FileFilterIndex* mFilterIndex;
 
 	FolderData* mRootFolder;
-	time_t mFolderScannedAt = 0; // the folder's mtime at the last populate (rescanIfFolderChanged)
+	time_t mFolderScannedAt = 0; // the newest mtime of mScannedFolders at the last populate (rescanIfFolderChanged)
+	std::vector<std::string> mScannedFolders; // every folder the last populate entered, the root first (PL-015)
+	std::vector<std::string>* mCollectFolders = nullptr; // where populateFolder lists the folders it enters, while set
+	time_t newestScannedFolderTime() const;
 	BindableRandom* mBindableRandom;
 
 	std::vector<EmulatorData> mEmulators;

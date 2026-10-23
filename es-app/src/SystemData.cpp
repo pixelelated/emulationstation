@@ -112,8 +112,10 @@ SystemData::SystemData(const SystemMetadata& meta, SystemEnvironmentData* envDat
 
 		if (!Settings::ParseGamelistOnly())
 		{
+			mCollectFolders = &mScannedFolders;
 			populateFolder(mRootFolder, fileMap);
-			mFolderScannedAt = Utils::FileSystem::getFileModificationDate(mEnvData->mStartPath).getTime();
+			mCollectFolders = nullptr;
+			mFolderScannedAt = newestScannedFolderTime();
 
 			if (!UIModeController::LoadEmptySystems())
 			{
@@ -181,8 +183,11 @@ SystemData::~SystemData()
 		delete mFilterIndex;
 }
 
-void SystemData::removeMultiDiskContent(std::unordered_map<std::string, FileData*>& fileMap)
+void SystemData::removeMultiDiskContent(std::unordered_map<std::string, FileData*>& fileMap, FolderData* root)
 {	
+	if (root == nullptr)
+		root = mRootFolder;
+
 	if (mEnvData == nullptr ||!(mEnvData->isValidExtension(".cue") || mEnvData->isValidExtension(".ccd") || mEnvData->isValidExtension(".gdi") || mEnvData->isValidExtension(".m3u")))
 		return;
 
@@ -193,7 +198,7 @@ void SystemData::removeMultiDiskContent(std::unordered_map<std::string, FileData
 	std::vector<FolderData*> folders;
 
 	std::stack<FolderData*> stack;
-	stack.push(mRootFolder);
+	stack.push(root);
 
 	while (stack.size())
 	{
@@ -202,7 +207,7 @@ void SystemData::removeMultiDiskContent(std::unordered_map<std::string, FileData
 
 		bool loadFromJson = !Settings::BuildMultiDiskContentCache();
 
-		auto relativeTo = mRootFolder->getPath();
+		auto relativeTo = root->getPath();
 
 		for (auto it : current->getChildren())
 		{
@@ -357,9 +362,12 @@ static void dropCollectionEntries(FileData* game)
 // modification time moved is re-read from disk. Only systems with no
 // gamelist take part: their list *is* the folder, so re-reading loses
 // nothing. A system with a gamelist keeps its metadata by staying out of
-// this, and is refreshed by UPDATE GAMELISTS as before. The directory's
+// this, and is refreshed by UPDATE GAMELISTS as before. A directory's
 // mtime moves only when an entry is added or removed directly in it, so
-// the check is one stat per system and the rescan is rare.
+// the check is the newest time of every folder the last scan entered --
+// one stat per folder -- and a file added inside a sub-folder is seen; it
+// read the system folder's own time, and missed those until a restart
+// (PL-015). The fresh tree's multi-disc content is hidden as at the start.
 //
 // Callers post this to the UI thread rather than calling it from inside a
 // launch: the rescan deletes the FileData of files that left the folder,
@@ -380,6 +388,11 @@ static void dropCollectionEntries(FileData* game)
 // keeps what the session wrote into a kept file's metadata and no
 // gamelist holds yet: a system with a gamelist is never re-read here.
 
+time_t SystemData::newestScannedFolderTime() const
+{
+	return SystemFolders::newestTime(mScannedFolders, [](const std::string& path) { return (time_t) Utils::FileSystem::getFileModificationDate(path).getTime(); });
+}
+
 void SystemData::rescanIfFolderChanged()
 {
 	if (mRootFolder == nullptr || mIsCollectionSystem || !mIsGameSystem || Settings::ParseGamelistOnly())
@@ -387,7 +400,7 @@ void SystemData::rescanIfFolderChanged()
 	if (Utils::FileSystem::exists(getGamelistPath(false)))
 		return;
 
-	const time_t mtime = Utils::FileSystem::getFileModificationDate(mEnvData->mStartPath).getTime();
+	const time_t mtime = newestScannedFolderTime();
 	if (mtime == mFolderScannedAt)
 		return;
 
@@ -402,7 +415,6 @@ void SystemData::rescanIfFolderChanged()
 	}
 
 	LOG(LogInfo) << "SystemData::rescanIfFolderChanged: " << getName() << " changed on disk, re-reading " << mEnvData->mStartPath;
-	mFolderScannedAt = mtime;
 
 	// The views that show these files first, while their cursors are files
 	// that exist: this system's, and its group's when it is grouped, which
@@ -436,7 +448,24 @@ void SystemData::rescanIfFolderChanged()
 	FolderData* fresh = new FolderData(mEnvData->mStartPath, this);
 	std::unordered_map<std::string, FileData*> fileMap;
 	fileMap[mEnvData->mStartPath] = fresh;
+	std::vector<std::string> scanned;
+	mCollectFolders = &scanned;
 	populateFolder(fresh, fileMap);
+	mCollectFolders = nullptr;
+	mScannedFolders = scanned;
+	mFolderScannedAt = newestScannedFolderTime();
+
+	// A playlist's discs and a cue sheet's tracks are hidden as at the
+	// start (PL-015): the fresh tree held them as games, and the merge
+	// then showed each as a new one. With the index set aside, as for the
+	// fresh tree's deletion below: these were never indexed.
+	if (Settings::RemoveMultiDiskContent() || Settings::BuildMultiDiskContentCache())
+	{
+		FileFilterIndex* index = mFilterIndex;
+		mFilterIndex = nullptr;
+		removeMultiDiskContent(fileMap, fresh);
+		mFilterIndex = index;
+	}
 
 	// The merge's view of FileData (FolderMerge). A class local to this
 	// member, so it reaches FolderData's children the way SystemData does.
@@ -528,6 +557,9 @@ void SystemData::populateFolder(FolderData* folder, std::unordered_map<std::stri
 
 	if(!Utils::FileSystem::isDirectory(folderPath))
 		return;
+
+	if (mCollectFolders != nullptr)
+		mCollectFolders->push_back(folderPath);
 	/*
 	// [Obsolete] make sure that this isn't a symlink to a thing we already have
 	// Deactivated because it's slow & useless : users should to be carefull not to make recursive simlinks
