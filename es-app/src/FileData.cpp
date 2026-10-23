@@ -51,6 +51,11 @@
 #include "views/gamelist/GameNameFormatter.h"
 #include "LaunchCommand.h"
 #include "LaunchTemplate.h"
+#include "GameFiles.h"
+#if !WIN32
+#include <climits>
+#include <stdlib.h>
+#endif
 #include "watchers/WatchersManager.h"
 
 using namespace Utils::Platform;
@@ -1411,6 +1416,7 @@ std::set<std::string> FileData::getContentFiles()
 				std::string line;
 				while (std::getline(cue, line))
 				{
+					line = GameFiles::cueLine(line);
 					if (!Utils::String::startsWith(line, start))
 						continue;
 
@@ -1476,6 +1482,22 @@ std::set<std::string> FileData::getContentFiles()
 	return files;
 }
 
+// A path as DELETE GAME compares it with the system folder: lexically
+// folded, and on Linux with the links in its directory resolved, so a
+// listed name inside the folder that reaches elsewhere through a linked
+// directory is outside (PL-002).
+static std::string deleteScopePath(const std::string& path)
+{
+	std::string generic = Utils::FileSystem::getCanonicalPath(path);
+#if !WIN32
+	const std::string parent = Utils::FileSystem::getParent(generic);
+	char resolved[PATH_MAX];
+	if (!parent.empty() && realpath(parent.c_str(), resolved) != nullptr)
+		generic = std::string(resolved) + "/" + Utils::FileSystem::getFileName(generic);
+#endif
+	return generic;
+}
+
 void FileData::deleteGameFiles()
 {
 	if (mType != FileType::GAME)
@@ -1485,14 +1507,32 @@ void FileData::deleteGameFiles()
 	if (path.empty() || getSystemEnvData()->mStartPath == path)
 		return;
 
+	// A listed file or a metadata file is removed only inside the game's
+	// system folder (PL-002): a playlist, a cue sheet or a gdi is the
+	// player's text and the metadata a scraper's, and either named a path
+	// anywhere. What is left is logged, so a player's report can be read.
+	std::string folder = getSystemEnvData()->mStartPath;
+#if !WIN32
+	char resolvedFolder[PATH_MAX];
+	if (realpath(folder.c_str(), resolvedFolder) != nullptr)
+		folder = resolvedFolder;
+#endif
+	auto removeInside = [&folder](const std::string& file, const char* what)
+	{
+		if (GameFiles::isInside(folder, deleteScopePath(file)))
+			Utils::FileSystem::removeFile(file);
+		else
+			LOG(LogWarning) << "DELETE GAME: left " << what << " " << file << ", outside " << folder;
+	};
+
 	for (auto mdd : mMetadata.getMDD())
 	{
 		if (mMetadata.getType(mdd.id) != MetaDataType::MD_PATH)
 			continue;
 
-		std::string path = mMetadata.get(mdd.id);
-		if (Utils::FileSystem::exists(path) && !Utils::FileSystem::isDirectory(path))
-			Utils::FileSystem::removeFile(mMetadata.get(mdd.id));
+		std::string mdPath = mMetadata.get(mdd.id);
+		if (Utils::FileSystem::exists(mdPath) && !Utils::FileSystem::isDirectory(mdPath))
+			removeInside(mdPath, "metadata file");
 	}
 
 	if (Utils::FileSystem::isDirectory(path))
@@ -1501,10 +1541,14 @@ void FileData::deleteGameFiles()
 		return;
 	}
 
+	// The list is read before the file that holds it is removed: read
+	// after, it was empty, so a playlist went and its discs stayed (G-7).
+	const std::set<std::string> contentFiles = getContentFiles();
+
 	Utils::FileSystem::removeFile(path);
 
-	for (auto contentFile : getContentFiles())
-		Utils::FileSystem::removeFile(contentFile);
+	for (auto contentFile : contentFiles)
+		removeInside(contentFile, "listed file");
 }
 
 CollectionFileData::CollectionFileData(FileData* file, SystemData* system)
