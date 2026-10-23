@@ -42,6 +42,20 @@ def definition(signature):
     return source[start:end]
 
 
+# Since PL-008 (pixelelated/distribution#649) the wait carries the game by
+# LaunchGameRef, and launchNow takes one; at the pin, the pointer.
+by_ref = "static void launchNow(Window* window, const LaunchGameRef&" in source
+LAUNCH_NOW_DOUBLE = ("struct LaunchGameRef { std::string system; std::string path; };\n"
+                     "struct FileData { static LaunchGameRef launchRef(FileData*) { return { \"snes\", \"/storage/roms/snes/game.sfc\" }; } };\n"
+                     "struct LaunchGameOptions {};\n"
+                     "static std::atomic<int> gLaunched{ 0 };\n"
+                     "static void launchNow(Window*, const LaunchGameRef&, const LaunchGameOptions&) { gLaunched++; }\n"
+                     if by_ref else
+                     "struct FileData {};\n"
+                     "struct LaunchGameOptions {};\n"
+                     "static std::atomic<int> gLaunched{ 0 };\n"
+                     "static void launchNow(Window*, FileData*, const LaunchGameOptions&) { gLaunched++; }\n")
+
 harness = r'''
 #include <atomic>
 #include <chrono>
@@ -72,9 +86,6 @@ struct Window { std::mutex m; std::vector<std::unique_ptr<Gui>> stack; void push
 static std::atomic<int> gRefused{ 0 };
 static std::string gRefusal;
 struct GuiMsgBox : Gui { GuiMsgBox(Window*, const std::string& text) { gRefusal = text; gRefused++; } };
-struct FileData {};
-struct LaunchGameOptions {};
-
 static std::atomic<unsigned> sExitGeneration{ 0 };
 static std::atomic<unsigned> sCaptureInFlight{ 0 };
 static std::atomic<unsigned> sCaptureGivenUp{ 0 };
@@ -82,9 +93,7 @@ static std::atomic<unsigned> sCaptureWaitedOn{ 0 };
 static std::atomic<long> gAgeSeconds{ 0 };
 static long captureAgeSeconds() { return gAgeSeconds.load(); }
 static const long CaptureHungSeconds = 120;
-static std::atomic<int> gLaunched{ 0 };
-static void launchNow(Window*, FileData*, const LaunchGameOptions&) { gLaunched++; }
-''' + definition('static bool captureGate(') + r'''
+''' + LAUNCH_NOW_DOUBLE + definition('static bool captureGate(') + r'''
 
 static void finishIn(unsigned gen, int ms) {
     std::thread([gen, ms] { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); unsigned g = gen; sCaptureInFlight.compare_exchange_strong(g, 0); }).detach();

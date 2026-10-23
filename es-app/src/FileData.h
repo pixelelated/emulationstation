@@ -94,6 +94,18 @@ struct LaunchGameOptions
 
 class FolderData;
 
+// A game named by its system and path, for a launch that waits: a dialog's
+// answer, a spinner's end, a relaunch a frame later. The FileData such a
+// launch was asked for can be freed meanwhile -- a game-list reload deletes
+// every system (ViewController::reloadAllGames, the API's reload) -- so the
+// wait carries this and FileData::findLaunchRef finds the game again when
+// the launch runs, or finds that it is gone (PL-008).
+struct LaunchGameRef
+{
+	std::string system;
+	std::string path;
+};
+
 // A tree node that holds information for a file.
 class FileData : public IKeyboardMapContainer, public IBindable
 {
@@ -174,6 +186,15 @@ public:
 	// True when the launch may go on now; false when a question or a
 	// spinner was put up, whose answer relaunches.
 	bool		launchGatesClear(Window* window, LaunchGameOptions& options);
+
+	// The reference a waiting launch carries, and the game it names now
+	// (nullptr when it is gone), looked up in the systems as they stand.
+	static LaunchGameRef launchRef(FileData* game);
+	static FileData* findLaunchRef(const LaunchGameRef& ref);
+	// The chosen save state by its file, before a wait, and found again by
+	// it after (the repository's refresh deletes the objects meanwhile).
+	static void rememberLaunchSaveState(FileData* game, LaunchGameOptions& options);
+	static void findLaunchSaveState(FileData* game, LaunchGameOptions& options);
 
 	static void resetSettings();
 	

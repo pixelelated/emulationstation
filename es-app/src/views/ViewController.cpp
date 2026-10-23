@@ -494,10 +494,29 @@ bool ViewController::checkLaunchOptions(FileData* game, LaunchGameOptions option
 		mCurrentView->onHide();
 #endif
 
+	// A YES below relaunches the game found again by its system and path:
+	// the dialog can sit through a game-list reload that frees `game`
+	// (PL-008, FileData::launchRef).
+	// The save state the same way, by its file, recorded before the dialog.
+	const LaunchGameRef ref = FileData::launchRef(game);
+	FileData::rememberLaunchSaveState(game, options);
+	auto relaunch = [this, ref, options, center]
+	{
+		FileData* again = FileData::findLaunchRef(ref);
+		if (again == nullptr)
+		{
+			LOG(LogWarning) << "launch: the game asked about is gone (" << ref.path << "); nothing was started";
+			return;
+		}
+		LaunchGameOptions now = options;
+		FileData::findLaunchSaveState(again, now);
+		launch(again, now, center, false);
+	};
+
 	if (!game->isExtensionCompatible())
 	{
 		auto gui = new GuiMsgBox(mWindow, _("WARNING: THE EMULATOR/CORE CURRENTLY SET DOES NOT SUPPORT THIS GAME'S FILE FORMAT.\nDO YOU WANT TO LAUNCH IT ANYWAY?"),
-			_("YES"), [this, game, options, center] { launch(game, options, center, false); },
+			_("YES"), relaunch,
 			_("NO"), nullptr, ICON_ERROR);
 
 		mWindow->pushGui(gui);
@@ -517,7 +536,7 @@ bool ViewController::checkLaunchOptions(FileData* game, LaunchGameOptions option
 				if (hasMissing)
 				{
 					auto gui = new GuiMsgBox(mWindow, _("WARNING: THE SYSTEM HAS MISSING BIOS FILE(S) AND THE GAME MAY NOT WORK CORRECTLY.\nDO YOU WANT TO LAUNCH IT ANYWAY?"),
-						_("YES"), [this, game, options, center] { launch(game, options, center, false); },
+						_("YES"), relaunch,
 						_("NO"), nullptr, ICON_ERROR);
 
 					mWindow->pushGui(gui);
@@ -581,6 +600,15 @@ void ViewController::launch(FileData* game, LaunchGameOptions options, Vector3f 
 	else if (options.netPlayMode == DISABLED && Settings::getInstance()->getBool("NetPlayAutomaticallyCreateLobby"))
 		options.netPlayMode = SERVER;
 	
+	// No view to launch from (a reload between the question and the
+	// relaunch can leave none current): nothing to zoom from, so no launch
+	// (PL-008).
+	if (mCurrentView == nullptr)
+	{
+		LOG(LogWarning) << "launch: no view is current; the game was not started";
+		return;
+	}
+
 	Transform4x4f origCamera = mCamera;
 	origCamera.translation() = -mCurrentView->getPosition();
 

@@ -777,39 +777,6 @@ std::string FileData::getMessageFromExitCode(int exitCode)
 	return _("UKNOWN ERROR") + " : " + std::to_string(exitCode);
 }
 
-// The launch a STOP IT AND PLAY leads to, on the next frame: the dialog or
-// spinner that asked is off the stack first, and the launch effect and the
-// emulator take the screen from the view, as a press on the game would.
-//
-// A save state chosen in the manager is carried by its file (options.
-// saveStateFile, rememberSaveState) and found again here, when the launch
-// runs: the repository's refresh -- the manager's jobs call it as they land
-// -- deletes every state object, and a launch deferred behind a gate held a
-// copy of the pointer for as long as the gate took (#308 8-es-menus-and-
-// core claude F-ES-11). A state gone by then is not handed over: the game
-// starts as it would with none chosen, and the log says so.
-static void launchNow(Window* window, FileData* game, const LaunchGameOptions& options)
-{
-	window->postToUiThread([game, options]
-	{
-		LaunchGameOptions now = options;
-		if (!now.saveStateFile.empty())
-		{
-			now.saveStateInfo = nullptr;
-			if (SaveStateRepository::isEnabled(game))
-				for (auto* state : game->getSourceFileData()->getSystem()->getSaveStateRepository()->getSaveStates(game))
-					if (state->fileName == now.saveStateFile)
-					{
-						now.saveStateInfo = state;
-						break;
-					}
-			if (now.saveStateInfo == nullptr)
-				LOG(LogWarning) << "launch: the save state chosen before the wait is gone (" << now.saveStateFile << "); the game starts without it";
-		}
-		ViewController::get()->launch(game, now);
-	});
-}
-
 // The save state the launch was handed, by its file, while the pointer is
 // the repository's live object (launchNow finds it again by it). The three
 // shared states -- none, the auto-save, a new game -- are never deleted and
@@ -826,13 +793,66 @@ static void rememberSaveState(FileData* game, LaunchGameOptions& options)
 	options.saveStateFile = state->fileName;
 }
 
+// The state recorded by rememberSaveState, found again by its file after a
+// wait: the repository's refresh deletes every state object while a gate
+// or a dialog waits (#308 F-ES-11). A state gone by then is not handed
+// over, and the game starts as it would with none chosen.
+static void findSaveStateAgain(FileData* game, LaunchGameOptions& now)
+{
+	if (now.saveStateFile.empty())
+		return;
+	now.saveStateInfo = nullptr;
+	if (SaveStateRepository::isEnabled(game))
+		for (auto* state : game->getSourceFileData()->getSystem()->getSaveStateRepository()->getSaveStates(game))
+			if (state->fileName == now.saveStateFile)
+			{
+				now.saveStateInfo = state;
+				break;
+			}
+	if (now.saveStateInfo == nullptr)
+		LOG(LogWarning) << "launch: the save state chosen before the wait is gone (" << now.saveStateFile << "); the game starts without it";
+}
+
+// The launch a STOP IT AND PLAY leads to, on the next frame: the dialog or
+// spinner that asked is off the stack first, and the launch effect and the
+// emulator take the screen from the view, as a press on the game would.
+//
+// A save state chosen in the manager is carried by its file (options.
+// saveStateFile, rememberSaveState) and found again here, when the launch
+// runs: the repository's refresh -- the manager's jobs call it as they land
+// -- deletes every state object, and a launch deferred behind a gate held a
+// copy of the pointer for as long as the gate took (#308 8-es-menus-and-
+// core claude F-ES-11). A state gone by then is not handed over: the game
+// starts as it would with none chosen, and the log says so.
+//
+// The game is carried the same way, by its system and path (PL-008): a
+// game-list reload while a gate waits deletes every FileData, and the
+// launch then ran on a freed one. A game gone by then is not launched.
+static void launchNow(Window* window, const LaunchGameRef& ref, const LaunchGameOptions& options)
+{
+	window->postToUiThread([ref, options]
+	{
+		FileData* game = FileData::findLaunchRef(ref);
+		if (game == nullptr)
+		{
+			LOG(LogWarning) << "launch: the game chosen before the wait is gone (" << ref.path << "); nothing was started";
+			return;
+		}
+
+		LaunchGameOptions now = options;
+		findSaveStateAgain(game, now);
+		ViewController::get()->launch(game, now);
+	});
+}
+
+
 // Wait behind a spinner for a sync or transfer that has been told to stop,
 // then launch (D-CLOUD-129). stillRunning is asked every 50 ms; hardStop,
 // when given, is sent once at five seconds for an rclone slow to act on
 // SIGTERM; at twenty the wait gives up and says so -- a run that will not
 // die is not one to start a game over (cancelForLaunch's rule, on a longer
 // leash and behind a spinner rather than a frozen menu).
-static void launchWhenGone(Window* window, FileData* game, const LaunchGameOptions& options,
+static void launchWhenGone(Window* window, const LaunchGameRef& game, const LaunchGameOptions& options,
 	const std::function<bool()>& stillRunning, const std::function<void()>& hardStop)
 {
 	window->pushGui(new GuiLoading<bool>(window, _("STOPPING IT SO YOU CAN PLAY..."),
@@ -892,6 +912,7 @@ static void launchWhenGone(Window* window, FileData* game, const LaunchGameOptio
 // the spinner went up, before the launch was certain.
 static bool captureGate(Window* window, FileData* game, const LaunchGameOptions& options)
 {
+	const LaunchGameRef ref = FileData::launchRef(game);   // the wait carries the game by name (PL-008)
 	const unsigned capturing = sCaptureInFlight.load();
 	if (capturing == 0)
 		return true;
@@ -924,7 +945,7 @@ static bool captureGate(Window* window, FileData* game, const LaunchGameOptions&
 			}
 			return true;
 		},
-		[window, game, options, capturing](bool)
+		[window, ref, options, capturing](bool)
 		{
 			// Decided by the capture itself, not the wait's answer: one that
 			// ended as the bound came has ended.
@@ -937,13 +958,17 @@ static bool captureGate(Window* window, FileData* game, const LaunchGameOptions&
 			}
 			++sExitGeneration;
 			sCaptureWaitedOn = 0;
-			launchNow(window, game, options);
+			launchNow(window, ref, options);
 		}));
 	return false;
 }
 
 bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 {
+	// Each answer below relaunches by this, not by `this`, which a game-list
+	// reload during the question can free (PL-008).
+	const LaunchGameRef ref = launchRef(this);
+
 	// PLAY NOW's answer is for the launch it leads to and no other (#308
 	// 8-es-menus-and-core claude F-ES-07): taken here, on the way in,
 	// whether or not the send is still running. It was taken only where the
@@ -1009,14 +1034,14 @@ bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 	{
 		window->pushGui(new GuiMsgBox(window,
 			_("YOUR SAVES ARE SYNCING WITH THE CLOUD.") + "\n\n" + _("IF YOU STOP IT, THE NEXT SYNC FINISHES WHAT THIS ONE DID NOT."),
-			_("STOP IT AND PLAY"), [this, window, options]
+			_("STOP IT AND PLAY"), [ref, window, options]
 			{
 				LOG(LogInfo) << "launch: the player chose to stop the sync for a game";
 				ThreadedCloudSync::CancelRefusal again = ThreadedCloudSync::CancelRefusal::Stopping;
 				if (ThreadedCloudSync::cancelForLaunch(&again, true) || !ThreadedCloudSync::isRunning())
-					launchNow(window, this, options);
+					launchNow(window, ref, options);
 				else
-					launchWhenGone(window, this, options, [] { return ThreadedCloudSync::isRunning(); }, nullptr);
+					launchWhenGone(window, ref, options, [] { return ThreadedCloudSync::isRunning(); }, nullptr);
 			},
 			_("KEEP WAITING"), nullptr));
 		return false;
@@ -1026,11 +1051,11 @@ bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 	{
 		window->pushGui(new GuiMsgBox(window,
 			GuiCloudTransfer::stillRunningSentence(transfer) + "\n\n" + _("IF YOU STOP IT, WHAT IT HAS NOT MOVED YET WAITS FOR THE NEXT RUN."),
-			_("STOP IT AND PLAY"), [this, window, options]
+			_("STOP IT AND PLAY"), [ref, window, options]
 			{
 				LOG(LogInfo) << "launch: the player chose to stop the transfer for a game";
 				CloudTransferJob::stopForLaunch(false);
-				launchWhenGone(window, this, options, [] { return CloudTransferJob::running(); }, [] { CloudTransferJob::stopForLaunch(true); });
+				launchWhenGone(window, ref, options, [] { return CloudTransferJob::running(); }, [] { CloudTransferJob::stopForLaunch(true); });
 			},
 			_("KEEP WAITING"), nullptr));
 		return false;
@@ -1047,11 +1072,11 @@ bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 	{
 		window->pushGui(new GuiMsgBox(window,
 			_("OFFLINE ACHIEVEMENTS ARE BEING SENT.") + "\n\n" + _("IT'LL BE A MOMENT."),
-			_("PLAY NOW"), [this, window, options]
+			_("PLAY NOW"), [ref, window, options]
 			{
 				LOG(LogInfo) << "launch: the player chose to play through the send";
 				sPlayThroughSend = true;
-				launchNow(window, this, options);
+				launchNow(window, ref, options);
 			},
 			_("KEEP WAITING"), nullptr));
 		return false;
@@ -1061,17 +1086,53 @@ bool FileData::launchGatesClear(Window* window, LaunchGameOptions& options)
 	{
 		window->pushGui(new GuiMsgBox(window,
 			_("YOUR OFFLINE ACHIEVEMENTS ARE BEING UPDATED.") + "\n\n" + _("IF YOU STOP IT, IT'LL TRY AGAIN NEXT TIME YOU'RE CONNECTED."),
-			_("STOP IT AND PLAY"), [this, window, options]
+			_("STOP IT AND PLAY"), [ref, window, options]
 			{
 				LOG(LogInfo) << "launch: the player chose to stop the top-up for a game";
 				ProxyCards::stopTopUp();
-				launchWhenGone(window, this, options, [] { return ProxyCards::topUpRunning(); }, nullptr);
+				launchWhenGone(window, ref, options, [] { return ProxyCards::topUpRunning(); }, nullptr);
 			},
 			_("KEEP WAITING"), nullptr));
 		return false;
 	}
 
 	return true;
+}
+
+void FileData::rememberLaunchSaveState(FileData* game, LaunchGameOptions& options)
+{
+	rememberSaveState(game, options);
+}
+
+void FileData::findLaunchSaveState(FileData* game, LaunchGameOptions& options)
+{
+	findSaveStateAgain(game, options);
+}
+
+LaunchGameRef FileData::launchRef(FileData* game)
+{
+	LaunchGameRef ref;
+	FileData* source = game != nullptr ? game->getSourceFileData() : nullptr;
+	if (source == nullptr || source->getSystem() == nullptr)
+		return ref;
+	ref.system = source->getSystem()->getName();
+	ref.path = source->getPath();
+	return ref;
+}
+
+FileData* FileData::findLaunchRef(const LaunchGameRef& ref)
+{
+	if (ref.path.empty())
+		return nullptr;
+	for (auto* system : SystemData::sSystemVector)
+	{
+		if (system->isCollection() || system->getName() != ref.system || system->getRootFolder() == nullptr)
+			continue;
+		FileData* found = system->getRootFolder()->FindByPath(ref.path);
+		if (found != nullptr && found->getType() == GAME)
+			return found;
+	}
+	return nullptr;
 }
 
 bool FileData::launchGame(Window* window, LaunchGameOptions options)
