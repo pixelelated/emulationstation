@@ -87,7 +87,7 @@ static std::map<std::string, std::function<BindableProperty(FileData*)>> propert
 	{ "fullNameNoTags",		[](FileData* file) { return GameNameFormatter(file->getSystem()).getDisplayName(file, false, false, false); } },
 };
 
-FileData* FileData::mRunningGame = nullptr;
+std::atomic<FileData*> FileData::mRunningGame{ nullptr };
 
 // Counts game exits, so the work an exit hands to a worker thread (the
 // capture, then the exit sync -- fork #290) can tell whether another game

@@ -6,6 +6,7 @@
 #include "MetaData.h"
 #include <unordered_map>
 #include <unordered_set>
+#include <atomic>
 #include <memory>
 #include <vector>
 #include <stack>
@@ -113,7 +114,7 @@ public:
 	FileData(FileType type, const std::string& path, SystemData* system);
 	virtual ~FileData();
 
-	static FileData* GetRunningGame() { return mRunningGame; }
+	static FileData* GetRunningGame() { return mRunningGame.load(); }
 	// How many games this process has started. A waiter tells "the game it
 	// was waiting for has come and gone" from "none has started yet" by it
 	// (ProxyCards: the queue a top-up stopped for a game holds for that game).
@@ -248,7 +249,9 @@ private:
 protected:	
 	std::string  findLocalArt(const std::string& type = "", std::vector<std::string> exts = { ".png", ".jpg" });
 
-	static FileData* mRunningGame;
+	// Written on the interface thread as a game starts and ends, read by the
+	// proxy cards' workers (PL-013): atomic, as sGamesStarted is.
+	static std::atomic<FileData*> mRunningGame;
 
 	FolderData* mParent;
 	std::string mPath;
