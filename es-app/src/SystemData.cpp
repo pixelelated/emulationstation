@@ -631,6 +631,15 @@ void SystemData::populateFolder(FolderData* folder, std::unordered_map<std::stri
 			if (SystemFolders::skipsSubfolder(mMetadata.name, mEnvData->mStartPath, filePath))
 				continue;
 
+			// A folder already in the map is not scanned again (PL-020). Its
+			// scan writes each of its games into the map, over any entry for
+			// the same path, and the folder was then neither attached nor
+			// freed; freeing it after the scan would leave those entries
+			// pointing at freed games. A folder's key is its path (FileData's
+			// mPath, as given here).
+			if (fileMap.find(filePath) != fileMap.end())
+				continue;
+
 			FolderData* newFolder = new FolderData(filePath, this);
 			populateFolder(newFolder, fileMap);
 
@@ -639,12 +648,8 @@ void SystemData::populateFolder(FolderData* folder, std::unordered_map<std::stri
 				delete newFolder;
 			else 
 			{
-				const std::string& key = newFolder->getPath();
-				if (fileMap.find(key) == fileMap.end())
-				{
-					folder->addChild(newFolder);
-					fileMap[key] = newFolder;
-				}
+				folder->addChild(newFolder);
+				fileMap[newFolder->getPath()] = newFolder;
 			}
 		}
 	}
