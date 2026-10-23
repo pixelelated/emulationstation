@@ -2,7 +2,9 @@
 #ifndef ES_APP_LAUNCH_COMMAND_H
 #define ES_APP_LAUNCH_COMMAND_H
 
+#include <functional>
 #include <string>
+#include <vector>
 
 #include "utils/CommandLineUtil.h"
 
@@ -125,6 +127,92 @@ inline std::string launchErrorText(const std::string& text, size_t max)
 	while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80)
 		cut--;
 	return text.substr(0, cut) + "...";
+}
+
+// The boot game's stored command, brought up to date from the player's
+// settings (pixelelated/distribution#649 PL-006, the coordinator's option
+// (a)). It was stored when the game was chosen and replayed as it was, so
+// a core or emulator set since, or a state file since deleted, was not
+// seen. No system is loaded at boot, so only the player's explicit choices
+// are read: the game's own (`<system>["<file>"].core`/`.emulator`, the key
+// FileData::getConfigurationName makes), then the system's
+// (`<system>.core`/`.emulator`), "auto" meaning none. What this cannot see,
+// without the systems table: a table default that moved, and an override
+// naming a core its emulator lacks, which FileData::getCore would drop.
+// `changed` says what was refreshed, for the log.
+struct BootCommand
+{
+	std::string command;
+	std::vector<std::string> changed;
+};
+
+inline BootCommand refreshBootCommand(const std::string& stored, const std::string& gamePath,
+	const std::function<std::string(const std::string&)>& setting, const std::function<bool(const std::string&)>& fileExists)
+{
+	BootCommand r;
+	r.command = stored;
+
+	const std::string system = launchToken(stored, "-P");
+	if (!system.empty())
+	{
+		std::string file = gamePath.substr(gamePath.find_last_of('/') == std::string::npos ? 0 : gamePath.find_last_of('/') + 1);
+		std::string clean;
+		for (char c : file)
+			if (c != '=' && c != '#')
+				clean += c;
+		const std::string game = system + "[\"" + clean + "\"]";
+
+		auto chosen = [&setting](const std::string& gameKey, const std::string& systemKey)
+		{
+			std::string v = setting(gameKey);
+			if (v.empty() || v == "auto")
+				v = setting(systemKey);
+			return v == "auto" ? std::string() : v;
+		};
+		for (const char* option : { "emulator", "core" })
+		{
+			const std::string now = chosen(game + "." + option, system + "." + option);
+			std::string was;
+			if (now.empty() || !findLaunchToken(r.command, std::string("--") + option + "=", was) || was == now)
+				continue;
+			r.command = Utils::CommandLine::replaceOptionValue(r.command, std::string("-") + option, now);
+			r.changed.push_back(std::string(option) + " " + was + " -> " + now);
+		}
+	}
+
+	// A stored -state_file whose file is gone is dropped with its value.
+	size_t i = 0;
+	while (i < r.command.size())
+	{
+		if (r.command[i] == ' ' || r.command[i] == '\t')
+		{
+			i++;
+			continue;
+		}
+		const size_t end = Utils::CommandLine::wordEnd(r.command, i);
+		if (r.command.compare(i, end - i, "-state_file") == 0 && end - i == 11)
+		{
+			size_t v = end;
+			while (v < r.command.size() && (r.command[v] == ' ' || r.command[v] == '\t'))
+				v++;
+			const size_t vEnd = Utils::CommandLine::wordEnd(r.command, v);
+			const std::string path = launchWordText(r.command.substr(v, vEnd - v));
+			if (!path.empty() && !fileExists(path))
+			{
+				size_t from = i;
+				while (from > 0 && (r.command[from - 1] == ' ' || r.command[from - 1] == '\t'))
+					from--;
+				r.command = r.command.substr(0, from) + r.command.substr(vEnd);
+				r.changed.push_back("state file " + path + " is gone");
+				i = from;
+				continue;
+			}
+			i = vEnd;
+			continue;
+		}
+		i = end;
+	}
+	return r;
 }
 
 #endif // ES_APP_LAUNCH_COMMAND_H

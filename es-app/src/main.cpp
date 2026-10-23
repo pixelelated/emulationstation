@@ -562,6 +562,16 @@ void launchStartupGame()
 	auto command = SystemConf::getInstance()->get("global.bootgame.cmd");
 	if (!command.empty())
 	{
+		// Brought up to date from the player's settings before it runs
+		// (PL-006): it was replayed as stored when the game was chosen.
+		// refreshBootCommand says what it cannot see without the systems.
+		const BootCommand boot = refreshBootCommand(command, gamePath,
+			[](const std::string& key) { return SystemConf::getInstance()->get(key); },
+			[](const std::string& path) { return Utils::FileSystem::exists(path, false); });
+		for (const auto& change : boot.changed)
+			LOG(LogInfo) << "boot game: the stored command is refreshed: " << change;
+		command = boot.command;
+
 		InputManager::getInstance()->init();
 		command = Utils::String::replace(command, "%CONTROLLERSCONFIG%", InputManager::getInstance()->configureEmulators());
 

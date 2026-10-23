@@ -11,6 +11,8 @@
 #include "LaunchCommand.h"
 #include "utils/CommandLineUtil.h"
 
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -243,4 +245,58 @@ TEST_CASE("launch error: the launcher's text is bounded for the box (PL-024)")
 	const std::string cut = launchErrorText(accented, 300);
 	CHECK(cut == std::string(299, 'A') + "...");
 	CHECK(launchErrorText("", 300) == "");
+}
+
+// PL-006 (pixelelated/distribution#649, #772): the boot game replayed the
+// command stored when it was chosen. No system is loaded at boot, so the
+// stored command is brought up to date from the player's settings alone
+// (the coordinator's option (a), #649 21:25 UTC).
+namespace
+{
+	const std::string BOOT = "/usr/bin/runemu.sh /storage/roms/gb/Game.gb -Pgb --core=gambatte --emulator=retroarch --controllers=\"%CONTROLLERSCONFIG%\"";
+
+	BootCommand refresh(const std::string& cmd, std::map<std::string, std::string> conf, std::set<std::string> files = {})
+	{
+		return refreshBootCommand(cmd, "/storage/roms/gb/Game.gb",
+			[conf](const std::string& k) { auto it = conf.find(k); return it == conf.end() ? std::string() : it->second; },
+			[files](const std::string& p) { return files.count(p) > 0; });
+	}
+}
+
+TEST_CASE("boot command: the game's own core, set since it was chosen, is used (PL-006)")
+{
+	const auto r = refresh(BOOT, { { "gb[\"Game.gb\"].core", "sameboy" } });
+	CHECK(launchArgument(r.command, "--core", "") == "sameboy");
+	CHECK(launchArgument(r.command, "--emulator", "") == "retroarch");
+	CHECK(r.changed.size() == 1);
+}
+
+TEST_CASE("boot command: the system's emulator and core when the game has none (PL-006)")
+{
+	const auto r = refresh(BOOT, { { "gb.emulator", "libretro2" }, { "gb.core", "mgba" } });
+	CHECK(launchArgument(r.command, "--emulator", "") == "libretro2");
+	CHECK(launchArgument(r.command, "--core", "") == "mgba");
+}
+
+TEST_CASE("boot command: auto and no setting leave the stored pair")
+{
+	CHECK(refresh(BOOT, { { "gb[\"Game.gb\"].core", "auto" } }).command == BOOT);
+	CHECK(refresh(BOOT, {}).command == BOOT);
+	CHECK(refresh(BOOT, {}).changed.empty());
+}
+
+TEST_CASE("boot command: a stored state file that is gone is dropped, one still there kept (PL-006)")
+{
+	const std::string withState = BOOT + " -autosave 1 -state_file '/storage/roms/savestates/gb/Game.state.auto'";
+	const auto gone = refresh(withState, {});
+	CHECK(gone.command.find("-state_file") == std::string::npos);
+	CHECK(gone.changed.size() == 1);
+	const auto kept = refresh(withState, {}, { "/storage/roms/savestates/gb/Game.state.auto" });
+	CHECK(kept.command == withState);
+}
+
+TEST_CASE("boot command: a command with no such words is left as it is")
+{
+	const std::string tools = "/usr/bin/run /storage/roms/tools/Start\\ Kodi.sh";
+	CHECK(refresh(tools, { { "tools.core", "x" } }).command == tools);
 }
