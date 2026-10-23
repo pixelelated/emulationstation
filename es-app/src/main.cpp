@@ -72,6 +72,9 @@ static std::string gPlayVideo;
 static int gPlayVideoDuration = 0;
 static bool enable_startup_game = true;
 
+// The help was asked for (--help), as against an argument refused.
+static bool gArgsHelpShown = false;
+
 bool parseArgs(int argc, char* argv[])
 {
 	Paths::setExePath(argv[0]);
@@ -97,11 +100,24 @@ bool parseArgs(int argc, char* argv[])
 	{
 		if (strcmp(argv[i], "--videoduration") == 0)
 		{
+			// Each flag that takes a value checks there is one, as its
+			// neighbours do (PL-011): given last, it read the null that ends
+			// argv and the process died on it.
+			if (i >= argc - 1)
+			{
+				std::cerr << "Invalid video duration supplied.";
+				return false;
+			}
 			gPlayVideoDuration = atoi(argv[i + 1]);
 			i++; // skip the argument value
 		}
 		else if (strcmp(argv[i], "--video") == 0)
 		{
+			if (i >= argc - 1)
+			{
+				std::cerr << "Invalid video supplied.";
+				return false;
+			}
 			gPlayVideo = argv[i + 1];
 			i++; // skip the argument value
 		}
@@ -219,13 +235,24 @@ bool parseArgs(int argc, char* argv[])
 			Settings::getInstance()->setBool("Windowed", true);
 		}else if(strcmp(argv[i], "--vsync") == 0)
 		{
+			if (i >= argc - 1)
+			{
+				std::cerr << "Invalid vsync supplied.";
+				return false;
+			}
 			bool vsync = (strcmp(argv[i + 1], "on") == 0 || strcmp(argv[i + 1], "1") == 0) ? true : false;
 			Settings::getInstance()->setBool("VSync", vsync);
 			i++; // skip vsync value
 		}else if(strcmp(argv[i], "--max-vram") == 0)
 		{
+			if (i >= argc - 1)
+			{
+				std::cerr << "Invalid max VRAM supplied.";
+				return false;
+			}
 			int maxVRAM = atoi(argv[i + 1]);
 			Settings::getInstance()->setInt("MaxVRAM", maxVRAM);
+			i++; // skip the argument value, which was read as a flag (PL-011)
 		}
 		else if (strcmp(argv[i], "--anti-aliasing") == 0)
 		{
@@ -290,6 +317,7 @@ bool parseArgs(int argc, char* argv[])
 				"--help, -h			summon a sentient, angry tuba\n\n"
 				"--monitor [index]			monitor index\n\n"				
 				"More information available in README.md.\n";
+			gArgsHelpShown = true;
 			return false; //exit after printing help
 		}
 	}
@@ -733,8 +761,10 @@ int main(int argc, char* argv[])
 
 	std::locale::global(std::locale("C"));
 
+	// The help text ends the process as it always did; a refused argument
+	// now says so in the status (PL-011: both returned 0).
 	if(!parseArgs(argc, argv))
-		return 0;
+		return gArgsHelpShown ? 0 : 1;
 
 	// only show the console on Windows if HideConsole is false
 #ifdef WIN32
