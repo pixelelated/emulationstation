@@ -642,69 +642,52 @@ void ViewController::launch(FileData* game, LaunchGameOptions options, Vector3f 
 	//if (transition_style == "slide" && mCurrentView->isKindOf<GridGameListView>())
 		//transition_style = "fade";
 
+	// One end for the three transitions (PL-035; they were three copies):
+	// the game runs, then the library is reloaded, or the transition plays
+	// back, the list is told the game changed and is shown again.
+	auto ended = [this, game, options](const std::function<void()>& playBack)
+	{
+		if (doLaunchGame(game, options))
+		{
+			GuiComponent::isLaunchTransitionRunning = false;
+
+			Window* w = mWindow;
+			mWindow->postToUiThread([w]() { reloadAllGames(w, false); });
+		}
+		else
+		{
+			playBack();
+			this->onFileChanged(game, FILE_METADATA_CHANGED);
+			if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
+		}
+	};
+	auto returned = [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); };
+
 	if (transition_style == "fade" || transition_style == "fast fade")
 	{
 		int fadeDuration = (transition_style == "fast fade") ? 400 : 800; // Halve the duration for fast fade
 		// fade out, launch game, fade back in
 		auto fadeFunc = [this](float t) { mFadeOpacity = Math::lerp(0.0f, 1.0f, t); };
 
-		setAnimation(new LambdaAnimation(fadeFunc, fadeDuration), 0, [this, game, fadeFunc, options]
+		setAnimation(new LambdaAnimation(fadeFunc, fadeDuration), 0, [this, fadeFunc, ended, returned]
 		{
-			if (doLaunchGame(game, options))
-			{
-				GuiComponent::isLaunchTransitionRunning = false;
-
-				Window* w = mWindow;
-				mWindow->postToUiThread([w]() { reloadAllGames(w, false); });
-			}
-			else
-			{
-				setAnimation(new LambdaAnimation(fadeFunc, 800), 0, [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); }, true, 3);
-				this->onFileChanged(game, FILE_METADATA_CHANGED);
-				if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
-			}
+			ended([this, fadeFunc, returned] { setAnimation(new LambdaAnimation(fadeFunc, 800), 0, returned, true, 3); });
 		});
 	} 
 	else if (transition_style == "slide" || transition_style == "fast slide")
 	{
 		int slideDuration = (transition_style == "fast slide") ? 750 : 1500; // Halve the duration for fast slide
 		// move camera to zoom in on center + fade out, launch game, come back in
-		setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, slideDuration), 0, [this, origCamera, center, game, options]
-		{			
-			if (doLaunchGame(game, options))
-			{
-				GuiComponent::isLaunchTransitionRunning = false;
-
-				Window* w = mWindow;
-				mWindow->postToUiThread([w]() { reloadAllGames(w, false); });
-			}
-			else
-			{
-				mCamera = origCamera;
-				setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 600), 0, [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); }, true, 3);
-				this->onFileChanged(game, FILE_METADATA_CHANGED);
-				if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
-			}
+		setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, slideDuration), 0, [this, origCamera, center, ended, returned]
+		{
+			ended([this, origCamera, center, returned] { mCamera = origCamera; setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 600), 0, returned, true, 3); });
 		});
 	} 
 	else // instant
-	{			
-		setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this, origCamera, center, game, options]
-		{			
-			if (doLaunchGame(game, options))
-			{
-				GuiComponent::isLaunchTransitionRunning = false;
-
-				Window* w = mWindow;
-				mWindow->postToUiThread([w]() { reloadAllGames(w, false); });
-			}
-			else
-			{
-				mCamera = origCamera;
-				setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this] { GuiComponent::isLaunchTransitionRunning = false; mLockInput = false; mWindow->closeSplashScreen(); }, true, 3);
-				this->onFileChanged(game, FILE_METADATA_CHANGED);
-				if (mCurrentView) mCurrentView->onShow();   // doLaunchGame hid it (PL-014)
-			}
+	{
+		setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this, origCamera, center, ended, returned]
+		{
+			ended([this, origCamera, center, returned] { mCamera = origCamera; setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, returned, true, 3); });
 		});
 	}
 }
