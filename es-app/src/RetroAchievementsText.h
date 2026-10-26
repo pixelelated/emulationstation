@@ -89,6 +89,14 @@ namespace RetroAchievementsText
 		return httpStatus == 401 || httpStatus == 403 ? keyRejected : unreachable;
 	}
 
+	// HARDCORE MODE while offline achievements are on (#1179, D-RA-052): the
+	// casual-only feature holds hardcore where the ctl's enable put it, so
+	// the switch is dimmed, says why, and is not writable from the page.
+	inline bool hardcoreLocked(bool offlineAvailable, bool offlineOn)
+	{
+		return offlineAvailable && offlineOn;
+	}
+
 	inline std::string tokenForScan(const std::string& userAtOpen, const std::string& passwordAtOpen,
 		const std::string& userNow, const std::string& passwordNow, const std::string& token)
 	{

@@ -84,3 +84,10 @@ TEST_CASE("RetroAchievements: an API failure says it in the player's words, not 
 	CHECK(text == "COULDN'T REACH.");
 	CHECK(RetroAchievementsText::apiFailureText(401, "x", "KEY REJECTED.", "COULDN'T REACH.") == "KEY REJECTED.");
 }
+
+TEST_CASE("RetroAchievements: HARDCORE MODE is locked while offline achievements are on (#1179)")
+{
+	CHECK(RetroAchievementsText::hardcoreLocked(true, true));
+	CHECK_FALSE(RetroAchievementsText::hardcoreLocked(true, false));
+	CHECK_FALSE(RetroAchievementsText::hardcoreLocked(false, true));
+}

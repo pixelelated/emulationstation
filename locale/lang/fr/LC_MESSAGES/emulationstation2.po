@@ -4299,6 +4299,9 @@ msgstr "SUCCÈS HORS LIGNE (BÊTA)"
 msgid "Casual achievements only."
 msgstr "Succès en mode facile seulement."
 
+msgid "Can't change while OFFLINE ACHIEVEMENTS (BETA) is on."
+msgstr "Non modifiable tant que SUCCÈS HORS LIGNE (BÊTA) est activé."
+
 msgid ""
 "EARN CASUAL ACHIEVEMENTS WITHOUT A CONNECTION. THEY ARE SENT WHEN YOU'RE BACK "
 "ONLINE."

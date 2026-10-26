@@ -531,10 +531,15 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 				setQuietly(outcome.switchOn);
 				if (outcome.mirror)
 				{
-					if (auto row = hardcoreRow.lock())
-						row->setState(outcome.hardcoreOn);
+					// SystemConf first: the HARDCORE MODE row's lock reads it, and a
+					// row set before it would be put back (#1179).
 					SystemConf::getInstance()->set("global.retroachievements.offlineproxy", outcome.switchOn ? "1" : "0");
 					SystemConf::getInstance()->set("global.retroachievements.hardcore", outcome.hardcoreOn ? "1" : "0");
+					if (auto row = hardcoreRow.lock())
+					{
+						row->setState(outcome.hardcoreOn);
+						row->setDimmed(outcome.switchOn);
+					}
 				}
 				// The scan row reads the switch: on, it offers the scan; off, it
 				// says to turn the switch on first.
@@ -663,7 +668,32 @@ GuiRetroAchievementsSettings::GuiRetroAchievementsSettings(Window* window) : Gui
 
 	addGroup(_("OPTIONS"));
 
-	auto hardcore = addSwitch(_("HARDCORE MODE"), _("Disable loading states, rewind and cheats for more points."), "global.retroachievements.hardcore", false, nullptr);
+	// While offline achievements are on, HARDCORE MODE is the casual-only
+	// feature's to hold (#1179, D-RA-052): dimmed, not hidden, with its reason
+	// and where, and a press is put back. Read live, so the OFFLINE
+	// ACHIEVEMENTS page below can turn the feature on or off while this page
+	// is open; that page writes SystemConf before it sets this row.
+	const bool offlineCtl = Utils::FileSystem::exists("/usr/bin/raofflineproxy-ctl");
+	const bool hardcoreLocked = RetroAchievementsText::hardcoreLocked(offlineCtl,
+		SystemConf::getInstance()->getBool("global.retroachievements.offlineproxy"));
+	auto hardcore = addSwitch(_("HARDCORE MODE"), hardcoreLocked ? _("Can't change while OFFLINE ACHIEVEMENTS (BETA) is on.")
+		: _("Disable loading states, rewind and cheats for more points."), "global.retroachievements.hardcore", false, nullptr);
+	hardcore->setDimmed(hardcoreLocked);
+	{
+		std::weak_ptr<SwitchComponent> hardcoreWeak = hardcore;
+		hardcore->setOnChangedCallback([hardcoreWeak, offlineCtl]
+		{
+			auto sw = hardcoreWeak.lock();
+			if (!sw)
+				return;
+			SystemConf* conf = SystemConf::getInstance();
+			if (!RetroAchievementsText::hardcoreLocked(offlineCtl, conf->getBool("global.retroachievements.offlineproxy")))
+				return;
+			const bool held = conf->getBool("global.retroachievements.hardcore");
+			if (sw->getState() != held)
+				sw->setState(held);
+		});
+	}
 
 #if defined(ROCKNIX)
 	// OFFLINE ACHIEVEMENTS: a row that opens a page (D-RA-003; es-player-text
