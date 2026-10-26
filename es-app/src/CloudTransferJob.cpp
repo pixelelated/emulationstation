@@ -611,7 +611,9 @@ void CloudTransferJob::run()
 	// -- so everything the earlier tiers wrote to stderr went to the ES
 	// process's own stderr and never reached the page.
 	//
-	// SIGPIPE ignored inside them, as the scan's job does (OfflineScanJob):
+	// SIGPIPE ignored inside them, and before the pid line (the T18 audit,
+	// #1148: it used to come after it, so the first write was unprotected),
+	// as the sync card's commands are too:
 	// should this process end while the run is still going -- essway
 	// restarting the interface under a transfer -- the scripts' own ">>> "
 	// lines meet a closed pipe and fail without killing the shell, so a
@@ -633,7 +635,7 @@ void CloudTransferJob::run()
 	// compares against (G-E2-O2).
 	mStampsBefore = ThreadedCloudSync::readStamps(mCommand);
 	const std::string wrapped = "setsid sh -c "
-		+ Utils::String::shellQuote("echo \">>> pid $$\"; { trap '' PIPE; " + mCommand + " ; }") + " 2>&1";
+		+ Utils::String::shellQuote("{ trap '' PIPE; echo \">>> pid $$\"; " + mCommand + " ; }") + " 2>&1";
 	FILE* pipe = popen(wrapped.c_str(), "r");
 	if (pipe != nullptr)
 	{

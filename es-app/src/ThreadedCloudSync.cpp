@@ -205,8 +205,16 @@ void ThreadedCloudSync::run()
 	// (the startup sync) was the only one that could be cancelled -- the
 	// after-a-game backup ran bare, with no group to send a signal to.
 	// shellQuote, so a command with a quote in it survives the trip.
+	//
+	// SIGPIPE ignored first, before the pid line, as the transfer job does
+	// (CloudTransferJob::run): when this process goes away under a sync --
+	// essway restarting the interface -- the scripts' next write meets a
+	// closed pipe and fails without killing them, so a part that can still
+	// end writes its stamp. It used to be the job's alone, and the card's
+	// scripts died at their next echo with their stamp unwritten (the T18
+	// audit, #1148; tools/t18-wrapper-fixture.py in its folder).
 	const std::string wrapped = "setsid sh -c "
-		+ Utils::String::shellQuote("echo \">>> pid $$\"; " + mCommand) + " 2>&1";
+		+ Utils::String::shellQuote("{ trap '' PIPE; echo \">>> pid $$\"; " + mCommand + " ; }") + " 2>&1";
 	FILE* pipe = popen(wrapped.c_str(), "r");
 	if (pipe != nullptr)
 	{
