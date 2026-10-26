@@ -174,6 +174,23 @@ TEST_CASE("transfer job: a stop that looked before the run ended does not mark a
 	CloudTransferJob::dismiss(job);
 }
 
+// The T18 seats' R-11 and R-41 (#1150): the run's own end -- pclose has
+// reaped the command -- comes before the run takes its lock, and a stop in
+// that window used to mark a run that failed on its own as stopped, since
+// the end cleared a stop only over 0 or 9. The page then said SKIPPED -
+// YOU CANCELLED IT over a failure. The seam holds the window open.
+TEST_CASE("transfer job: a stop after the run failed on its own keeps the failure (#1150)")
+{
+	clearLog();
+	CloudTransferJob::testPauseAfterExit = [] { CloudTransferJob::stopByPlayer(); };
+	auto job = CloudTransferJob::start("exit 5", "TEST", 1, 0);
+	REQUIRE(job != nullptr);
+	REQUIRE(waitFor([&] { return job->finished(); }, 10));
+	CloudTransferJob::testPauseAfterExit = nullptr;
+	CHECK_FALSE(job->stoppedByPlayer());
+	CloudTransferJob::dismiss(job);
+}
+
 // Orchestrator finding G-E2-O2 (E1's G-E1-04, on the page): a stop
 // restamped the stamps its run wrote by the clock -- a stop stamp an
 // earlier run left within the second read as this run's. The card takes a

@@ -3,6 +3,7 @@
 #include "CloudOffer.h"
 #include "CloudText.h"
 #include "CloudTransferJob.h"
+#include "FileData.h"
 #include "Log.h"
 #include "OfflineAchievements.h"
 #include "ProxyCards.h"
@@ -263,6 +264,13 @@ void ThreadedCloudSync::run()
 				{
 				case CloudText::ProtocolKind::Pid:
 					mPid = protocol.number;
+					// A launch's cancel that came before this line, and
+					// gave up waiting for it (the T18 audit, #1150; the
+					// seats' A-34): delivered now. cancelForLaunch sets the
+					// flag before it reads the pid, and this reads the flag
+					// after it sets the pid, so one of the two sends it.
+					if (mCancelled && mPid > 0)
+						::kill(-mPid, SIGTERM);
 					break;
 				case CloudText::ProtocolKind::Doing:
 				{
@@ -463,7 +471,14 @@ void ThreadedCloudSync::run()
 	// happened. CloudExit::Stopped is what the scripts' own trap exits with
 	// when somebody stops them, and what cloudLastRunDetail already reads as
 	// STOPPED: the same word for the same thing, whoever did the stopping.
-	const bool cancelled = mCancelled;
+	//
+	// Only when the cancel is what ended the run (the T18 audit, #1150; the
+	// seats' A-33): a cancel that lands after the run completed, or after it
+	// failed on its own, leaves the run's own outcome, as the transfer job
+	// does (CloudTransferJob::run).
+	const bool cancelled = CloudText::stopEndedRun(mCancelled, ret);
+	if (mCancelled && !cancelled)
+		LOG(LogInfo) << "ThreadedCloudSync: the launch's cancel came after the run had ended (" << ret << "); its own outcome stands";
 	if (cancelled)
 		ret = CloudExit::Stopped;
 
@@ -729,6 +744,9 @@ void ThreadedCloudSync::run()
 		if (ThreadedCloudSync::mInstance == this)
 			ThreadedCloudSync::mInstance = nullptr;
 	}
+	// From here a launch is allowed: what follows the linger checks that no
+	// game started in it (the T18 audit, #1150; the seats' R-8, R-39).
+	const unsigned gamesAtClear = FileData::GetGamesStarted();
 
 	if (mWndNotification != nullptr)
 	{
@@ -748,7 +766,10 @@ void ThreadedCloudSync::run()
 	// dialog itself is CloudOffer's, shared with the transfer page, so the
 	// two surfaces that run these scripts cannot ask it in different words
 	// (#145). It pushes on the interface thread itself.
-	if (completed)
+	const bool followUps = CloudText::followUpsAllowed(gamesAtClear, FileData::GetGamesStarted(), FileData::GetRunningGame() != nullptr);
+	if (!followUps)
+		LOG(LogInfo) << "ThreadedCloudSync: a game started during the card's linger; no offer and no RetroAchievements batch after it";
+	if (completed && followUps)
 		CloudOffer::present(mWindow, mOffer, mOfferArgs);
 
 	// The offline achievements' send card follows an automatic sync's
@@ -762,7 +783,7 @@ void ThreadedCloudSync::run()
 	// leave quiet (the v2 proof, 2026-09-26: the exit card's end started
 	// the send card offline, and the link's own card, finding one up,
 	// dropped the sync it owed).
-	if (!cancelled && ret != CloudExit::NoNetwork && (mOrigin == Origin::Exit || mOrigin == Origin::Startup))
+	if (followUps && !cancelled && ret != CloudExit::NoNetwork && (mOrigin == Origin::Exit || mOrigin == Origin::Startup))
 		ProxyCards::afterSync(mWindow);
 
 	delete this;

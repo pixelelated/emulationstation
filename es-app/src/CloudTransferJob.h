@@ -85,6 +85,10 @@ public:
 	// has finished and its marking the run stopped -- the seam audit G-E2-05
 	// named. Empty, and never set, in the application.
 	static std::function<void()> testPauseInStop;
+	// Tests only: run after the command has ended and before the run takes
+	// its lock -- the window a stop could relabel a run's own failure in
+	// (the T18 audit, #1150). Empty, and never set, in the application.
+	static std::function<void()> testPauseAfterExit;
 
 	const std::string& command() const { return mCommand; }
 	const std::string& title() const { return mTitle; }

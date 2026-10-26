@@ -118,6 +118,18 @@ namespace CloudText
 	// "<epoch> <rc>[ <token>[ <why...>]]" (D-UI-028), the whole file's text.
 	LastRun parseLastRun(const std::string& text);
 
+	// Whether a stop the interface asked for is what ended a run (the T18
+	// audit, #1150). A run that had already ended on its own -- completed (0,
+	// 9) or failed (3, 5, 69, 75, ...) -- keeps its own outcome; only an exit a
+	// stop makes (the scripts' trap's CloudExit::Stopped, a shell's 143, or a
+	// signal, which the readers read as -1) is a stopped run.
+	bool stopEndedRun(bool stopRequested, int exitStatus);
+
+	// Whether the sync card may raise what follows its linger (an offer, the
+	// RetroAchievements batch): not when a game was launched since the card
+	// gave up the screen, nor while one runs (the T18 audit, #1150).
+	bool followUpsAllowed(unsigned gamesStartedWhenCleared, unsigned gamesStartedNow, bool gameRunning);
+
 	// Whether the exit sync that was skipped for want of a network is still
 	// owed (fork #292, D-RA-030): last-sync-exit reads no-network, and
 	// neither a startup sync that completed nor a back up the player ran

@@ -849,6 +849,36 @@ TEST_CASE("ThreadedCloudSync writes its stamps whole or not at all, and says whi
 	CHECK(cpp.find("if (writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, \"\"))") != std::string::npos);
 }
 
+TEST_CASE("a stop or a cancel never relabels a run that ended on its own, and reaches a late pid (#1150)")
+{
+	// The T18 audit's S5, held by the sources (the card cannot be built
+	// here; the decision itself is CloudText::stopEndedRun, tested in
+	// es-unit-tests, and the job's window is jobs-tests'). The card took its
+	// cancel flag over a run's own end, kept no stop for a pid that came
+	// after its budget, and raised its offer and the RetroAchievements batch
+	// after a linger a game could start in; the job cleared a stop only
+	// over 0 or 9 (the seats' A-33, A-34, R-8, R-11).
+	const char* root = getenv("ES_SOURCE_ROOT");
+	const std::string base = root != nullptr && *root != '\0' ? root : ES_ROOT_DIR;
+	auto code = [](const std::string& text) {
+		std::string out;
+		std::istringstream in(text);
+		std::string line;
+		while (std::getline(in, line))
+			out += line.substr(0, line.find("//")) + "\n";
+		return out;
+	};
+	const std::string card = code(get(base + "/es-app/src/ThreadedCloudSync.cpp"));
+	const std::string job = code(get(base + "/es-app/src/CloudTransferJob.cpp"));
+	REQUIRE_FALSE(card.empty());
+	REQUIRE_FALSE(job.empty());
+	CHECK(card.find("CloudText::stopEndedRun(mCancelled, ret)") != std::string::npos);
+	CHECK(card.find("if (mCancelled && mPid > 0)") != std::string::npos);
+	CHECK(card.find("CloudText::followUpsAllowed(") != std::string::npos);
+	CHECK(job.find("CloudText::stopEndedRun(true, ret)") != std::string::npos);
+	CHECK(job.find("(ret == 0 || ret == 9))\n") == std::string::npos);
+}
+
 TEST_CASE("the transfer page says match for a match, the canonical verbs, and fits every row (#1146, #1149)")
 {
 	// The transfer page draws, so its words are held by its source, as the

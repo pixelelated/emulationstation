@@ -257,6 +257,18 @@ std::string offlinePartWayWhy(const std::vector<StampText>& stamps, const std::v
 	return "";
 }
 
+bool stopEndedRun(bool stopRequested, int exitStatus)
+{
+	if (!stopRequested)
+		return false;
+	return exitStatus == CloudExit::Stopped || exitStatus == 143 || exitStatus < 0;
+}
+
+bool followUpsAllowed(unsigned gamesStartedWhenCleared, unsigned gamesStartedNow, bool gameRunning)
+{
+	return !gameRunning && gamesStartedNow == gamesStartedWhenCleared;
+}
+
 bool exitSyncOwed(const std::string& exitStamp, const std::string& startupStamp, const std::string& backupStamp)
 {
 	// Skipped for no network; or cut by the network part-way, the card's

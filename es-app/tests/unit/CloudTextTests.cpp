@@ -11,6 +11,7 @@
 #include "doctest/doctest.h"
 
 #include "CloudText.h"
+#include "CloudExit.h"
 
 #include <ctime>
 #include <string>
@@ -762,6 +763,37 @@ TEST_CASE("every why row still matches itself after the parser's normalization (
 		CHECK(p.kind == ProtocolKind::Why);
 		CHECK(isKnownWhy(p.text));
 	}
+}
+
+// A stop or a cancel the interface asked for, against a run that had
+// already ended (the T18 seats' A-33, R-11): only an exit a stop makes --
+// the scripts' trap's 130, a shell's 143, or a signal, read as -1 -- is a
+// stopped run. A completion (0, 9) or a failure of the run's own (5, 69,
+// 75, ...) keeps its outcome; a stop nobody asked for is no stop (#1150).
+TEST_CASE("a stop decides a run's outcome only when the stop is what ended it (#1150)")
+{
+	CHECK(stopEndedRun(true, CloudExit::Stopped));
+	CHECK(stopEndedRun(true, 143));
+	CHECK(stopEndedRun(true, -1));
+	for (int own : { 0, 9, 3, 5, 7, CloudExit::NoNetwork, CloudExit::LockHeld, 124, 1 })
+	{
+		INFO(own);
+		CHECK_FALSE(stopEndedRun(true, own));
+	}
+	CHECK_FALSE(stopEndedRun(false, CloudExit::Stopped));
+	CHECK_FALSE(stopEndedRun(false, -1));
+}
+
+// The card gives up the screen before its linger, so a game can start in
+// it; what the card raises after the linger -- an offer, the
+// RetroAchievements batch -- must not land over that game (the T18 seats'
+// R-8, R-39; #1150).
+TEST_CASE("the card's follow-ups wait for no game launched during its linger (#1150)")
+{
+	CHECK(followUpsAllowed(4u, 4u, false));
+	CHECK_FALSE(followUpsAllowed(4u, 5u, false));   // a game started since
+	CHECK_FALSE(followUpsAllowed(4u, 5u, true));
+	CHECK_FALSE(followUpsAllowed(4u, 4u, true));    // one is running
 }
 
 // The stamp's why is a sentence too (#308 claude F-CS-24, stream A): a run

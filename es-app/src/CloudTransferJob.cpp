@@ -18,6 +18,7 @@
 
 std::mutex CloudTransferJob::sMutex;
 std::function<void()> CloudTransferJob::testPauseInStop;
+std::function<void()> CloudTransferJob::testPauseAfterExit;
 std::shared_ptr<CloudTransferJob> CloudTransferJob::sCurrent;
 
 // The run's starting state: every counter at its starting value. Once, at
@@ -681,6 +682,8 @@ void CloudTransferJob::run()
 		if (WIFEXITED(status))
 			ret = WEXITSTATUS(status);
 	}
+	if (testPauseAfterExit)
+		testPauseAfterExit();
 
 	std::unique_lock<std::mutex> lock(mMutex);
 	foldUnit();   // the last unit: no ">>> unit" follows it
@@ -689,9 +692,15 @@ void CloudTransferJob::run()
 	// and a completed run is not called stopped (#308 gpt F-CS-24). A run
 	// the stop did end exits by the signal or by the scripts' trap, 130 --
 	// never 0.
-	if ((mStoppedForGame || mStoppedByPlayer) && (ret == 0 || ret == 9))
+	//
+	// The same for a run that failed on its own -- 5, 69, 75 -- before the
+	// stop: only an exit a stop makes is a stopped run (CloudText::
+	// stopEndedRun; the T18 audit, #1150, the seats' R-11). It used to clear
+	// the flags over 0 or 9 alone, and a failure read SKIPPED - YOU
+	// CANCELLED IT.
+	if ((mStoppedForGame || mStoppedByPlayer) && !CloudText::stopEndedRun(true, ret))
 	{
-		LOG(LogInfo) << "CloudTransferJob: the stop came after the command had finished; it completed";
+		LOG(LogInfo) << "CloudTransferJob: the stop came after the command had ended (" << ret << "); its own outcome stands";
 		mStoppedForGame = false;
 		mStoppedByPlayer = false;
 	}
