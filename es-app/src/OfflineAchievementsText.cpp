@@ -281,3 +281,53 @@ OfflineAchievementsText::AccountTotals OfflineAchievementsText::parseAccountTota
 	totals.ok = score && softcore;
 	return totals;
 }
+
+OfflineAchievementsText::ToggleState OfflineAchievementsText::parseToggleStatus(const std::string& text)
+{
+	ToggleState state;
+	bool enabled = false, hardcore = false;
+	for (const std::string& raw : Utils::String::split(text, '\n', true))
+	{
+		const std::string line = Utils::String::trim(raw);
+		if (line == "enabled=0" || line == "enabled=1")
+		{
+			state.on = line == "enabled=1";
+			enabled = true;
+		}
+		else if (line == "hardcore=0" || line == "hardcore=1")
+		{
+			state.hardcore = line == "hardcore=1";
+			hardcore = true;
+		}
+	}
+	state.known = enabled && hardcore;
+	return state;
+}
+
+OfflineAchievementsText::ToggleOutcome OfflineAchievementsText::toggleOutcome(bool wantedOn, int exitCode, const std::string& lastLine, const ToggleState& file)
+{
+	ToggleOutcome outcome;
+	outcome.finished = exitCode == 0 && Utils::String::startsWith(lastLine, "hardcore=");
+	// The file decides, whatever the exit: disable writes the toggle off
+	// first and can fail after it, and a page that reverted to the press's
+	// opposite then said on for a feature that was off (#1173). Never
+	// re-enabled here: the page shows what the ctl left.
+	if (file.known)
+	{
+		outcome.switchOn = file.on;
+		outcome.hardcoreOn = file.hardcore;
+		outcome.mirror = true;
+		return outcome;
+	}
+	// Nothing readable: a finished change is the ctl's word; an unfinished
+	// one puts the switch back, as before.
+	if (!outcome.finished)
+	{
+		outcome.switchOn = !wantedOn;
+		return outcome;
+	}
+	outcome.switchOn = wantedOn;
+	outcome.hardcoreOn = lastLine == "hardcore=1";
+	outcome.mirror = true;
+	return outcome;
+}

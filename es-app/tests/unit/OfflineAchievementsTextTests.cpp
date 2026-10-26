@@ -348,3 +348,50 @@ TEST_CASE("parseStoreGame refuses what is not a game")
 	CHECK_FALSE(parseStoreGame(R"({"id":9,"title":"Empty","achievements":0})").ok);  // an empty set is not a cached game (PL-26)
 	CHECK_FALSE(parseStoreGame(R"({"title":"no id at all","achievements":3})").ok);
 }
+
+TEST_CASE("OfflineAchievementsText: the ctl's status read as the toggle's state (#1173)")
+{
+	auto s = OfflineAchievementsText::parseToggleStatus("enabled=0\nmarker=0\nservice=inactive\nhardcore=1\n");
+	CHECK(s.known);
+	CHECK_FALSE(s.on);
+	CHECK(s.hardcore);
+	CHECK_FALSE(OfflineAchievementsText::parseToggleStatus("enabled=1\n").known);
+	CHECK_FALSE(OfflineAchievementsText::parseToggleStatus("").known);
+}
+
+TEST_CASE("OfflineAchievementsText: after a disable that failed with the toggle off, the page says off (#1173)")
+{
+	// do_disable writes the toggle off, then fails at the hardcore restore:
+	// exit 1, and status reads enabled=0.
+	OfflineAchievementsText::ToggleState file;
+	file.known = true; file.on = false; file.hardcore = true;
+	const auto o = OfflineAchievementsText::toggleOutcome(false, 1, "", file);
+	CHECK_FALSE(o.finished);
+	CHECK_FALSE(o.switchOn);
+	CHECK(o.hardcoreOn);
+	CHECK(o.mirror);
+}
+
+TEST_CASE("OfflineAchievementsText: after a toggle that failed before any write, the page keeps the old state (#1173)")
+{
+	OfflineAchievementsText::ToggleState file;
+	file.known = true; file.on = true; file.hardcore = false;
+	const auto o = OfflineAchievementsText::toggleOutcome(false, 1, "", file);
+	CHECK_FALSE(o.finished);
+	CHECK(o.switchOn);
+	// And with nothing readable, the switch goes back as before.
+	const auto u = OfflineAchievementsText::toggleOutcome(true, 1, "", OfflineAchievementsText::ToggleState());
+	CHECK_FALSE(u.switchOn);
+	CHECK_FALSE(u.mirror);
+}
+
+TEST_CASE("OfflineAchievementsText: a toggle that finished shows what the file holds (#1173)")
+{
+	OfflineAchievementsText::ToggleState file;
+	file.known = true; file.on = true; file.hardcore = false;
+	const auto o = OfflineAchievementsText::toggleOutcome(true, 0, "hardcore=0", file);
+	CHECK(o.finished);
+	CHECK(o.switchOn);
+	CHECK_FALSE(o.hardcoreOn);
+	CHECK(o.mirror);
+}

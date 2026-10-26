@@ -15,6 +15,8 @@
 #include "OfflineScanJob.h"
 #include "CloudText.h"
 #include "OfflineAchievements.h"
+#include "OfflineAchievementsText.h"
+#include "AppWindow.h"
 #include "Settings.h"
 #include "components/ComponentList.h"
 #include "components/MultiLineMenuEntry.h"
@@ -151,7 +153,8 @@ static bool offlineScanOnline()
 	return !Utils::Platform::queryIPAddress().empty();
 }
 
-// The ctl's own test (raofflineproxy-ctl have_account): a user name, and
+// The ctl's own test (its have_account function, which the scan and the
+// top-up call; it is not a verb of the ctl): a user name, and
 // either the token the sign-in wrote or the password it will sign in with.
 // The scan refuses without one, and the first scan on the Retroid Pocket
 // Nova was pressed from the offer four seconds after the switch went on,
@@ -478,30 +481,46 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 			// exit status and every line, as the cloud pages use it.
 			auto result = ApiSystem::executeScriptLegacy(std::string("/usr/bin/raofflineproxy-ctl ") + (on ? "enable" : "disable") + " 2>/dev/null",
 				[&last](const std::string line) { last = line; });
-			const bool ok = result.second == 0 && Utils::String::startsWith(last, "hardcore=");
-			const bool hardcoreNow = (last == "hardcore=1");
+			// Then what the ctl left in system.cfg, whatever the exit (#1173):
+			// disable writes the toggle off first and can fail after it, and
+			// the page shows what the file holds, not the press's opposite.
+			std::string status;
+			ApiSystem::executeScriptLegacy("/usr/bin/raofflineproxy-ctl status 2>/dev/null",
+				[&status](const std::string line) { status += line + "\n"; });
+			const OfflineAchievementsText::ToggleOutcome outcome = OfflineAchievementsText::toggleOutcome(on, result.second, last,
+				OfflineAchievementsText::parseToggleStatus(status));
+			if (!outcome.finished)
+				LOG(LogWarning) << "OfflineAchievements: " << (on ? "enable" : "disable") << " exited " << result.second
+					<< "; the page shows the toggle " << (outcome.switchOn ? "on" : "off") << (outcome.mirror ? " as system.cfg holds it" : ", status unreadable");
 
-			window->postToUiThread([window, on, ok, hardcoreNow, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending]
+			// Through AppWindow, as the scan job posts (#1173): the thread is
+			// detached, and its answer may come after main() has let the
+			// window go.
+			AppWindow::post(window, [window, on, outcome, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending]
 			{
 				*pending = false;
 				if (auto sw = offlineWeak.lock())
 					sw->setDimmed(false);
 
-				if (!ok)
+				setQuietly(outcome.switchOn);
+				if (outcome.mirror)
 				{
-					setQuietly(!on);
+					if (auto row = hardcoreRow.lock())
+						row->setState(outcome.hardcoreOn);
+					SystemConf::getInstance()->set("global.retroachievements.offlineproxy", outcome.switchOn ? "1" : "0");
+					SystemConf::getInstance()->set("global.retroachievements.hardcore", outcome.hardcoreOn ? "1" : "0");
+				}
+				// The scan row reads the switch: on, it offers the scan; off, it
+				// says to turn the switch on first.
+				offlineScanRefresh(scanRow);
+
+				if (!outcome.finished)
+				{
 					window->pushGui(new GuiMsgBox(window,
 						on ? _("OFFLINE ACHIEVEMENTS COULDN'T BE TURNED ON.") : _("OFFLINE ACHIEVEMENTS COULDN'T BE TURNED OFF."),
 						_("OK"), nullptr, GuiMsgBoxIcon::ICON_ERROR));
 					return;
 				}
-				if (auto row = hardcoreRow.lock())
-					row->setState(hardcoreNow);
-				SystemConf::getInstance()->set("global.retroachievements.offlineproxy", on ? "1" : "0");
-				SystemConf::getInstance()->set("global.retroachievements.hardcore", hardcoreNow ? "1" : "0");
-				// The scan row reads the switch: on, it offers the scan; off, it
-				// says to turn the switch on first.
-				offlineScanRefresh(scanRow);
 
 				// The cache follows the index (D-RA-013), and the index is off
 				// by default: turning the switch on turns INDEX NEW GAMES AT
@@ -685,9 +704,12 @@ GuiRetroAchievementsSettings::GuiRetroAchievementsSettings(Window* window) : Gui
                 cheevos_led_enabled->setState(SystemConf::getInstance()->getBool("global.retroachievements.leds"));
                 //s->addWithLabel(_("LED NOTIFICATIONS"), cheevos_led_enabled);
                 addWithLabel(_("LED NOTIFICATIONS"), cheevos_led_enabled);
-                cheevos_led_enabled->setOnChangedCallback([cheevos_led_enabled] {
-                        bool cheevosledenabled = cheevos_led_enabled->getState();
-                                SystemConf::getInstance()->set("global.retroachievements.leds", cheevosledenabled ? "1" : "0");
+                // Weak: the callback lives inside the switch it reads, and a
+                // shared_ptr here kept the switch alive forever (#1173).
+                std::weak_ptr<SwitchComponent> ledWeak = cheevos_led_enabled;
+                cheevos_led_enabled->setOnChangedCallback([ledWeak] {
+                        if (auto led = ledWeak.lock())
+                                SystemConf::getInstance()->set("global.retroachievements.leds", led->getState() ? "1" : "0");
                 });
         }
 #endif

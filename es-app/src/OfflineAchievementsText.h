@@ -156,6 +156,30 @@ namespace OfflineAchievementsText
 		int softcore = 0;
 	};
 	AccountTotals parseAccountTotals(const std::string& text);
+
+	// raofflineproxy-ctl status: "enabled=<0|1>", "marker=", "service=",
+	// "hardcore=<0|1>", one a line, read from system.cfg by the ctl itself.
+	// known is false unless both enabled= and hardcore= were read (#1173).
+	struct ToggleState
+	{
+		bool known = false;
+		bool on = false;
+		bool hardcore = false;
+	};
+	ToggleState parseToggleStatus(const std::string& text);
+
+	// What the OFFLINE ACHIEVEMENTS page shows after the ctl's enable or
+	// disable (#1173): the switch, HARDCORE MODE, whether SystemConf takes
+	// those values, and whether the change finished. wantedOn is the press;
+	// exitCode and lastLine the ctl's; file what status read afterwards.
+	struct ToggleOutcome
+	{
+		bool switchOn = false;
+		bool hardcoreOn = false;
+		bool mirror = false;
+		bool finished = false;
+	};
+	ToggleOutcome toggleOutcome(bool wantedOn, int exitCode, const std::string& lastLine, const ToggleState& file);
 }
 
 #endif // ES_APP_OFFLINE_ACHIEVEMENTS_TEXT_H
