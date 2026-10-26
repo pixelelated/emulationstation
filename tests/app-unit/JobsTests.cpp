@@ -230,3 +230,94 @@ TEST_CASE("scan job: nothing is posted to a window main() has let go")
 	runOnce();
 	CHECK(sPosts.load() == atClose);
 }
+
+// ---- the scan job's pid and its cancel (#1172) --------------------------------
+//
+// The wrapper's first line names the run's process group, and CANCEL signals
+// that group. A later ">>> pid" line -- a ROM name holding a carriage return
+// can plant one, since the reader ends a line there -- must not replace it:
+// a group of 1 would make the cancel signal every process this user may. No
+// case here cancels against a planted group of 1 or less: the first case
+// plants a group the test owns, the second one is never cancelled.
+
+#include <signal.h>
+#include <sys/wait.h>
+
+namespace
+{
+	// A process in a session and group of its own, the test's to kill.
+	pid_t sacrificialGroup()
+	{
+		pid_t pid = fork();
+		if (pid == 0)
+		{
+			setsid();
+			execlp("sleep", "sleep", "30", (char*) nullptr);
+			_exit(127);
+		}
+		return pid;
+	}
+
+	bool alive(pid_t pid)
+	{
+		int status = 0;
+		return waitpid(pid, &status, WNOHANG) == 0;
+	}
+}
+
+TEST_CASE("scan job: a later >>> pid line does not replace the run's group (#1172)")
+{
+	clearLog();
+	Window window;
+	const pid_t other = sacrificialGroup();
+	REQUIRE(other > 1);
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	REQUIRE(alive(other));
+
+	// The command's own line plants the other group after the wrapper's pid.
+	auto job = OfflineScanJob::start(&window, "printf '>>> pid " + std::to_string(other) + "\\n'; sleep 3");
+	REQUIRE(job != nullptr);
+	std::this_thread::sleep_for(std::chrono::milliseconds(400));
+	job->cancel();
+
+	// The run's own group is the one signalled: the scan ends at once,
+	// cancelled, and the other group is untouched.
+	CHECK(waitFor([&] { return job->state().finished; }, 2));
+	CHECK(job->state().cancelled);
+	CHECK(alive(other));
+	CHECK(logged("a later pid line"));
+
+	kill(other, SIGKILL);
+	waitpid(other, nullptr, 0);
+	waitFor([&] { return job->state().finished; }, 10);
+}
+
+TEST_CASE("scan job: a >>> pid 1 after the wrapper's line is ignored and said (#1172)")
+{
+	// Never cancelled: at a reader that took the line, a cancel would signal -1.
+	clearLog();
+	Window window;
+	auto job = OfflineScanJob::start(&window, "printf '>>> pid 1\\n'; sleep 0.3");
+	REQUIRE(job != nullptr);
+	REQUIRE(waitFor([&] { return job->state().finished; }, 10));
+	CHECK(logged("a later pid line"));
+}
+
+TEST_CASE("scan job: a CANCEL whose signal did not land can be pressed again (#1172)")
+{
+	// The wrapper's group exits at once while a process in another session
+	// keeps the output open: the run is not finished, and a signal to its
+	// group finds no process.
+	clearLog();
+	Window window;
+	auto job = OfflineScanJob::start(&window, "( setsid sleep 1.5 & ) ; exit 0");
+	REQUIRE(job != nullptr);
+	std::this_thread::sleep_for(std::chrono::milliseconds(400));
+	REQUIRE_FALSE(job->state().finished);
+
+	job->cancel();
+	CHECK_FALSE(job->state().cancelled);
+	CHECK(logged("could not be signalled"));
+	job->cancel();   // pressed again: taken, not refused
+	CHECK(waitFor([&] { return job->state().finished; }, 10));
+}

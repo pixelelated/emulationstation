@@ -69,14 +69,29 @@ void OfflineScanJob::cancel()
 		std::unique_lock<std::mutex> lock(mMutex);
 		if (mState.finished || mState.cancelled)
 			return;
-		mState.cancelled = true;
 		pid = mPid;
-		if (pid <= 0)
-			mCancelWanted = true;   // the pid line has not arrived: handleLine delivers it
+		if (pid <= 1)
+		{
+			// The pid line has not arrived: handleLine delivers the signal,
+			// and marks the run cancelled once it has (#1172).
+			mCancelWanted = true;
+			LOG(LogInfo) << "OfflineScanJob: cancel asked before the run named its group; sent when it does";
+			return;
+		}
 	}
-	if (pid > 0)
-		::kill(-pid, SIGINT);
-	LOG(LogInfo) << "OfflineScanJob: cancelled by the player (SIGINT, group " << pid << ")";
+	// Cancelled once the signal has reached the group, not before: a signal
+	// that found no process leaves the run as it was, and CANCEL can be
+	// pressed again (#1172).
+	if (::kill(-pid, SIGINT) == 0)
+	{
+		{
+			std::unique_lock<std::mutex> lock(mMutex);
+			mState.cancelled = true;
+		}
+		LOG(LogInfo) << "OfflineScanJob: cancelled by the player (SIGINT, group " << pid << ")";
+	}
+	else
+		LOG(LogWarning) << "OfflineScanJob: the run's group " << pid << " could not be signalled; CANCEL can be pressed again";
 	changed();
 }
 
@@ -208,13 +223,30 @@ void OfflineScanJob::handleLine(const std::string& line)
 		std::unique_lock<std::mutex> lock(mMutex);
 		if (word == "pid")
 		{
-			// run()'s own first line: the group cancel() signals. A cancel
-			// that came first is delivered now.
-			mPid = num(rest);
-			if (mCancelWanted && mPid > 0)
+			// run()'s own first line: the group cancel() signals. Taken once,
+			// and only above 1 (#1172): a later ">>> pid" line -- a ROM name
+			// holding a carriage return can plant one, since a line ends there
+			// -- never replaces it, and a group of 1 would have the cancel
+			// signal every process. A cancel that came first is delivered now.
+			const int pid = num(rest);
+			if (mPid != 0)
+			{
+				LOG(LogWarning) << "OfflineScanJob: a later pid line (" << pid << ") was ignored; the run's group stays " << mPid.load();
+				return;
+			}
+			if (pid <= 1)
+			{
+				LOG(LogWarning) << "OfflineScanJob: a pid line naming " << pid << " was refused";
+				return;
+			}
+			mPid = pid;
+			if (mCancelWanted)
 			{
 				mCancelWanted = false;
-				::kill(-mPid, SIGINT);
+				if (::kill(-mPid, SIGINT) == 0)
+					mState.cancelled = true;
+				else
+					LOG(LogWarning) << "OfflineScanJob: the run's group " << pid << " could not be signalled; CANCEL can be pressed again";
 			}
 			return;
 		}
