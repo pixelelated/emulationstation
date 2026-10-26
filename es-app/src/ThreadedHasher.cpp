@@ -26,11 +26,14 @@
 
 #define ICONINDEX _U("\uF002 ")
 
-ThreadedHasher* ThreadedHasher::mInstance = nullptr;
-bool ThreadedHasher::mPaused = false;
+std::atomic<ThreadedHasher*> ThreadedHasher::mInstance{ nullptr };
+std::atomic<bool> ThreadedHasher::mPaused{ false };
 bool ThreadedHasher::sCheevosLibraryCame = false;
 
 static std::mutex mLoaderLock;
+// Held while the running hasher is unpublished and while stop() writes
+// through it, so stop() never reaches a hasher being freed (#1170).
+static std::mutex sInstanceLock;
 
 static bool retryGameCubeRvzHash(FileData* game)
 {
@@ -134,9 +137,9 @@ ThreadedHasher::ThreadedHasher(Window* window, HasherType type, std::queue<FileD
 	if (num_threads == 0)
 		num_threads = 1;
 
+	// The workers start in launch(), once start() has published this run: a
+	// short queue can end before start() is done with the hasher (#1170).
 	mThreadCount = num_threads;
-	for (size_t i = 0; i < num_threads; i++)
-		mThreads.push_back(new std::thread(&ThreadedHasher::run, this));
 }
 
 ThreadedHasher::~ThreadedHasher()
@@ -161,7 +164,11 @@ ThreadedHasher::~ThreadedHasher()
 		mWndNotification->close();
 	mWndNotification = nullptr;
 
-	ThreadedHasher::mInstance = nullptr;
+	// Unpublished last, under stop()'s lock and before any member is
+	// destroyed: a stop() from now on finds no run (#1170).
+	std::lock_guard<std::mutex> lock(sInstanceLock);
+	if (ThreadedHasher::mInstance.load() == this)
+		ThreadedHasher::mInstance = nullptr;
 }
 
 std::string ThreadedHasher::formatGameName(FileData* game)
@@ -253,21 +260,30 @@ void ThreadedHasher::run()
 
 		lock.lock();
 	}
+	// The run's end is launch()'s owner thread's, once every worker has
+	// returned: no worker deletes the hasher (#1170).
+}
 
-	mThreadCount--;
+void ThreadedHasher::launch()
+{
+	for (int i = 0; i < mThreadCount; i++)
+		mThreads.emplace_back(&ThreadedHasher::run, this);
 
-	if (mThreadCount == 0)
+	// The one owner of the run's end. It holds the hasher until every worker
+	// has returned, then deletes it; the destructor ends the run (the toast,
+	// the top-up after the index) and unpublishes it (#1170).
+	ThreadedHasher* self = this;
+	std::thread([self]
 	{
-		lock.unlock();
-		delete this;
-		ThreadedHasher::mInstance = nullptr;
-
-	}
+		for (auto& worker : self->mThreads)
+			worker.join();
+		delete self;
+	}).detach();
 }
 
 bool ThreadedHasher::checkCloseIfRunning(Window* window)
 {
-	if (ThreadedHasher::mInstance != nullptr)
+	if (ThreadedHasher::mInstance.load() != nullptr)
 	{
 		window->pushGui(new GuiMsgBox(window, _("GAME HASHING IS RUNNING. DO YOU WANT TO STOP IT?"), _("YES"), []
 		{
@@ -282,7 +298,7 @@ bool ThreadedHasher::checkCloseIfRunning(Window* window)
 
 void ThreadedHasher::start(Window* window, HasherType type, bool forceAllGames, bool silent, std::set<std::string>* systems)
 {
-	if (ThreadedHasher::mInstance != nullptr)
+	if (ThreadedHasher::mInstance.load() != nullptr)
 	{
 		if (silent)
 			return;
@@ -389,7 +405,28 @@ void ThreadedHasher::start(Window* window, HasherType type, bool forceAllGames, 
 				window->pushGui(new GuiMsgBox(window, _("NO GAMES FIT THAT CRITERIA.")));
 			return;
 		}
-		ThreadedHasher::mInstance = hasher;
+		// Published before any worker starts, so the workers' end cannot come
+		// before start() is done with the hasher (#1170). A run already
+		// published -- start() is refused above while one lives -- is never
+		// given a second owner.
+		// The delete is outside the lock: the destructor takes it.
+		bool published = false;
+		{
+			std::lock_guard<std::mutex> lock(sInstanceLock);
+			if (ThreadedHasher::mInstance.load() == nullptr)
+			{
+				ThreadedHasher::mInstance = hasher;
+				published = true;
+			}
+		}
+		if (!published)
+		{
+			LOG(LogWarning) << "ThreadedHasher: a run is already in flight; this one is not started";
+			hasher->mTotal = 0;   // ends without the completed run's toast or top-up
+			delete hasher;
+			return;
+		}
+		hasher->launch();
 	}
 	catch (const std::exception& e)
 	{
@@ -402,14 +439,11 @@ void ThreadedHasher::start(Window* window, HasherType type, bool forceAllGames, 
 
 void ThreadedHasher::stop()
 {
-	auto thread = ThreadedHasher::mInstance;
-	if (thread == nullptr)
-		return;
-
-	try
-	{
+	// Under the lock the destructor takes to unpublish the run, so the hasher
+	// written to here is alive (#1170).
+	std::lock_guard<std::mutex> lock(sInstanceLock);
+	ThreadedHasher* thread = ThreadedHasher::mInstance.load();
+	if (thread != nullptr)
 		thread->mExit = true;
-	}
-	catch (...) {}
 }
 

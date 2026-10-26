@@ -104,3 +104,25 @@ target_include_directories(bookkeeper-tests PRIVATE
 	${ES_ROOT}/external
 )
 target_link_libraries(bookkeeper-tests Threads::Threads)
+
+# hasher-tests: the shipped es-app/src/ThreadedHasher.cpp against the
+# doubles under hasher-fakes/ (the window, the games and their system, the
+# settings, the hash library), so its workers, its completion, the running
+# instance and stop() run as they do on a device, under the sanitizers
+# (#1170). hasher-fakes/ comes before fakes/, whose log, locale and card
+# doubles it shares.
+configure_file(${ES_ROOT}/es-app/src/ThreadedHasher.cpp ${CMAKE_BINARY_DIR}/under-test/ThreadedHasher.cpp COPYONLY)
+add_executable(hasher-tests
+	${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/HasherTests.cpp
+	${CMAKE_BINARY_DIR}/under-test/ThreadedHasher.cpp
+	${ES_ROOT}/es-app/src/CheevosIndex.cpp
+	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
+)
+target_include_directories(hasher-tests BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hasher-fakes ${CMAKE_CURRENT_SOURCE_DIR}/fakes)
+target_include_directories(hasher-tests PRIVATE
+	${ES_ROOT}/es-app/src
+	${ES_ROOT}/es-core/src
+	${ES_ROOT}/external
+)
+target_link_libraries(hasher-tests Threads::Threads)
