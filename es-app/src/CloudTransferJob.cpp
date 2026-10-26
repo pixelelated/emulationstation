@@ -162,6 +162,12 @@ void CloudTransferJob::deliverStop()
 	::kill(-pid, sig);
 }
 
+std::vector<CloudTransferJob::Failed> CloudTransferJob::failedItems() const
+{
+	std::unique_lock<std::mutex> lock(mMutex);
+	return mFailed;
+}
+
 bool CloudTransferJob::finished() const
 {
 	std::unique_lock<std::mutex> lock(mMutex);
@@ -285,7 +291,11 @@ void CloudTransferJob::handleLine(const std::string& line)
 			if (protocol.text.empty())
 				break;
 			mWhy = protocol.text;
-			mPendingWhys.push_back({ Utils::String::toUpper(mUnitLabel), protocol.text });
+			// Under the unit it arrived beneath only when that unit is this
+			// part's: a why before a part's first unit is the part's own, and
+			// the label left over is the previous part's last unit (the T18
+			// audit, #1151; the seats' A-37, R-1).
+			mPendingWhys.push_back({ mUnitSinceTier ? Utils::String::toUpper(mUnitLabel) : std::string(), protocol.text });
 			break;
 		}
 		case CloudText::ProtocolKind::Tier:
@@ -329,11 +339,14 @@ void CloudTransferJob::handleLine(const std::string& line)
 				{
 					t.tierLevelFail = true;
 					mFailed.push_back({ t.label, ThreadedCloudSync::whyForCode(t.rc) });
+					if (t.rc == CloudExit::NoNetwork)
+						mBareOfflineTiers.push_back(t.label);
 				}
 			}
 			mTiers.push_back(t);
 			mPendingWhys.clear();
 			mUnitsSinceTier.clear();
+			mUnitSinceTier = false;
 			break;
 		}
 		case CloudText::ProtocolKind::Removed:
@@ -373,6 +386,7 @@ void CloudTransferJob::handleLine(const std::string& line)
 			if (mItemCount > 0 && mItemIndex > mItemCount)
 				mItemCount = mItemIndex;
 			mUnitLabel = label;
+			mUnitSinceTier = true;
 			mDoing.clear();
 			mCurrent.clear(); mFileProgress.clear(); mTotals.clear(); mFilesTotals.clear(); mChecking.clear();
 			mFilesThisBlock = 0; mChecksThisBlock = 0; mSeenBlock = false;
@@ -684,6 +698,18 @@ void CloudTransferJob::run()
 	}
 	if (testPauseAfterExit)
 		testPauseAfterExit();
+	// A 69 after files had moved: the content scripts say so in their stamp
+	// alone ("69 gaps YOU WENT OFFLINE PART-WAY THROUGH"), and the page read
+	// it as COULDN'T FINISH with nothing on line 4. Read as the card reads it
+	// (CloudText::offlinePartWayWhy), before the lock: a stat and a short
+	// read a stamp (the T18 audit, #1152; the seats' R-42).
+	//
+	// A composed run reports each part on its tier line, so there the part
+	// that ended 69 without a word is the item -- when it is the only one:
+	// two, and the stamp cannot say which of them it speaks for.
+	std::string offlineWhy;
+	if (ret == CloudExit::NoNetwork || mBareOfflineTiers.size() == 1)
+		offlineWhy = CloudText::offlinePartWayWhy(ThreadedCloudSync::readStamps(mCommand), mStampsBefore);
 
 	std::unique_lock<std::mutex> lock(mMutex);
 	foldUnit();   // the last unit: no ">>> unit" follows it
@@ -720,6 +746,12 @@ void CloudTransferJob::run()
 		restampStoppedParts(mStoppedByPlayer ? "player-cancelled" : "cancelled");
 	}
 	mExit = ret;
+	// The one part that ended 69 without a word, on a composed run: the
+	// stamp's offline why in place of the code's phrase (#1152, above).
+	if (!stopped && mBareOfflineTiers.size() == 1 && !offlineWhy.empty())
+		for (auto& f : mFailed)
+			if (f.label == mBareOfflineTiers[0] && f.why == ThreadedCloudSync::whyForCode(CloudExit::NoNetwork))
+				f.why = offlineWhy;
 	// A command with no tier lines (the match; anything composed before
 	// them) that did not complete: what it said is its failed item -- the
 	// unit the why arrived under, or the why alone -- and with no why at
@@ -728,6 +760,12 @@ void CloudTransferJob::run()
 	{
 		for (auto& w : mPendingWhys)
 			mFailed.push_back(w);
+		if (mFailed.empty() && !offlineWhy.empty())
+		{
+			mFailed.push_back({ Utils::String::toUpper(mUnitLabel), offlineWhy });
+			if (mWhy.empty())
+				mWhy = offlineWhy;
+		}
 		if (mFailed.empty() && ret != CloudExit::LockHeld && ret != CloudExit::NoNetwork)
 			mFailed.push_back({ Utils::String::toUpper(mUnitLabel), ThreadedCloudSync::whyForCode(ret) });
 	}

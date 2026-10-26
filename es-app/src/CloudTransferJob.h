@@ -101,6 +101,9 @@ public:
 	bool stoppedForGame() const { return mStoppedForGame; }
 	// Stopped by stopByPlayer: the player's word, not a failure.
 	bool stoppedByPlayer() const { return mStoppedByPlayer; }
+	// The items that did not finish, with why -- the done page's line 4 --
+	// copied under the lock (the T18 audit's tests read it, #1151, #1152).
+	std::vector<Failed> failedItems() const;
 
 private:
 	friend class GuiCloudTransfer;
@@ -173,6 +176,8 @@ private:
 	std::vector<Tier> mTiers;
 	std::vector<Failed> mFailed;
 	std::vector<Failed> mPendingWhys;          // since the last tier line; label "" before any unit
+	bool mUnitSinceTier = false;               // a unit announced since the last tier line: a why is filed under it
+	std::vector<std::string> mBareOfflineTiers; // parts that ended 69 with no why: the stamp's offline why is theirs (#1152)
 	std::vector<std::string> mUnitsSinceTier;  // items announced since the last tier line
 	std::string mWhy;                          // the last why of the run, for a command with no tiers
 	// ">>> offer create-saves-folder|<folder>[|<near>]" -- a question a

@@ -75,11 +75,14 @@ void ThreadedCloudSync::restampStoppedParts(const std::string&, const std::vecto
 	sSnapshotRestamps++;
 	sSnapshotVersion = before.empty() ? "" : before[0].version;
 }
+// The stamp's text, for a case that needs the script's own line in it (the
+// T18 audit's offline-part-way case, #1152); empty for every other case.
+static std::string sStampText;
 std::vector<CloudText::StampText> ThreadedCloudSync::readStamps(const std::string&)
 {
 	struct stat st;
 	const bool started = !sMarker.empty() && ::stat(sMarker.c_str(), &st) == 0;
-	return { { "last-backup", "", started ? "after-the-command-started" : "before-the-command" } };
+	return { { "last-backup", started ? sStampText : "", started ? "after-the-command-started" : "before-the-command" } };
 }
 
 void Window::postToUiThread(const std::function<void()>& func, void*) { sPosts++; func(); }
@@ -189,6 +192,78 @@ TEST_CASE("transfer job: a stop after the run failed on its own keeps the failur
 	CloudTransferJob::testPauseAfterExit = nullptr;
 	CHECK_FALSE(job->stoppedByPlayer());
 	CloudTransferJob::dismiss(job);
+}
+
+// The T18 seats' A-37 and R-1 (#1151): a part that says why before its
+// first unit had the why filed under the previous part's unit, since a tier
+// line cleared the whys but not the unit's label, and line 4 named an item
+// that had finished.
+TEST_CASE("transfer job: a part's early why is its own, not the previous part's unit (#1151)")
+{
+	clearLog();
+	auto job = CloudTransferJob::start(
+		"echo '>>> unit nes|1|1'; echo '>>> tier ROMS AND BIOS|0';"
+		" echo '>>> why YOUR CLOUD STOPPED ANSWERING'; echo '>>> tier SAVES|5'; exit 5", "TEST", 2, 0);
+	REQUIRE(job != nullptr);
+	REQUIRE(waitFor([&] { return job->finished(); }, 10));
+	const auto failed = job->failedItems();
+	CloudTransferJob::dismiss(job);
+	REQUIRE(failed.size() == 1);
+	CHECK(failed[0].label == "SAVES");
+	CHECK(failed[0].why == "YOUR CLOUD STOPPED ANSWERING");
+}
+
+// The T18 seats' R-42 (#1152): the content scripts exit 69 when the network
+// goes after files have moved, and say so in their stamp alone ("69 gaps
+// YOU WENT OFFLINE PART-WAY THROUGH"); the page read it as COULDN'T FINISH
+// with an empty line 4, where the card reads the stamp's why.
+TEST_CASE("transfer job: a run the network cut part-way says so on line 4 (#1152)")
+{
+	clearLog();
+	sMarker = "/tmp/t18-jobs-offline-" + std::to_string((long) ::getpid());
+	std::remove(sMarker.c_str());
+	sStampText = "1789000000 69 gaps YOU WENT OFFLINE PART-WAY THROUGH";
+	auto job = CloudTransferJob::start("echo '>>> unit gb|1|2'; touch '" + sMarker + "'; exit 69", "TEST", 1, 0);
+	REQUIRE(job != nullptr);
+	REQUIRE(waitFor([&] { return job->finished(); }, 10));
+	const auto failed = job->failedItems();
+	CloudTransferJob::dismiss(job);
+	std::remove(sMarker.c_str());
+	sMarker.clear();
+	sStampText.clear();
+	REQUIRE(failed.size() == 1);
+	CHECK(failed[0].label == "GB");
+	CHECK(failed[0].why == "YOU WENT OFFLINE PART-WAY THROUGH");
+}
+
+// The same on the page's composed run, where each part ends on its tier
+// line (GuiMenu's transfer command): the one part that ended 69 without a
+// why is the part the stamp speaks for. Two such parts and the stamp cannot
+// say which, so both keep the code's phrase (#1152).
+TEST_CASE("transfer job: a composed run's part the network cut part-way says so on line 4 (#1152)")
+{
+	for (const bool twoParts : { false, true })
+	{
+		clearLog();
+		sMarker = "/tmp/t18-jobs-offline-tier-" + std::to_string((long) ::getpid());
+		std::remove(sMarker.c_str());
+		sStampText = "1789000000 69 gaps YOU WENT OFFLINE PART-WAY THROUGH";
+		std::string cmd = "echo '>>> unit gb|1|1'; touch '" + sMarker + "'; echo '>>> tier ROMS AND BIOS|69';";
+		if (twoParts)
+			cmd += " echo '>>> tier GAME CONTENT|69';";
+		auto job = CloudTransferJob::start(cmd + " exit 69", "TEST", twoParts ? 2 : 1, 0);
+		REQUIRE(job != nullptr);
+		REQUIRE(waitFor([&] { return job->finished(); }, 10));
+		const auto failed = job->failedItems();
+		CloudTransferJob::dismiss(job);
+		std::remove(sMarker.c_str());
+		sMarker.clear();
+		sStampText.clear();
+		INFO("two parts: " << twoParts);
+		REQUIRE(failed.size() == (twoParts ? 2u : 1u));
+		CHECK(failed[0].label == "ROMS AND BIOS");
+		CHECK(failed[0].why == std::string(twoParts ? "SOMETHING WENT WRONG" : "YOU WENT OFFLINE PART-WAY THROUGH"));
+	}
 }
 
 // Orchestrator finding G-E2-O2 (E1's G-E1-04, on the page): a stop
