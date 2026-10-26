@@ -160,10 +160,13 @@ std::string RetroAchievements::getMissingLoginMessage()
 // showing the API's JSON.
 std::string RetroAchievements::getLoginErrorMessage(HttpReq& req)
 {
-	if (req.status() == HttpReq::REQ_401_FORBIDDEN || req.status() == HttpReq::REQ_403_BADLOGIN)
-		return _("RETROACHIEVEMENTS REJECTED YOUR WEB API KEY.\nCHECK IT AND YOUR USERNAME UNDER RETROACHIEVEMENTS SETTINGS.");
-
-	return req.getErrorMsg();
+	// The player's words; curl's go to the log (#1178).
+	const int status = (int) req.status();
+	if (status != HttpReq::REQ_401_FORBIDDEN && status != HttpReq::REQ_403_BADLOGIN)
+		LOG(LogWarning) << "RetroAchievements: a page request failed: " << req.getErrorMsg();
+	return RetroAchievementsText::apiFailureText(status, req.getErrorMsg(),
+		_("RETROACHIEVEMENTS REJECTED YOUR WEB API KEY.\nCHECK IT AND YOUR USERNAME UNDER RETROACHIEVEMENTS SETTINGS."),
+		_("COULDN'T REACH RETROACHIEVEMENTS.\n\nTRY AGAIN WHEN YOU'RE ONLINE."));
 }
 
 // How long a page waits on the web in all before the device's copy is shown
@@ -923,9 +926,11 @@ std::map<std::string, std::string> RetroAchievements::getCheevosHashes()
 		else if (hashLibrary.status() != HttpReq::REQ_SUCCESS)
 			throw std::domain_error("Error while accessing retroachievements hashlibrary :\n" + hashLibrary.getErrorMsg());
 	}
-	catch (const std::exception& e)
+	catch (const std::exception&)
 	{
-		throw e;
+		// throw;, not throw e;: e is a std::domain_error carrying the cause,
+		// and a copy as std::exception loses it (#1178).
+		throw;
 	}
 	catch (...)
 	{

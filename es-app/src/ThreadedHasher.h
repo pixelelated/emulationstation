@@ -72,6 +72,9 @@ private:
 	// library came and there was something to hash. Only then does the
 	// offline cache have a reason to follow it (fork #184, D-RA-013).
 	bool mCheevosIndexed;
+	// RetroAchievements' hash library did not come: a run that then has
+	// nothing to do says so, not NO GAMES FIT THAT CRITERIA (#1178).
+	bool mLibraryMissing = false;
 
 	static std::atomic<bool> mPaused;
 	// The running hasher, published by start() before any worker starts and

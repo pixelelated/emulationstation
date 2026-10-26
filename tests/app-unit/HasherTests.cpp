@@ -25,6 +25,7 @@
 #include <condition_variable>
 #include <map>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 // ---- the doubles' bodies ----------------------------------------------------
@@ -40,6 +41,9 @@ namespace
 	std::atomic<int> gRecoverySaves{ 0 };
 	std::atomic<int> gTopUps{ 0 };
 	std::atomic<int> gToasts{ 0 };
+	std::mutex gTextLock;
+	std::vector<std::string> gDialogs, gToastTexts;
+	std::atomic<bool> gLibraryThrows{ false };
 
 	// A gate checkCheevosHash waits at, so a run can be held in flight.
 	std::mutex gGateLock;
@@ -72,7 +76,13 @@ void FileData::checkCheevosHash(bool)
 }
 
 void saveToGamelistRecovery(FileData*) { gRecoverySaves++; }
-std::map<std::string, std::string> RetroAchievements::getCheevosHashes() { return gLibrary; }
+std::map<std::string, std::string> RetroAchievements::getCheevosHashes()
+{
+	// As RetroAchievements.cpp throws when the fetch fails outright.
+	if (gLibraryThrows)
+		throw std::domain_error("Error while accessing retroachievements hashlibrary :\nCould not resolve hostname");
+	return gLibrary;
+}
 void OfflineAchievements::topUpAfterIndex(Window*) { gTopUps++; }
 void ProxyCards::indexRanOffline(Window*, int) {}
 
@@ -86,8 +96,16 @@ bool Settings::saveFile()
 }
 
 AsyncNotificationComponent* Window::createAsyncNotificationComponent(bool) { return new AsyncNotificationComponent(); }
-void Window::displayNotificationMessage(const std::string&, int) { gToasts++; }
-void Window::pushGui(GuiComponent* gui) { delete gui; }
+void Window::displayNotificationMessage(const std::string& text, int) { gToasts++; std::lock_guard<std::mutex> l(gTextLock); gToastTexts.push_back(text); }
+void Window::pushGui(GuiComponent* gui)
+{
+	if (auto box = dynamic_cast<GuiMsgBox*>(gui))
+	{
+		std::lock_guard<std::mutex> l(gTextLock);
+		gDialogs.push_back(box->text);
+	}
+	delete gui;
+}
 
 void AsyncNotificationComponent::updateTitle(const std::string) {}
 void AsyncNotificationComponent::updateText(const std::string, const std::string) {}
@@ -142,6 +160,16 @@ namespace
 		gTopUps = 0;
 		gToasts = 0;
 		gInHash = 0;
+		gLibraryThrows = false;
+		{
+			std::lock_guard<std::mutex> l(gTextLock);
+			gDialogs.clear();
+			gToastTexts.clear();
+		}
+		{
+			std::lock_guard<std::mutex> l(FakeLog::lock());
+			FakeLog::lines().clear();
+		}
 		openGate();
 	}
 }
@@ -202,4 +230,61 @@ TEST_CASE("hasher: two runs in a row leave no worker or thread object behind")
 		ThreadedHasher::start(&window, ThreadedHasher::HASH_CHEEVOS_MD5, false, true);
 		CHECK(waitUntil([] { return !ThreadedHasher::isRunning(); }, 5000));
 	}
+}
+
+// ---- what the player and the log are told (#1178) ----------------------------
+
+namespace
+{
+	std::vector<std::string> dialogs() { std::lock_guard<std::mutex> l(gTextLock); return gDialogs; }
+	std::vector<std::string> toasts() { std::lock_guard<std::mutex> l(gTextLock); return gToastTexts; }
+	bool loggedText(const std::string& needle)
+	{
+		std::lock_guard<std::mutex> l(FakeLog::lock());
+		for (auto& line : FakeLog::lines())
+			if (line.find(needle) != std::string::npos)
+				return true;
+		return false;
+	}
+}
+
+TEST_CASE("hasher: a library fetch that fails keeps its cause in the log and says it in the player's words (#1178)")
+{
+	reset();
+	Library lib(2, "", "");
+	gLibraryThrows = true;
+	Window window;
+	ThreadedHasher::start(&window, ThreadedHasher::HASH_CHEEVOS_MD5, false, false);
+	REQUIRE(dialogs().size() == 1);
+	CHECK(dialogs()[0] != "std::exception");
+	CHECK(dialogs()[0].find("RETROACHIEVEMENTS") != std::string::npos);
+	CHECK(loggedText("Could not resolve hostname"));
+}
+
+TEST_CASE("hasher: an empty library says it could not be read, not NO GAMES FIT THAT CRITERIA (#1178)")
+{
+	reset();
+	Library lib(2, "", "");
+	Window window;   // gLibrary empty: a 200 that carried no library
+	ThreadedHasher::start(&window, ThreadedHasher::HASH_CHEEVOS_MD5, false, false);
+	REQUIRE(dialogs().size() == 1);
+	CHECK(dialogs()[0] != "NO GAMES FIT THAT CRITERIA.");
+	CHECK(dialogs()[0].find("RETROACHIEVEMENTS") != std::string::npos);
+}
+
+TEST_CASE("hasher: a run the player stopped is not called completed (#1178)")
+{
+	reset();
+	Library lib(3, "", "");
+	gLibrary["SOMETHING"] = "1";
+	Window window;
+	closeGate();
+	ThreadedHasher::start(&window, ThreadedHasher::HASH_CHEEVOS_MD5, false, true);
+	REQUIRE(waitUntil([] { return gInHash.load() > 0; }, 5000));
+	ThreadedHasher::stop();
+	openGate();
+	REQUIRE(waitUntil([] { return !ThreadedHasher::isRunning(); }, 5000));
+	REQUIRE(toasts().size() == 1);
+	CHECK(toasts()[0].find("COMPLETED") == std::string::npos);
+	CHECK(toasts()[0].find("STOPPED") != std::string::npos);
 }

@@ -64,3 +64,23 @@ TEST_CASE("RetroAchievements: a scan started after an account change carries no 
 	CHECK(RetroAchievementsText::tokenForScan("a", "pw", "b", "pw2", "tokenA").empty());
 	CHECK(RetroAchievementsText::tokenForScan("a", "pw", "a", "pw", "tokenA") == "tokenA");
 }
+
+TEST_CASE("RetroAchievements: a failure dialog that already says what happened carries no AN ERROR OCCURRED (#1178)")
+{
+	CHECK(RetroAchievementsText::errorBoxText("AN ERROR OCCURRED", "THE SENTENCE.") == "THE SENTENCE.");
+	CHECK(RetroAchievementsText::errorBoxText("AN ERROR OCCURRED", "") == "AN ERROR OCCURRED");
+}
+
+TEST_CASE("RetroAchievements: the sign-in's refusal never shows the service's own words (#1178)")
+{
+	const auto text = RetroAchievementsText::refusalText("DIDN'T ACCEPT.", "Invalid user/password combination", "CHECK, THEN TRY AGAIN.");
+	CHECK(text.find("Invalid") == std::string::npos);
+	CHECK(text == "DIDN'T ACCEPT.\n\nCHECK, THEN TRY AGAIN.");
+}
+
+TEST_CASE("RetroAchievements: an API failure says it in the player's words, not curl's (#1178)")
+{
+	const auto text = RetroAchievementsText::apiFailureText(0, "Could not resolve hostname", "KEY REJECTED.", "COULDN'T REACH.");
+	CHECK(text == "COULDN'T REACH.");
+	CHECK(RetroAchievementsText::apiFailureText(401, "x", "KEY REJECTED.", "COULDN'T REACH.") == "KEY REJECTED.");
+}

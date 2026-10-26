@@ -1,4 +1,5 @@
 #include "guis/GuiInstall.h"
+#include "RetroAchievementsText.h"
 #include "guis/GuiMsgBox.h"
 #include "guis/GuiRetroAchievements.h"
 #include "guis/GuiSettings.h"
@@ -41,7 +42,7 @@ void GuiRetroAchievements::show(Window* window)
 		[window](RetroAchievementInfo ra)
 		{
 			if (ra.username.empty() && !ra.error.empty())
-				window->pushGui(new GuiMsgBox(window, _("AN ERROR OCCURRED") + "\r\n" + ra.error, _("OK")));
+				window->pushGui(new GuiMsgBox(window, RetroAchievementsText::errorBoxText(_("AN ERROR OCCURRED"), ra.error), _("OK")));
 			else if (ra.username.empty())
 				window->pushGui(new GuiMsgBox(window, _("AN ERROR OCCURRED"), _("OK")));
 			else

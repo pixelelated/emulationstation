@@ -1,4 +1,5 @@
 #include "guis/GuiGameAchievements.h"
+#include "RetroAchievementsText.h"
 #include "guis/GuiSettings.h"
 #include "components/WebImageComponent.h"
 
@@ -39,7 +40,7 @@ void GuiGameAchievements::show(Window* window, int gameId, const std::string& ch
 		if (ra.NotOnDevice)
 			window->pushGui(new GuiMsgBox(window, _("YOU'RE NOT ONLINE, AND THIS GAME'S ACHIEVEMENTS AREN'T SAVED ON THIS DEVICE YET. SCAN GAMES FOR OFFLINE ACHIEVEMENTS, OR START THE GAME ONCE WHILE YOU'RE CONNECTED."), _("OK")));
 		else if (ra.ID == 0 && !ra.Title.empty())
-			window->pushGui(new GuiMsgBox(window, _("AN ERROR OCCURRED") + "\r\n" + ra.Title, _("OK")));
+			window->pushGui(new GuiMsgBox(window, RetroAchievementsText::errorBoxText(_("AN ERROR OCCURRED"), ra.Title), _("OK")));
 		else if (ra.ID == 0)
 			window->pushGui(new GuiMsgBox(window, _("AN ERROR OCCURRED"), _("OK")));
 		else

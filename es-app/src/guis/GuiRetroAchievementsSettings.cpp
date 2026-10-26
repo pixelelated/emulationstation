@@ -847,10 +847,14 @@ GuiRetroAchievementsSettings::GuiRetroAchievementsSettings(Window* window) : Gui
 						return;
 					}
 					if (refused)
+					{
+						// The service's own words to the log, the player's on the screen (#1178).
+						LOG(LogWarning) << "retroachievements: the sign-in was refused: " << tokenOrError;
 						window->pushGui(new GuiMsgBox(window,
-							_("RETROACHIEVEMENTS DIDN'T ACCEPT YOUR SIGN-IN:") + "\n" + tokenOrError + "\n\n"
-							+ _("RETROACHIEVEMENTS STAYS ON. CHECK YOUR USERNAME AND PASSWORD, THEN TRY AGAIN."),
+							RetroAchievementsText::refusalText(_("RETROACHIEVEMENTS DIDN'T ACCEPT YOUR SIGN-IN") + ".", tokenOrError,
+								_("RETROACHIEVEMENTS STAYS ON. CHECK YOUR USERNAME AND PASSWORD, THEN TRY AGAIN.")),
 							_("OK"), nullptr, GuiMsgBoxIcon::ICON_ERROR));
+					}
 					else if (accountChanged)
 						window->pushGui(new GuiMsgBox(window,
 							_("COULDN'T REACH RETROACHIEVEMENTS TO SIGN YOU IN.\n\nRETROACHIEVEMENTS STAYS ON. IT'LL SIGN IN WHEN YOU'RE ONLINE."),

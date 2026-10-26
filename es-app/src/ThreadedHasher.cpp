@@ -72,6 +72,7 @@ ThreadedHasher::ThreadedHasher(Window* window, HasherType type, std::queue<FileD
 				// once, so a boot that indexed nothing can be told apart from one
 				// that never tried (fork #183); the link-up run tries again.
 				LOG(LogWarning) << "ThreadedHasher: RetroAchievements' hash library did not come; nothing is indexed this run";
+				mLibraryMissing = true;
 				// The games that waited for it are said to be waiting (fork
 				// #299, D-UI-104): the toast, and the control script's marker
 				// so the link's return looks them up.
@@ -110,14 +111,15 @@ ThreadedHasher::ThreadedHasher(Window* window, HasherType type, std::queue<FileD
 			}
 			mCheevosIndexed = !mCheevosHashes.empty() && !mSearchQueue.empty();
 		}
-		catch (const std::exception& e)
+		catch (const std::exception&)
 		{
 			// The fetch failed outright -- offline, nearly always -- with the
 			// same games waiting: the same word to the player (fork #299).
 			if (!mSearchQueue.empty())
 				ProxyCards::indexRanOffline(mWindow, (int) mSearchQueue.size());
 			mType = (HasherType)0;
-			throw e;
+			// throw;, not throw e;: the copy would lose the cause (#1178).
+			throw;
 		}
 	}
 
@@ -146,7 +148,8 @@ ThreadedHasher::~ThreadedHasher()
 {
 	if ((mType & HASH_CHEEVOS_MD5) == HASH_CHEEVOS_MD5 && mTotal > 0)
 	{
-		mWindow->displayNotificationMessage(ICONINDEX + _("INDEXING COMPLETED") + std::string(". ") + _("UPDATE GAMELISTS TO APPLY CHANGES."));
+		// A run the player stopped is not called completed (#1178).
+		mWindow->displayNotificationMessage(ICONINDEX + (mExit ? _("INDEXING STOPPED") : _("INDEXING COMPLETED")) + std::string(". ") + _("UPDATE GAMELISTS TO APPLY CHANGES."));
 
 		// The offline cache follows this index (fork #184, D-RA-013): once
 		// the games are identified, and while the device is still connected
@@ -399,10 +402,15 @@ void ThreadedHasher::start(Window* window, HasherType type, bool forceAllGames, 
 		if (hasher->mTotal == 0)
 		{
 			// Lookups alone and the library knew none of them: nothing was
-			// started, nothing is shown -- as a run with nothing to hash.
+			// started, nothing is shown -- as a run with nothing to hash. A
+			// library that never came (a 200 that carried none) says so,
+			// not that no game fitted (#1178).
+			const bool libraryMissing = hasher->mLibraryMissing;
 			delete hasher;
 			if (!silent)
-				window->pushGui(new GuiMsgBox(window, _("NO GAMES FIT THAT CRITERIA.")));
+				window->pushGui(new GuiMsgBox(window, libraryMissing
+					? _("COULDN'T GET RETROACHIEVEMENTS' LIST OF GAMES.\n\nTRY AGAIN WHEN YOU'RE ONLINE.")
+					: _("NO GAMES FIT THAT CRITERIA.")));
 			return;
 		}
 		// Published before any worker starts, so the workers' end cannot come
@@ -430,10 +438,11 @@ void ThreadedHasher::start(Window* window, HasherType type, bool forceAllGames, 
 	}
 	catch (const std::exception& e)
 	{
+		// The cause to the log, the player's words on the screen (#1178).
 		LOG(LogError) << "Game Hash failed : " << e.what();
 
 		if (!silent)
-			window->pushGui(new GuiMsgBox(window, e.what()));
+			window->pushGui(new GuiMsgBox(window, _("COULDN'T GET RETROACHIEVEMENTS' LIST OF GAMES.\n\nTRY AGAIN WHEN YOU'RE ONLINE.")));
 	}	
 }
 

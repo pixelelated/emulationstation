@@ -58,6 +58,37 @@ namespace RetroAchievementsText
 	// the settings page has closed (#1175): the page's save at close is what
 	// signs a changed account in, and until it has, the token on hand is the
 	// account the page opened with.
+	// The text of the pages' failure dialogs (#1178). The sentences are the
+	// caller's, from the fork's catalog; these decide what goes on the screen.
+
+	// A failure dialog: its heading (AN ERROR OCCURRED) and the sentence that
+	// says what happened.
+	inline std::string errorBoxText(const std::string& heading, const std::string& sentence)
+	{
+		// The sentence alone when there is one: it already says what happened,
+		// and a heading above it says nothing more.
+		return sentence.empty() ? heading : sentence;
+	}
+
+	// The sign-in's refusal: what happened, the service's own words, and what
+	// to do next.
+	inline std::string refusalText(const std::string& headline, const std::string& serverError, const std::string& advice)
+	{
+		// The service's words go to the log, never the screen.
+		(void) serverError;
+		return headline + "\n\n" + advice;
+	}
+
+	// A web API request that failed: the key's rejection for 401 or 403,
+	// else the transport's failure.
+	inline std::string apiFailureText(int httpStatus, const std::string& transportError,
+		const std::string& keyRejected, const std::string& unreachable)
+	{
+		// curl's own words go to the log, never the screen.
+		(void) transportError;
+		return httpStatus == 401 || httpStatus == 403 ? keyRejected : unreachable;
+	}
+
 	inline std::string tokenForScan(const std::string& userAtOpen, const std::string& passwordAtOpen,
 		const std::string& userNow, const std::string& passwordNow, const std::string& token)
 	{
