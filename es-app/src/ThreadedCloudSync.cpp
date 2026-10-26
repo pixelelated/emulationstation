@@ -70,8 +70,9 @@ ThreadedCloudSync::~ThreadedCloudSync()
 		ThreadedCloudSync::mInstance = nullptr;
 }
 
-// The four outcome words and what follows them (D-UI-028, es-native-ui.md
-// "Outcome vocabulary"): a why, what is in place, and how to recover.
+// The three outcome words and what follows them (D-UI-028, D-UI-030;
+// es-player-text.md "Outcome vocabulary"): a why, what is in place, and how
+// to recover.
 // Nothing else -- no FAILED, no log path, no exit code, no rclone.
 
 // The why for an exit code the scripts did not explain with a ">>> why"
@@ -457,7 +458,8 @@ void ThreadedCloudSync::run()
 	if (cancelled)
 		ret = CloudExit::Stopped;
 
-	// The outcome, in the four words every cloud surface uses (D-UI-028).
+	// The outcome, in the three words every cloud surface uses (D-UI-028,
+	// D-UI-030).
 	//
 	// COMPLETED when the whole run did (rclone's 9 -- nothing needed
 	// moving -- counts). SKIPPED for the two sentinels the scripts exit

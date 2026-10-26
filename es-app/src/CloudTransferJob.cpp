@@ -397,9 +397,8 @@ void CloudTransferJob::handleLine(const std::string& line)
 			mOfferArgs = protocol.args;
 			break;
 		default:
-			// Pid is the card's, for the process group it may have to
-			// signal; a run of this kind is not cancelled for a launch (D-CLOUD-113).
-			// Unknown is a marker newer than this build.
+			// Unknown is a marker newer than this build, dropped here as on
+			// the card (T18's PL-13 asks for a log line; #1143).
 			break;
 		}
 		return;

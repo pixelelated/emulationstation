@@ -67,7 +67,7 @@ public:
 	// so its pid is its process group, and its first line is ">>> pid N".
 	// The group is sent SIGTERM, so the shell, the scripts and their rclone
 	// go together; the scripts' trap exits CloudExit::Stopped, the card says
-	// SKIPPED - A GAME WAS STARTED and the stamp records the same, as the
+	// SKIPPED - YOU STARTED A GAME and the stamp records the same, as the
 	// network-wait cancel always did.
 	//
 	// `refusal`, where the caller passes one, says which false it is, so
@@ -90,13 +90,6 @@ public:
 	// sync they pressed; the card says SKIPPED - YOU STARTED A GAME.
 	static bool cancelForLaunch(CancelRefusal* refusal = nullptr, bool evenIfPlayerStarted = false);
 
-	// The outcome vocabulary's why for an exit code the scripts did not
-	// explain with a ">>> why" line (D-UI-028): rclone 3/4 YOUR CLOUD FOLDER
-	// WASN'T FOUND, 5 YOUR CLOUD STOPPED ANSWERING, 7/8 YOUR CLOUD REFUSED
-	// THE TRANSFER, 130 IT WAS STOPPED, else SOMETHING WENT WRONG. The token
-	// is the same table as one word for the stamps; whyForToken reads it
-	// back. Shared with the transfer page and the rows under the toggles so
-	// every surface says the same thing about the same code.
 	// One stamp file in the last-sync shape (recordOutcome's comment), at any
 	// path: recordOutcome's own, and a script's last-backup / last-restore
 	// when this process knows an outcome the script's trap could not name.
@@ -117,6 +110,15 @@ public:
 	// Each stamp a command's scripts can write, with its text and the file's
 	// identity (inode and change time) now.
 	static std::vector<CloudText::StampText> readStamps(const std::string& command);
+	// The outcome vocabulary's why for an exit code the scripts did not
+	// explain with a ">>> why" line (D-UI-028): rclone 3/4 COULDN'T FIND YOUR
+	// CLOUD FOLDER, 5/124 YOUR CLOUD STOPPED ANSWERING, 7/8 YOUR CLOUD
+	// WOULDN'T TAKE THE FILES, 130 IT WAS STOPPED, the sentinels 69, 75 and
+	// NoFolder in the SKIPPED outcome's own words, else SOMETHING WENT WRONG
+	// (6 and 10 among them: the scripts name those themselves). The token is
+	// the same table as one word for the stamps; whyForToken reads it back.
+	// Shared with the transfer page and the rows under the toggles so every
+	// surface says the same thing about the same code.
 	static std::string whyForCode(int rc);
 	static std::string tokenForCode(int rc);
 	static std::string whyForToken(const std::string& token);
@@ -125,8 +127,9 @@ private:
 	void run();
 	// The stamp's fields: "<epoch> <rc> <token>[ <why>]" -- the token is one
 	// word for the outcome (completed, gaps, no-network, lock-held,
-	// cancelled, stopped, folder-missing, cloud-stopped, cloud-refused,
-	// unknown), the why the scripts' own sentence when they printed one
+	// cancelled, player-cancelled, stopped, folder-missing, cloud-stopped,
+	// cloud-refused, no-folder, unknown; CloudText::isOutcomeToken), the why
+	// the scripts' own sentence when they printed one
 	// (">>> why ..."), for the row to show instead of the token's phrase.
 	static void recordOutcome(Origin origin, int rc, const std::string& token, const std::string& why);
 
@@ -155,8 +158,9 @@ private:
 	// mMoved records that rclone's byte totals ever left "0 B", which is
 	// what decides the in-place clause; mTiers is every ">>> tier
 	// <label>|<rc>" a composed command echoed after each of its parts, so a
-	// run where one part finished and another did not is COMPLETED WITH
-	// GAPS rather than the last part's code (D-UI-028).
+	// run where one part finished and another did not is COULDN'T FINISH
+	// with the failing part's why rather than the last part's code
+	// (D-UI-028, D-UI-030; the stamp keeps the gaps token).
 	std::string					mWhy;
 	std::string					mOffer;   // a question the script asked us to put to the player once the run ends (#100)
 	std::vector<std::string>	mOfferArgs;   // what the question is about: the missing folder, then a near name beside it (#127)
@@ -195,7 +199,9 @@ private:
 	// made under this lock: start() checks and installs in one hold, run()
 	// clears it before the card's linger, the destructor clears it if it is
 	// still this one, and cancelForLaunch dereferences it -- so a caller
-	// that took the pointer under the lock has an object that outlives the
-	// call, and two starts cannot both see "none" (#308 F-CS-25).
+	// that took the pointer under the lock has an object for as long as it
+	// holds the lock (cancelForLaunch takes it again, and checks the pointer
+	// again, on every poll), and two starts cannot both see "none" (#308
+	// F-CS-25).
 	static std::mutex			sInstanceLock;
 };

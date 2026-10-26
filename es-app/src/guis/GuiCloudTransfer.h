@@ -153,8 +153,6 @@ private:
 	// The rows only the done state writes, cleared for a TRY AGAIN so the
 	// new run does not start under last time's note.
 	void clearDoneRows();
-	// Whether B leaves the page while the run goes on: not when the completed
-	// run has an action in place of an exit.
 	// Whether B while it runs offers CANCEL (D-UI-078). Not on a page whose
 	// completed run has an action in place of an exit (setCompletedAction):
 	// a settings restore is replacing the configuration under this process,

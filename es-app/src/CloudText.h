@@ -13,9 +13,12 @@
 // be: the file read, the translation of an outcome into the player's
 // language, and the side effects a protocol line asks for.
 //
-// Translation stays outside on purpose. _() at this level would put the
-// player's language inside the thing under test, so the enums below name
-// an outcome and the caller says it in words.
+// Translation mostly stays outside: the enums below name an outcome and
+// the caller says it in words. The exceptions are the tables that pair a
+// script's English with its _("") twin (whySentences, unitLabels) and a
+// few fixed sentences (lockHeldOutcome, scanWhy, topUpWhy, matchRemovedNote,
+// matchRecovery, folderPathRefusalMessage); the unit build has no gettext,
+// so _() hands the English back and the tests read English.
 
 #include <ctime>
 #include <functional>
@@ -75,8 +78,8 @@ namespace CloudText
 	// left exactly as they typed it -- this is only what the network shows.
 	std::string cleanHostname(const std::string& in);
 
-	// How a run ended, in the four words every cloud surface uses
-	// (D-UI-028). Gaps and Failed both read COULDN'T FINISH to the player
+	// How a run ended, in the three words every cloud surface uses
+	// (D-UI-028, D-UI-030). Gaps and Failed both read COULDN'T FINISH to the player
 	// and differ only in where their why comes from: a composed run whose
 	// parts disagreed has the failing part's, and nothing to fall back on
 	// from an exit code that describes the whole run.
@@ -162,10 +165,10 @@ namespace CloudText
 	RunOrigin runOrigin(time_t when, time_t exitWhen, time_t startupWhen);
 
 	// A shorter form of a why sentence, for a panel the whole one does not
-	// fit on (#115). Two shapes appear in the sentences the scripts emit,
-	// and both put the part that can go at the end: a trailing clause after
-	// a dash (COULDN'T REACH YOUR CLOUD - CHECK YOUR SIGN-IN) and a
-	// trailing sentence after a full stop. Anything else has no short form
+	// fit on (#115). Three shapes appear in the sentences the scripts emit,
+	// and each puts the part that can go at the end: a trailing clause after
+	// a dash (COULDN'T REACH YOUR CLOUD - CHECK YOUR SIGN-IN), a trailing
+	// parenthesis, and a trailing sentence after a full stop. Anything else has no short form
 	// and comes back empty; the caller falls back to the outcome word on
 	// its own, which fits any panel and is still true.
 	std::string shortenWhy(const std::string& why);

@@ -738,6 +738,32 @@ TEST_CASE("each why's two spellings agree, so its translation is found (#308 5 g
 	CHECK_FALSE(isKnownWhy("A SENTENCE FROM A NEWER SCRIPT"));
 }
 
+// Two sentences the scripts print as ">>> why" and the table did not list
+// (T18 audit, #1147): backuptool's refusal of an archive it cannot put back
+// (backuptool:1495 at 8ebaf8daad; its longer console sentence is fail's, not
+// a why), and cloud_setup's held lock since T17's S6 (cloud_setup:797,
+// 3e95bf18f4). Without a row each reaches a page in English.
+TEST_CASE("the whys backuptool and cloud_setup print have rows (#1147)")
+{
+	CHECK(isKnownWhy("THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK"));
+	CHECK(isKnownWhy("A SYNC IS ALREADY RUNNING"));
+}
+
+// Every row reached the way a reader reaches it: through the protocol line,
+// whose parser strips a trailing full stop. A row stored with its full stop
+// never matched what arrived, and the comparison of a row's two spellings
+// above could not see it (the T18 seats' A-36 and R-16).
+TEST_CASE("every why row still matches itself after the parser's normalization (#1147)")
+{
+	for (auto& sentence : whySentences())
+	{
+		INFO(sentence.first);
+		const ProtocolLine p = classifyProtocolLine(">>> why " + sentence.first);
+		CHECK(p.kind == ProtocolKind::Why);
+		CHECK(isKnownWhy(p.text));
+	}
+}
+
 // The stamp's why is a sentence too (#308 claude F-CS-24, stream A): a run
 // the network ended after files had moved keeps its 69, adds the gaps token
 // and says YOU WENT OFFLINE PART-WAY THROUGH (cloud_backup:670,

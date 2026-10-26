@@ -295,7 +295,7 @@ LastRun parseLastRun(const std::string& text)
 	// is the scripts' own sentence when they printed one. A stamp with two
 	// fields -- one written before this reader -- is read from its code.
 	//
-	// The four words, with commas rather than dashes inside the outcome:
+	// The outcome words, with commas rather than dashes inside the outcome:
 	// the line already uses a dash to separate the date from it. LockHeld
 	// and NoNetwork are the scripts' "another sync holds the lock" and "no
 	// network" (CloudExit.h): the scripts write no stamp for those (nothing
@@ -413,16 +413,20 @@ std::string lockHeldOutcome(TransferKind kind)
 
 std::vector<std::pair<std::string, std::string>> whySentences()
 {
-	// Each sentence twice: as the script prints it, to match, and inside
+	// Each sentence twice: as a reader receives it, to match, and inside
 	// _(""), so xgettext carries it into the catalog and the French in
 	// locale/lang/fr reaches the card. Built on each call, after the
-	// language is chosen. The list is the emitter table in
-	// es-app/tests/unit/CloudTextTests.cpp, which fails on a why a script
-	// prints that is not here; a sentence a script changes wants its pair
-	// changed in the same change, or the card shows it in English again.
+	// language is chosen. A sentence is stored as classifyProtocolLine
+	// leaves it -- upper case, no trailing full stop -- or it never matches.
+	// The unit tests check every row through that parser, and the emitter
+	// table in es-app/tests/unit/CloudTextTests.cpp checks the shapes it
+	// lists; neither reads the scripts, so a sentence a script adds or
+	// changes wants its pair here in the same change (the T18 audit's
+	// docs/audits/2026_10_26-epic-m6-es-cloud-pages/tools/t18-why-table.py
+	// compares the two lists from the distribution side, #1144).
 	return {
 		{ "YOUR CLOUD STORAGE ISN'T SET UP YET", _("YOUR CLOUD STORAGE ISN'T SET UP YET") },
-		{ "CHOOSE A CONNECTION BEFORE USING CLOUD TOOLS.", _("CHOOSE A CONNECTION BEFORE USING CLOUD TOOLS.") },
+		{ "CHOOSE A CONNECTION BEFORE USING CLOUD TOOLS", _("CHOOSE A CONNECTION BEFORE USING CLOUD TOOLS") },
 		{ "COULDN'T REACH YOUR CLOUD - CHECK YOUR SIGN-IN", _("COULDN'T REACH YOUR CLOUD - CHECK YOUR SIGN-IN") },
 		{ "YOUR CLOUD STOPPED ANSWERING", _("YOUR CLOUD STOPPED ANSWERING") },
 		{ "YOUR CLOUD SYNC SETTINGS COULDN'T BE READ", _("YOUR CLOUD SYNC SETTINGS COULDN'T BE READ") },
@@ -463,6 +467,11 @@ std::vector<std::pair<std::string, std::string>> whySentences()
 		{ "THERE'S NOTHING TO BACK UP YET", _("THERE'S NOTHING TO BACK UP YET") },
 		{ "A SIGN-IN WAS FOUND IN THE BACKUP", _("A SIGN-IN WAS FOUND IN THE BACKUP") },
 		{ "YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY", _("YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY") },
+		// The T18 audit (#1147): backuptool's refusal of an archive it cannot
+		// put back (its longer console sentence is fail's, not a why), and
+		// cloud_setup's held lock in the words the card already uses for 75.
+		{ "THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK", _("THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK") },
+		{ "A SYNC IS ALREADY RUNNING", _("A SYNC IS ALREADY RUNNING") },
 	};
 }
 
