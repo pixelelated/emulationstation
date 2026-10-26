@@ -5,8 +5,12 @@
 // settings behind it, so es-app/tests/unit can hold the rule.
 
 #include <cctype>
+#include <cstdlib>
 #include <functional>
+#include <map>
 #include <string>
+
+#include <rapidjson/document.h>
 
 namespace RetroAchievementsText
 {
@@ -101,5 +105,92 @@ namespace RetroAchievementsText
 		const std::string& userNow, const std::string& passwordNow, const std::string& token)
 	{
 		return sameAccount(userAtOpen, passwordAtOpen, userNow, passwordNow) ? token : std::string();
+	}
+
+	// The service's answers, read (#1180). The sign-in's: readable when it
+	// is JSON with a Success member; success with a token; refused when
+	// Success is false, with the service's Error.
+	struct SignInAnswer
+	{
+		bool readable = false;
+		bool success = false;
+		bool refused = false;
+		std::string token;
+		std::string error;
+	};
+
+	inline SignInAnswer readSignInAnswer(const std::string& json)
+	{
+		// Every member by its type, so an answer of another shape is refused
+		// rather than asserted on (#1180); and a success needs a token.
+		SignInAnswer answer;
+		rapidjson::Document doc;
+		doc.Parse(json.c_str());
+		if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("Success") || !doc["Success"].IsBool())
+			return answer;
+		answer.readable = true;
+		if (doc["Success"].GetBool())
+		{
+			if (doc.HasMember("Token") && doc["Token"].IsString() && doc["Token"].GetStringLength() > 0)
+			{
+				answer.success = true;
+				answer.token = doc["Token"].GetString();
+			}
+			return answer;
+		}
+		answer.refused = true;
+		if (doc.HasMember("Error") && doc["Error"].IsString())
+			answer.error = doc["Error"].GetString();
+		return answer;
+	}
+
+	// r=officialgameslist: game id to title. ok is false for an answer that
+	// is not the list.
+	inline std::map<int, std::string> readOfficialGames(const std::string& json, bool& ok)
+	{
+		std::map<int, std::string> games;
+		ok = false;
+		rapidjson::Document doc;
+		doc.Parse(json.c_str());
+		if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("Response") || !doc["Response"].IsObject())
+			return games;
+		const rapidjson::Value& response = doc["Response"];
+		for (auto it = response.MemberBegin(); it != response.MemberEnd(); ++it)
+		{
+			const int id = (int) strtol(it->name.GetString(), nullptr, 10);
+			if (it->value.GetType() == rapidjson::Type::kStringType)
+				games[id] = it->value.GetString();
+			else if (it->value.IsInt())
+				games[id] = std::to_string(it->value.GetInt());
+		}
+		ok = true;
+		return games;
+	}
+
+	// r=hashlibrary: each hash, upper case, to its game's id, for the games
+	// the official list holds.
+	inline std::map<std::string, std::string> readHashLibrary(const std::string& json, const std::map<int, std::string>& official, bool& ok)
+	{
+		std::map<std::string, std::string> hashes;
+		ok = false;
+		rapidjson::Document doc;
+		doc.Parse(json.c_str());
+		if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("MD5List") || !doc["MD5List"].IsObject())
+			return hashes;
+		const rapidjson::Value& list = doc["MD5List"];
+		for (auto it = list.MemberBegin(); it != list.MemberEnd(); ++it)
+		{
+			std::string name = it->name.GetString();
+			for (auto& c : name)
+				c = (char) toupper((unsigned char) c);
+			if (!it->value.IsInt())
+				continue;
+			const int id = it->value.GetInt();
+			if (official.find(id) == official.cend())
+				continue;
+			hashes[name] = std::to_string(id);
+		}
+		ok = true;
+		return hashes;
 	}
 }

@@ -91,3 +91,57 @@ TEST_CASE("RetroAchievements: HARDCORE MODE is locked while offline achievements
 	CHECK_FALSE(RetroAchievementsText::hardcoreLocked(true, false));
 	CHECK_FALSE(RetroAchievementsText::hardcoreLocked(false, true));
 }
+
+TEST_CASE("RetroAchievements: a sign-in answer without a usable token is not a success (#1180)")
+{
+	const auto a = RetroAchievementsText::readSignInAnswer("{\"Success\":true}");
+	CHECK(a.readable);
+	CHECK_FALSE(a.success);
+	CHECK_FALSE(a.refused);
+	const auto ok = RetroAchievementsText::readSignInAnswer("{\"Success\":true,\"Token\":\"abc\"}");
+	CHECK(ok.success);
+	CHECK(ok.token == "abc");
+}
+
+TEST_CASE("RetroAchievements: a Token that is not a string is refused without an assertion (#1180)")
+{
+	const auto a = RetroAchievementsText::readSignInAnswer("{\"Success\":true,\"Token\":123}");
+	CHECK_FALSE(a.success);
+}
+
+TEST_CASE("RetroAchievements: an Error that is not a string is read as no words (#1180)")
+{
+	const auto a = RetroAchievementsText::readSignInAnswer("{\"Success\":false,\"Error\":[\"x\"]}");
+	CHECK(a.refused);
+	CHECK(a.error.empty());
+}
+
+TEST_CASE("RetroAchievements: an answer that is not an object is unreadable, without an assertion (#1180)")
+{
+	CHECK_FALSE(RetroAchievementsText::readSignInAnswer("[]").readable);
+	bool ok = true;
+	RetroAchievementsText::readOfficialGames("[1,2]", ok);
+	CHECK_FALSE(ok);
+}
+
+TEST_CASE("RetroAchievements: a Response or MD5List that is not an object is refused, without an assertion (#1180)")
+{
+	bool ok = true;
+	RetroAchievementsText::readOfficialGames("{\"Response\":null}", ok);
+	CHECK_FALSE(ok);
+	ok = true;
+	RetroAchievementsText::readHashLibrary("{\"MD5List\":[]}", {}, ok);
+	CHECK_FALSE(ok);
+}
+
+TEST_CASE("RetroAchievements: the library read as before when it is well formed (#1180)")
+{
+	bool ok = false;
+	const auto official = RetroAchievementsText::readOfficialGames("{\"Response\":{\"12\":\"Game\",\"13\":7}}", ok);
+	CHECK(ok);
+	CHECK(official.size() == 2);
+	const auto hashes = RetroAchievementsText::readHashLibrary("{\"MD5List\":{\"abcdef\":12,\"zz\":\"x\",\"cafe\":99}}", official, ok);
+	CHECK(ok);
+	REQUIRE(hashes.size() == 1);
+	CHECK(hashes.at("ABCDEF") == "12");
+}

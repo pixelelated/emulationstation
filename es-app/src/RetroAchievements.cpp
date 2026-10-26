@@ -871,57 +871,25 @@ std::map<std::string, std::string> RetroAchievements::getCheevosHashes()
 		HttpReq hashLibrary("https://retroachievements.org/dorequest.php?r=hashlibrary", &options);
 		HttpReq officialGamesList("https://retroachievements.org/dorequest.php?r=officialgameslist", &options);
 
-		// Official games
+		// Official games, read by type (#1180): an answer of another shape is
+		// no list, never an assertion.
 		if (officialGamesList.wait())
 		{
-			rapidjson::Document ogdoc;
-			ogdoc.Parse(officialGamesList.getContent().c_str());
-			if (ogdoc.HasParseError())
+			bool ok = false;
+			officialGames = RetroAchievementsText::readOfficialGames(officialGamesList.getContent(), ok);
+			if (!ok)
 				return ret;
-
-			if (!ogdoc.HasMember("Response"))
-				return ret;
-
-			const rapidjson::Value& response = ogdoc["Response"];
-			for (auto it = response.MemberBegin(); it != response.MemberEnd(); ++it)
-			{
-				int gameId = Utils::String::toInteger(it->name.GetString());
-
-				if (it->value.GetType() == rapidjson::Type::kStringType)
-					officialGames[gameId] = it->value.GetString();
-				else if (it->value.GetType() == rapidjson::Type::kNumberType)
-					officialGames[gameId] = std::to_string(it->value.GetInt());
-			}
 		}
 		else if (officialGamesList.status() != HttpReq::REQ_SUCCESS)
 			throw std::domain_error("Error while accessing retroachievements official games list :\n" + officialGamesList.getErrorMsg());
 
-		// Hash library
+		// Hash library, read by type (#1180).
 		if (hashLibrary.wait())
 		{
-			rapidjson::Document doc;
-			doc.Parse(hashLibrary.getContent().c_str());
-			if (doc.HasParseError())
-				return ret;
-
-			if (!doc.HasMember("MD5List"))
-				return ret;
-
-			const rapidjson::Value& mdlist = doc["MD5List"];
-			for (auto it = mdlist.MemberBegin(); it != mdlist.MemberEnd(); ++it)
-			{
-				std::string name = Utils::String::toUpper(it->name.GetString());
-
-				if (!it->value.IsInt())
-					continue;
-
-				int gameId = it->value.GetInt();
-
-				if (officialGames.find(gameId) == officialGames.cend())
-					continue;
-
-				ret[name] = std::to_string(gameId);
-			}
+			bool ok = false;
+			ret = RetroAchievementsText::readHashLibrary(hashLibrary.getContent(), officialGames, ok);
+			if (!ok)
+				return std::map<std::string, std::string>();
 		}
 		else if (hashLibrary.status() != HttpReq::REQ_SUCCESS)
 			throw std::domain_error("Error while accessing retroachievements hashlibrary :\n" + hashLibrary.getErrorMsg());
@@ -1065,27 +1033,24 @@ bool RetroAchievements::testAccount(const std::string& username, const std::stri
 			return false;
 		}
 
-		rapidjson::Document ogdoc;
-		ogdoc.Parse(answer.c_str());
-		if (ogdoc.HasParseError() || !ogdoc.HasMember("Success"))
+		// Read by type, and a success needs a token (#1180): Success with no
+		// usable Token is an answer this cannot use, not a sign-in.
+		const auto read = RetroAchievementsText::readSignInAnswer(answer);
+		if (read.success)
+		{
+			tokenOrError = read.token;
+			return true;
+		}
+		if (!read.refused)
 		{
 			tokenOrError = "Unable to parse response";
 			return false;
 		}
 
-		if (ogdoc["Success"].IsTrue())
-		{
-			if (ogdoc.HasMember("Token"))
-				tokenOrError = ogdoc["Token"].GetString();
-
-			return true;
-		}
-
 		// The server answered, and the answer is no.
 		if (refused != nullptr)
 			*refused = true;
-		if (ogdoc.HasMember("Error"))
-			tokenOrError = ogdoc["Error"].GetString();
+		tokenOrError = read.error;
 	}
 	catch (...)
 	{
