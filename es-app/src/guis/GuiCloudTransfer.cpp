@@ -72,6 +72,9 @@ GuiCloudTransfer::GuiCloudTransfer(Window* window, const std::shared_ptr<CloudTr
 	mLineWidth = w;
 	for (auto& t : { mTitle, mStatus, mCounter, mActivity, mDetail, mNote, mElapsed, mFooter })
 		t->setSize(w, 0);
+	// Every row is one line, the title included: a TextComponent given (w, 0)
+	// grows with a long text rather than clipping it (the T18 seats' A-40).
+	mTitle->setText(fitOneLine(theme->Title.font, Utils::String::toUpper(mJob->title()), w));
 
 	// Rows are stacked from the fonts' own heights, not from a table of
 	// fractions. A TextComponent given (w, 0) is exactly font->getHeight()
@@ -354,6 +357,9 @@ void GuiCloudTransfer::askCancel()
 	mWindow->pushGui(new GuiMsgBox(mWindow,
 		kind == CloudText::TransferKind::Scan ? _("CANCEL THIS CHECK?\n\nNO FILES HAVE BEEN MOVED. YOU CAN CHECK AGAIN LATER.")
 			 : kind == CloudText::TransferKind::Create ? _("STOP CREATING FOLDERS?\n\nFOLDERS ALREADY CREATED WILL STAY. YOU CAN TRY AGAIN LATER.")
+			 // A match is neither: what it removed stays removed, and its next
+			 // apply needs a new check (PL-001; the T18 audit, #1146).
+			 : kind == CloudText::TransferKind::Match ? _("CANCEL THIS MATCH?\n\nWHAT'S ALREADY BEEN REMOVED STAYS REMOVED. CHECK WHAT WOULD CHANGE AGAIN TO FINISH.")
 			 : _("CANCEL THIS BACKUP OR RESTORE?") + std::string("\n\n")
 			+ _("WHAT'S ALREADY IN PLACE STAYS. THE NEXT BACKUP OR RESTORE FINISHES WHAT THIS ONE DIDN'T."),
 		_("YES"), [] { CloudTransferJob::stopByPlayer(); },
@@ -742,7 +748,7 @@ void GuiCloudTransfer::update(int deltaTime)
 			const int n = (int) names.size();
 			const int m = std::max(std::max(job.mItemCount, job.mItemIndex), n);
 			counter = std::to_string(n) + " " + std::string(_("OF")) + " " + std::to_string(m) + " "
-				+ std::string(n == 1 && m == 1 ? _("ITEM DID NOT FINISH") : _("ITEMS DID NOT FINISH"));
+				+ std::string(n == 1 && m == 1 ? _("ITEM COULDN'T FINISH") : _("ITEMS COULDN'T FINISH"));
 		}
 		mCounter->setText(fitOneLine(mSmallFont, counter, mLineWidth));
 
@@ -765,8 +771,11 @@ void GuiCloudTransfer::update(int deltaTime)
 				for (auto& d : job.mRemovedDetail)
 					detail += (detail.empty() ? "" : "   ") + d;
 				mDetail->setText(fitOneLine(mSmallFont, detail, mLineWidth));
-				if (job.mAnyTransferred)
-					mCounter->setText(fitOneLine(mSmallFont, _("FILES YOUR CLOUD HAD AND THIS DEVICE DIDN'T CAME DOWN TOO."), mLineWidth));
+				// What the match brought down beside what it removed, in the
+				// restore's own verb (the T18 audit, #1149).
+				if (job.mAnyTransferred && job.mRunFiles > 0)
+					mCounter->setText(fitOneLine(mSmallFont, job.mRunFiles == 1 ? std::string(_("1 FILE RESTORED"))
+						: Utils::String::format(_("%d FILES RESTORED").c_str(), (int) job.mRunFiles), mLineWidth));
 			}
 		}
 		else
@@ -805,7 +814,7 @@ void GuiCloudTransfer::update(int deltaTime)
 				summary = restore ? _("NOTHING NEW - YOU ALREADY HAD IT ALL")
 				                  : _("NOTHING NEW - YOUR CLOUD ALREADY HAD IT ALL");
 				if (mTextFont && mTextFont->sizeText(summary).x() > mLineWidth)
-					summary = restore ? _("NOTHING NEW TO BRING DOWN") : _("NOTHING NEW TO SEND UP");
+					summary = restore ? _("NOTHING NEW TO RESTORE") : _("NOTHING NEW TO BACK UP");
 			}
 			mActivity->setText(fitOneLine(mTextFont, summary, mLineWidth));
 			mDetail  ->setText("");
@@ -898,7 +907,7 @@ void GuiCloudTransfer::update(int deltaTime)
 		// first alone says what is in place, so it is what survives.
 		mNote->setText(fitSentences(mSmallFont, note, mLineWidth));
 
-		mElapsed ->setText(std::string(_("ELAPSED")) + " " + elapsed);
+		mElapsed ->setText(fitOneLine(mSmallFont, std::string(_("ELAPSED")) + " " + elapsed, mLineWidth));
 		// 7. The retry lives on the surface that reported the failure: OK
 		// runs the same command again (input), back closes, and the help bar
 		// -- drawn by this page (render) -- carries the two on the player's
@@ -910,9 +919,9 @@ void GuiCloudTransfer::update(int deltaTime)
 		// the same command again is refused with SOMETHING CHANGED SINCE YOU
 		// CHECKED. Line 7 names the row that checks again instead, as the
 		// card names its row (#308 gpt F-CS-26).
-		mFooter  ->setText(!o.completed ? (match ? CloudText::matchRecovery() : std::string())
+		mFooter  ->setText(fitOneLine(mSmallFont, !o.completed ? (match ? CloudText::matchRecovery() : std::string())
 			: mCompletedAction && !mCompletedFooter.empty() ? mCompletedFooter
-			: _("PRESS ANY BUTTON TO CLOSE"));
+			: std::string(_("PRESS ANY BUTTON TO CLOSE")), mLineWidth));
 	}
 	else
 	{
@@ -936,7 +945,7 @@ void GuiCloudTransfer::update(int deltaTime)
 			std::string counter = std::string(_("ITEM")) + " " + std::to_string(job.mItemIndex);
 			if (job.mItemCount > 0)
 				counter += " " + std::string(_("OF")) + " " + std::to_string(job.mItemCount);
-			mCounter->setText(counter);
+			mCounter->setText(fitOneLine(mSmallFont, counter, mLineWidth));
 		}
 
 		// 3: what it is doing on this item -- the line that says it is alive.
@@ -1032,7 +1041,7 @@ void GuiCloudTransfer::update(int deltaTime)
 			doing = _("REMOVING THE OLD FOLDER...");
 		else if (job.mItemIndex > 0)
 			doing = _("WORKING...");
-		mActivity->setText(doing);
+		mActivity->setText(fitOneLine(mTextFont, doing, mLineWidth));
 
 		// 4: this item's totals -- the count line and the byte line of the
 		// last stats block. "12 / 45, 27%" -> "12 OF 45 FILES . 27%".
@@ -1052,7 +1061,7 @@ void GuiCloudTransfer::update(int deltaTime)
 			totals += (totals.empty() ? "" : "   ") + prettyRclone(job.mTotals);
 		mDetail->setText(fitOneLine(mSmallFont, totals, mLineWidth));
 
-		mElapsed->setText(std::string(_("ELAPSED")) + " " + elapsed);
+		mElapsed->setText(fitOneLine(mSmallFont, std::string(_("ELAPSED")) + " " + elapsed, mLineWidth));
 		// 7. That it takes a while. How to cancel, where the page can be, is
 		// the help bar's, on the player's own back button: the line said
 		// PRESS B TO CANCEL, the wrong button on a swapped mapping (#308

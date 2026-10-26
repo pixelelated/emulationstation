@@ -849,6 +849,44 @@ TEST_CASE("ThreadedCloudSync writes its stamps whole or not at all, and says whi
 	CHECK(cpp.find("if (writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, \"\"))") != std::string::npos);
 }
 
+TEST_CASE("the transfer page says match for a match, the canonical verbs, and fits every row (#1146, #1149)")
+{
+	// The transfer page draws, so its words are held by its source, as the
+	// two cases above hold ThreadedCloudSync (the T18 audit's S3). The
+	// CANCEL confirmation over a match promised that the next backup or
+	// restore finishes it; two 640-px forms said BRING DOWN and SEND UP; the
+	// counter said DID NOT FINISH beside COULDN'T FINISH; a completed match
+	// said CAME DOWN; and the title, the running counter, the footer, most
+	// doing lines and elapsed were set without fitOneLine, so a long one
+	// grew instead of clipping (the seats' A-40, R-18).
+	const char* root = getenv("ES_SOURCE_ROOT");
+	const std::string base = root != nullptr && *root != '\0' ? root : ES_ROOT_DIR;
+	auto code = [](const std::string& text) {
+		std::string out;
+		std::istringstream in(text);
+		std::string line;
+		while (std::getline(in, line))
+			out += line.substr(0, line.find("//")) + "\n";
+		return out;
+	};
+	const std::string cpp = code(get(base + "/es-app/src/guis/GuiCloudTransfer.cpp"));
+	REQUIRE_FALSE(cpp.empty());
+	CHECK(cpp.find("CANCEL THIS MATCH?\\n\\nWHAT'S ALREADY BEEN REMOVED STAYS REMOVED. CHECK WHAT WOULD CHANGE AGAIN TO FINISH.") != std::string::npos);
+	CHECK(cpp.find("NOTHING NEW TO RESTORE") != std::string::npos);
+	CHECK(cpp.find("NOTHING NEW TO BACK UP") != std::string::npos);
+	for (const char* gone : { "BRING DOWN", "SEND UP", "CAME DOWN", "DID NOT FINISH" })
+	{
+		INFO(std::string(gone));
+		CHECK(cpp.find(gone) == std::string::npos);
+	}
+	for (const char* unfitted : { "mCounter->setText(counter)", "mActivity->setText(doing)",
+		"mElapsed ->setText(std::string", "mElapsed->setText(std::string", "mFooter  ->setText(!o.completed" })
+	{
+		INFO(std::string(unfitted));
+		CHECK(cpp.find(unfitted) == std::string::npos);
+	}
+}
+
 // ------------------------------------------------------ G-E1-03
 
 TEST_CASE("a reload keeps the changes still waiting to be saved, unless the file moved under them (G-E1-03)")
