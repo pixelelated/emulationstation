@@ -180,6 +180,34 @@ namespace OfflineAchievementsText
 		bool finished = false;
 	};
 	ToggleOutcome toggleOutcome(bool wantedOn, int exitCode, const std::string& lastLine, const ToggleState& file);
+
+	// What the readers of the ctl's answers know (#1174): the data, and
+	// whether it was read at all. An answer that could not be read, or that
+	// held nothing readable, is not an empty one: not ok, not none, not 0.
+	struct StoreSummary
+	{
+		bool ok = false;
+		std::vector<StoreGame> games;
+		int skipped = 0;   // lines that were not a game
+	};
+	// raofflineproxy-ctl summary's lines and exit.
+	StoreSummary readStoreSummary(int exitCode, const std::vector<std::string>& lines);
+
+	struct ReadyIds
+	{
+		bool known = false;
+		std::vector<int> ids;
+	};
+	// cached_game_ids.txt: whether it exists, and its text.
+	ReadyIds readReadyIds(bool exists, const std::string& text);
+
+	struct PendingIds
+	{
+		bool known = false;
+		std::vector<PendingAward> awards;
+	};
+	// raofflineproxy-ctl pending-ids' text and exit.
+	PendingIds readPendingIds(int exitCode, const std::string& text);
 }
 
 #endif // ES_APP_OFFLINE_ACHIEVEMENTS_TEXT_H

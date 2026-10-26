@@ -1782,3 +1782,12 @@ TEST_CASE("cloud folder refusal carries only recognized bounded reasons (#524 PL
 	CHECK(folderPathRefusalMessage(R::Unknown, 75) ==
 		"WAIT FOR THE CURRENT CLOUD TASK TO FINISH, THEN TRY AGAIN.");
 }
+
+TEST_CASE("CloudText: a stamp's ready=unknown is not 0 (#1174)")
+{
+	const auto s = CloudText::parseScanStamp("1789400200 0 topup cached=0 skipped=0 ready=unknown limit=0 indexed=0 errors=0 added=0");
+	CHECK(s.ran);
+	CHECK(s.ready < 0);
+	// A number is read as before.
+	CHECK(CloudText::parseScanStamp("1789400200 0 topup cached=0 skipped=0 ready=3 limit=0").ready == 3);
+}

@@ -364,7 +364,9 @@ namespace
 				action.push_back(_("1 GAME IS READY."));
 			else if (ready > 1)
 				action.push_back(Utils::String::format(_("%d GAMES ARE READY.").c_str(), ready));
-			else if (!addedUnknown)
+			// A ready count nobody measured (ready=unknown, or no export to
+			// read) is no count at all: nothing is claimed (#1174).
+			else if (!addedUnknown && ready >= 0)
 				action.push_back(_("EVERYTHING'S UP TO DATE."));
 		}
 		else if (stoppedForGame)

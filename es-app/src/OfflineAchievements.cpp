@@ -151,18 +151,23 @@ CloudText::RunningProgress OfflineAchievements::runningProgress()
 
 std::vector<int> OfflineAchievements::readyIds()
 {
+	return readyIdsRead().ids;
+}
+
+OfflineAchievementsText::ReadyIds OfflineAchievements::readyIdsRead()
+{
 	// Uncached, like the scan stamp: the client rewrites this file while
-	// EmulationStation runs.
-	if (!Utils::FileSystem::exists(READY_FILE, false))
-		return std::vector<int>();
-	// One game id per line (es_export.py). Lines that are not a number are
-	// not games: a count is never made of what was not read as one.
-	return OfflineAchievementsText::parseReadyIds(Utils::FileSystem::readAllText(READY_FILE));
+	// EmulationStation runs. One game id per line (es_export.py); lines that
+	// are not a number are not games. No file, or nothing readable in it, is
+	// unknown, not 0 (#1174).
+	const bool exists = Utils::FileSystem::exists(READY_FILE, false);
+	return OfflineAchievementsText::readReadyIds(exists, exists ? Utils::FileSystem::readAllText(READY_FILE) : std::string());
 }
 
 int OfflineAchievements::readyCount()
 {
-	return (int)readyIds().size();
+	const auto ready = readyIdsRead();
+	return ready.known ? (int) ready.ids.size() : -1;
 }
 
 bool OfflineAchievements::toggleOn()
@@ -249,18 +254,14 @@ std::vector<OfflineAchievementsText::StoreGame> OfflineAchievements::storeSummar
 	std::vector<std::string> lines;
 	auto result = ApiSystem::executeScriptLegacy(std::string(CTL) + " summary 2>/dev/null",
 		[&lines](const std::string line) { lines.push_back(line); });
-	if (result.second != 0)
+	// Lines and not one game among them is not an empty store (#1174).
+	const auto summary = OfflineAchievementsText::readStoreSummary(result.second, lines);
+	if (summary.skipped > 0)
+		LOG(LogWarning) << "OfflineAchievements: " << summary.skipped << " line(s) of the store's summary were not a game; skipped";
+	if (!summary.ok)
 		return games;
-	for (const auto& line : lines)
-	{
-		auto game = OfflineAchievementsText::parseStoreGame(line);
-		if (game.ok)
-			games.push_back(game);
-		else if (!line.empty())
-			LOG(LogWarning) << "OfflineAchievements: a line of the store's summary was not a game; skipped";
-	}
 	ok = true;
-	return games;
+	return summary.games;
 }
 
 std::vector<OfflineAchievementsText::PendingAward> OfflineAchievements::pendingAwardIds()
@@ -274,9 +275,12 @@ std::vector<OfflineAchievementsText::PendingAward> OfflineAchievements::pendingA
 	std::string all;
 	auto result = ApiSystem::executeScriptLegacy(std::string(CTL) + " pending-ids 2>/dev/null",
 		[&all](const std::string line) { all += line + "\n"; });
-	if (result.second != 0 && result.second != 1)
-		return std::vector<OfflineAchievementsText::PendingAward>();
-	return OfflineAchievementsText::parsePendingIds(all);
+	const auto pending = OfflineAchievementsText::readPendingIds(result.second, all);
+	// Unknown is not none (#1174): the page still marks nothing, and says why
+	// in the log rather than as if nothing were waiting.
+	if (!pending.known)
+		LOG(LogWarning) << "OfflineAchievements: pending-ids exited " << result.second << "; the awards waiting are not known";
+	return pending.awards;
 }
 
 OfflineAchievementsText::AccountTotals OfflineAchievements::accountTotals()

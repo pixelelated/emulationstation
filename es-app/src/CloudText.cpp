@@ -1257,6 +1257,11 @@ CloudText::ScanStamp CloudText::parseScanStamp(const std::string& text)
 			stamp.added = ScanStamp::AddedUnknown;
 			continue;
 		}
+		if (key == "ready" && value == "unknown")
+		{
+			stamp.ready = ScanStamp::ReadyUnknown;
+			continue;
+		}
 		long long n = 0;
 		if (!number(value, n) || n > 1000000)
 			continue;

@@ -489,7 +489,7 @@ namespace CloudText
 		                      // stamp does not say -- an older ctl's, where cached stood for it;
 		                      // AddedUnknown when the ctl said added=unknown (PL-031, below)
 		int skipped = 0;      // ROMs RetroAchievements does not know
-		int ready = 0;        // games cached in all, after the run
+		int ready = 0;        // games cached in all, after the run; ReadyUnknown when the ctl said ready=unknown
 		bool limit = false;   // the proxy's cap was reached
 		int indexed = 0;      // of cached, how many came from the interface's index (no hash)
 		int errors = 0;       // games a fetch failed for: what makes rc 1 with why=SOME_GAMES_NOT_SAVED
@@ -502,6 +502,9 @@ namespace CloudText
 		// stamp, where cached stood for the count; this one has no count
 		// to stand in, and the card says how many are ready instead.
 		static constexpr int AddedUnknown = -2;   // constexpr: inline, so a use by reference links
+		// ready=unknown (#1174): the ctl could not count the games ready
+		// after the run (the proxy audit's S8). Not 0: the card says no count.
+		static constexpr int ReadyUnknown = -2;
 	};
 	ScanStamp parseScanStamp(const std::string& text);
 

@@ -285,7 +285,11 @@ void OfflineScanJob::handleLine(const std::string& line)
 		{
 			mState.cached = num(fields[0]);
 			mState.skipped = num(fields[1]);
-			mState.ready = num(fields[2]);
+			// The ctl says unknown for a count it could not read (T19's S8):
+			// not a number, and not 0 -- -1 keeps the page counting from the
+			// export (#1174).
+			const std::string ready = Utils::String::trim(fields[2]);
+			mState.ready = !ready.empty() && ready.size() <= 9 && ready.find_first_not_of("0123456789") == std::string::npos ? num(ready) : -1;
 			mState.limit = num(fields[3]) != 0;
 		}
 		else

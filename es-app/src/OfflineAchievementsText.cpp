@@ -331,3 +331,52 @@ OfflineAchievementsText::ToggleOutcome OfflineAchievementsText::toggleOutcome(bo
 	outcome.mirror = true;
 	return outcome;
 }
+
+// The three readers of the ctl's answers (#1174): the data, and whether it
+// was read. At 16dbac5211 each turned an answer it could not read into an
+// empty one -- an ok summary, no ready games, no pending awards.
+OfflineAchievementsText::StoreSummary OfflineAchievementsText::readStoreSummary(int exitCode, const std::vector<std::string>& lines)
+{
+	StoreSummary summary;
+	if (exitCode != 0)
+		return summary;
+	for (const auto& line : lines)
+	{
+		auto game = parseStoreGame(line);
+		if (game.ok)
+			summary.games.push_back(game);
+		else if (!line.empty())
+			summary.skipped++;
+	}
+	// Lines and not one game among them is a summary nobody could read.
+	summary.ok = !(summary.games.empty() && summary.skipped > 0);
+	return summary;
+}
+
+OfflineAchievementsText::ReadyIds OfflineAchievementsText::readReadyIds(bool exists, const std::string& text)
+{
+	// No export is no count (the ctl's own count falls back to the store
+	// then); an export of lines and not one id is unreadable.
+	ReadyIds ready;
+	if (!exists)
+		return ready;
+	ready.ids = parseReadyIds(text);
+	bool anyLine = false;
+	for (const std::string& raw : Utils::String::split(text, '\n', true))
+		if (!Utils::String::trim(raw).empty())
+			anyLine = true;
+	ready.known = !(ready.ids.empty() && anyLine);
+	return ready;
+}
+
+OfflineAchievementsText::PendingIds OfflineAchievementsText::readPendingIds(int exitCode, const std::string& text)
+{
+	// 0 with rows, 1 with none; any other exit is the ctl saying it could
+	// not tell, and that is not none.
+	PendingIds pending;
+	if (exitCode != 0 && exitCode != 1)
+		return pending;
+	pending.known = true;
+	pending.awards = parsePendingIds(text);
+	return pending;
+}

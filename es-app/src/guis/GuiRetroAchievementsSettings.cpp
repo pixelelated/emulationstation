@@ -184,7 +184,8 @@ static bool offlineScanShowsRun()
 static std::string offlineScanDetail(bool on, bool online)
 {
 	const int readyNow = OfflineAchievements::readyCount();
-	const std::string ready = GuiOfflineScan::readyPhrase(readyNow);
+	// -1 is a count nobody could read (#1174): no count is said, never a 0.
+	const std::string ready = readyNow >= 0 ? GuiOfflineScan::readyPhrase(readyNow) : std::string();
 	std::vector<std::string> candidates;
 	if (const CloudText::RunningProgress run = OfflineAchievements::runningProgress(); run.running)
 	{
@@ -206,7 +207,8 @@ static std::string offlineScanDetail(bool on, bool online)
 			if (run.total > 0)
 				counted += " " + std::string(_("OF")) + " " + std::to_string(run.total);
 		}
-		candidates.push_back(counted + "  ·  " + ready);
+		if (!ready.empty())
+			candidates.push_back(counted + "  ·  " + ready);
 		if (counted != head)
 			candidates.push_back(counted);
 		candidates.push_back(head);
@@ -218,7 +220,8 @@ static std::string offlineScanDetail(bool on, bool online)
 	else if (!online)
 		return _("YOU'RE NOT ONLINE.");
 	else if (const CloudText::ScanStamp last = OfflineAchievements::lastScan(); !last.ran)
-		candidates = { _("NOT SCANNED YET") + std::string("  ·  ") + ready, ready };
+		candidates = ready.empty() ? std::vector<std::string>{ _("NOT SCANNED YET") }
+			: std::vector<std::string>{ _("NOT SCANNED YET") + std::string("  ·  ") + ready, ready };
 	else
 	{
 		// The player's cancel is the page's word for it (D-UI-078), not a
@@ -239,7 +242,8 @@ static std::string offlineScanDetail(bool on, bool online)
 		// the store is empty too, the row says that in place of the count --
 		// the same fact, from the side the player can act on.
 		const std::string tail = (last.code == 0 && last.note == "NO_GAMES" && readyNow <= 0) ? _("NO GAMES TO SCAN YET") : ready;
-		candidates = { head + "  -  " + outcome + "  ·  " + tail, outcome + "  ·  " + tail, tail };
+		candidates = tail.empty() ? std::vector<std::string>{ head + "  -  " + outcome, outcome }
+			: std::vector<std::string>{ head + "  -  " + outcome + "  ·  " + tail, outcome + "  ·  " + tail, tail };
 	}
 
 	// The description is drawn in the menu's small font, in a row that

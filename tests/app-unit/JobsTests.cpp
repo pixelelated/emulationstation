@@ -321,3 +321,13 @@ TEST_CASE("scan job: a CANCEL whose signal did not land can be pressed again (#1
 	job->cancel();   // pressed again: taken, not refused
 	CHECK(waitFor([&] { return job->state().finished; }, 10));
 }
+
+TEST_CASE("scan job: a done line with an unknown ready count keeps it unknown (#1174)")
+{
+	Window window;
+	auto job = OfflineScanJob::start(&window, "printf '>>> done 3|0|unknown|0\\n'");
+	REQUIRE(job != nullptr);
+	REQUIRE(waitFor([&] { return job->state().finished; }, 10));
+	CHECK(job->state().cached == 3);
+	CHECK(job->state().ready == -1);
+}

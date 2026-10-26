@@ -395,3 +395,39 @@ TEST_CASE("OfflineAchievementsText: a toggle that finished shows what the file h
 	CHECK_FALSE(o.hardcoreOn);
 	CHECK(o.mirror);
 }
+
+TEST_CASE("OfflineAchievementsText: a summary of nothing but malformed lines is not ok (#1174)")
+{
+	const auto bad = OfflineAchievementsText::readStoreSummary(0, { "not json", "{\"id\":" });
+	CHECK_FALSE(bad.ok);
+	// An empty store is a store with no games: ok.
+	const auto empty = OfflineAchievementsText::readStoreSummary(0, {});
+	CHECK(empty.ok);
+	CHECK(empty.games.empty());
+	// One good line among bad ones: ok, the bad ones counted.
+	const auto mixed = OfflineAchievementsText::readStoreSummary(0, { "junk",
+		"{\"id\":4902,\"title\":\"Bobl\",\"icon\":\"\",\"achievements\":12,\"points\":110,\"unlocked\":1,\"unlockedPoints\":5,\"pending\":0}" });
+	CHECK(mixed.ok);
+	CHECK(mixed.games.size() == 1);
+	CHECK(mixed.skipped == 1);
+	CHECK_FALSE(OfflineAchievementsText::readStoreSummary(2, {}).ok);
+}
+
+TEST_CASE("OfflineAchievementsText: a ready file that is missing or unreadable is unknown, not 0 (#1174)")
+{
+	CHECK_FALSE(OfflineAchievementsText::readReadyIds(false, "").known);
+	CHECK_FALSE(OfflineAchievementsText::readReadyIds(true, "garbage\n").known);
+	const auto two = OfflineAchievementsText::readReadyIds(true, "7\n12\n");
+	CHECK(two.known);
+	CHECK(two.ids.size() == 2);
+	// An empty export is a store with no games ready: known, 0.
+	CHECK(OfflineAchievementsText::readReadyIds(true, "").known);
+}
+
+TEST_CASE("OfflineAchievementsText: a pending list the ctl could not read is unknown, not none (#1174)")
+{
+	CHECK_FALSE(OfflineAchievementsText::readPendingIds(2, "").known);
+	const auto none = OfflineAchievementsText::readPendingIds(1, "");
+	CHECK(none.known);
+	CHECK(none.awards.empty());
+}

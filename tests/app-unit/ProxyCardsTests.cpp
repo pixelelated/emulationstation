@@ -597,3 +597,23 @@ TEST_CASE("top-up: SOME_GAMES_NOT_SAVED says so without sending the player to a 
 	REQUIRE(!card->action.empty());
 	CHECK(card->action.front() == "IT'LL TRY AGAIN NEXT TIME YOU'RE CONNECTED.");
 }
+
+TEST_CASE("top-up: ready=unknown beside a number of new games claims no count (#1174)")
+{
+	fake.reset();
+	fake.ctl = [](bool)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+		std::lock_guard<std::mutex> g(fake.m);
+		fake.scan = CloudText::parseScanStamp(std::to_string((long long) time(nullptr))
+			+ " 0 topup cached=5 skipped=0 ready=unknown limit=0 indexed=0 errors=0 added=0");
+		return 0;
+	};
+	ProxyCards::topUp(&window, false);
+	REQUIRE(waitFor([] { auto c = cardsNow(); return !c.empty() && c.back()->closed; }, 30));
+	auto* card = cardsNow().back();
+	INFO("text: " << join(card->text) << "  action: " << join(card->action));
+	CHECK(card->text.front() == "COMPLETED");
+	CHECK(card->action.empty());
+	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+}

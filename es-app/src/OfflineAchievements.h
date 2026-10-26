@@ -58,7 +58,8 @@ namespace OfflineAchievements
 	// How many games the proxy holds achievement data for -- the ones that
 	// earn offline -- from the client's own export of cached game ids, one
 	// per line, rewritten on every change to the cache by the service and
-	// the client alike. 0 when there is none yet. A file read, no process.
+	// the client alike. -1 when it cannot be told -- no export, or none
+	// readable (#1174) -- never a 0 nobody counted. A file read, no process.
 	int readyCount();
 
 	// A scan's why token, said in the player's language. Unknown tokens
@@ -134,6 +135,10 @@ namespace OfflineAchievements
 	// there are none, or it could not be told. Runs a process; call it off
 	// the interface thread.
 	std::vector<OfflineAchievementsText::PendingAward> pendingAwardIds();
+
+	// The ready file read with whether it was (#1174): no file, or nothing
+	// readable in it, is unknown. readyCount() is -1 then.
+	OfflineAchievementsText::ReadyIds readyIdsRead();
 
 	// The game ids the proxy holds achievement data for, from the client's
 	// export (the same file readyCount counts). A file read, no process.

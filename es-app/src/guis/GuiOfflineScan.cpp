@@ -301,7 +301,9 @@ void GuiOfflineScan::update(int deltaTime)
 		// so while the store is empty too, and line 4 says what to do next;
 		// with games still ready from before, line 3 keeps its count and
 		// line 4 carries both sentences.
-		mActivity->setText(fitOneLine(mTextFont, s.noGames && ready <= 0 ? _("NO GAMES TO SCAN YET") : readyPhrase(ready), mLineWidth));
+		// A count nobody could read (-1: no export, or none readable) is said
+		// as no count, never as NO GAMES READY (#1174).
+		mActivity->setText(fitOneLine(mTextFont, s.noGames && ready <= 0 ? _("NO GAMES TO SCAN YET") : ready < 0 ? std::string() : readyPhrase(ready), mLineWidth));
 
 		std::string detail;
 		if (o.completed && s.noGames)
