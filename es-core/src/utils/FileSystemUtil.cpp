@@ -1375,6 +1375,10 @@ namespace Utils
 			if (file.read(bom, 3) && bom[0] == '\xEF' && bom[1] == '\xBB' && bom[2] == '\xBF')			
 				return;
 			
+			// A file under three bytes failed the read above, and seekg does
+			// nothing on a failed stream: without the clear, such a file read
+			// as empty (pixelelated #1177).
+			file.clear();
 			file.seekg(0);
 		}
 

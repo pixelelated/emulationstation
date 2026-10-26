@@ -97,6 +97,10 @@ set_target_properties(es-unit-tests PROPERTIES
 add_executable(es-file-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/AtomicFileTests.cpp
 	${ES_ROOT}/es-core/src/utils/AtomicFileUtil.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/FileSystemReadTests.cpp
+	${ES_ROOT}/es-core/src/utils/FileSystemUtil.cpp
+	${ES_ROOT}/es-core/src/utils/md5.cpp
+	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
 )
 target_include_directories(es-file-tests PRIVATE
 	${ES_ROOT}/es-core/src
