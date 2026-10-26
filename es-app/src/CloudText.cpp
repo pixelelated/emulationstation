@@ -1051,6 +1051,13 @@ std::string CloudText::scanWhy(const std::string& token)
 	// carries on from what was saved.
 	if (token == "CANCELLED")
 		return _("YOU CANCELLED IT");
+	// The run did its work and could not write its stamp (the proxy audit's
+	// S5), or its recently played pass ended with no result to read (its
+	// S7): the next run tries again (#1176). Proposed words.
+	if (token == "STAMP_UNWRITABLE")
+		return _("THE RESULT COULDN'T BE SAVED");
+	if (token == "RESULT_UNREADABLE")
+		return _("THE RESULT COULDN'T BE READ");
 	return _("SOMETHING WENT WRONG");
 }
 

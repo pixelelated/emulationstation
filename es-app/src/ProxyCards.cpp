@@ -223,12 +223,18 @@ namespace
 		});
 	}
 
+	// True exactly while this process's top-up ctl runs: the run's own
+	// liveness, where the progress file is only a line any run may write
+	// (#1176).
+	static std::atomic<bool> sTopUpCtlRunning{ false };
+
 	void runTopUp(Window* window, bool afterIndex)
 	{
 		sTopUpStoppedForGame = false;   // a stop that missed an earlier run is not this run's
 		std::atomic<bool> finished{ false };
 		int rc = -1;
 		const time_t startedAt = time(nullptr);
+		sTopUpCtlRunning = true;
 		std::thread ctl([&rc, &finished, afterIndex]
 		{
 			rc = OfflineAchievements::runTopUp(afterIndex);
@@ -271,8 +277,10 @@ namespace
 		while (!finished)
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			// This run's line only (#1176): a scan writes the same file, and a
+			// top-up refused while one runs is not that scan.
 			const CloudText::RunningProgress p = OfflineAchievements::runningProgress();
-			if (!p.running)
+			if (!p.running || p.route != "topup")
 				continue;
 			// Every run the ctl makes is worth its card (fork #299, D-UI-103): the
 			// link's return runs only when a game was played since the last
@@ -286,6 +294,7 @@ namespace
 				card->updateText(Utils::String::format(_("GETTING GAME %d OF %d READY...").c_str(), p.index, p.total));
 		}
 		ctl.join();
+		sTopUpCtlRunning = false;
 		// 143 (TERM) or 130 (INT) is a run that was stopped. The launch's STOP
 		// IT AND PLAY is said below; any other stop -- the toggle turned off,
 		// whose disable stops the run -- is the player's own doing on another
@@ -315,7 +324,9 @@ namespace
 		// The stamp speaks for this run only when this run wrote it: a run
 		// stopped by a signal, or cut off, writes none, and the one there is
 		// the last run's (F-RA-09: its why was said of this one).
-		const bool stamped = s.ran && s.when >= startedAt;
+		// The run's identity, as far as the ctl writes one: a top-up's stamp,
+		// written since this run started (#1176). A scan's stamp is never it.
+		const bool stamped = s.ran && s.topup && s.when >= startedAt;
 		if (!sawWork && stamped && (s.cached > 0 || s.errors > 0))
 			sawWork = true;
 		if (!sawWork)
@@ -569,7 +580,9 @@ namespace ProxyCards
 
 	bool topUpRunning()
 	{
-		return OfflineAchievements::available() && OfflineAchievements::runningProgress().running;
+		// The run itself, not the progress file's presence: a scan's file is
+		// not a top-up in flight (#1176).
+		return OfflineAchievements::available() && sTopUpCtlRunning.load();
 	}
 
 	bool stopTopUp()

@@ -1791,3 +1791,12 @@ TEST_CASE("CloudText: a stamp's ready=unknown is not 0 (#1174)")
 	// A number is read as before.
 	CHECK(CloudText::parseScanStamp("1789400200 0 topup cached=0 skipped=0 ready=3 limit=0").ready == 3);
 }
+
+TEST_CASE("CloudText: the ctl's two newer why tokens have their own words (#1176)")
+{
+	CHECK(CloudText::scanWhy("STAMP_UNWRITABLE") != CloudText::scanWhy("SOMETHING_WENT_WRONG"));
+	CHECK(CloudText::scanWhy("RESULT_UNREADABLE") != CloudText::scanWhy("SOMETHING_WENT_WRONG"));
+	CHECK(CloudText::topUpWhy("STAMP_UNWRITABLE") != CloudText::topUpWhy("SOMETHING_WENT_WRONG"));
+	// TOOK_TOO_LONG reaches the top-up's words through scanWhy's row.
+	CHECK(CloudText::topUpWhy("TOOK_TOO_LONG") == CloudText::scanWhy("TOOK_TOO_LONG"));
+}

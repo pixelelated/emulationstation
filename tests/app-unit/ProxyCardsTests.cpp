@@ -55,6 +55,8 @@ namespace
 		std::vector<bool> ctlAfterIndex;
 		CloudText::ScanStamp scan;
 		std::atomic<bool> stopSent{ false };
+		// A scan's progress file, apart from any top-up (#1176).
+		std::atomic<bool> scanRunning{ false };
 
 		void reset()
 		{
@@ -73,6 +75,7 @@ namespace
 			ctlAfterIndex.clear();
 			scan = CloudText::ScanStamp();
 			stopSent = false;
+			scanRunning = false;
 		}
 	};
 	Fake fake;
@@ -205,8 +208,8 @@ CloudText::ScanStamp OfflineAchievements::lastScan() { std::lock_guard<std::mute
 CloudText::RunningProgress OfflineAchievements::runningProgress()
 {
 	CloudText::RunningProgress p;
-	p.running = fake.ctlActive;
-	p.route = "topup";
+	p.running = fake.ctlActive || fake.scanRunning;
+	p.route = fake.scanRunning ? "scan" : "topup";
 	p.index = 1;
 	p.total = 2;
 	return p;
@@ -615,5 +618,33 @@ TEST_CASE("top-up: ready=unknown beside a number of new games claims no count (#
 	INFO("text: " << join(card->text) << "  action: " << join(card->action));
 	CHECK(card->text.front() == "COMPLETED");
 	CHECK(card->action.empty());
+	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+}
+
+TEST_CASE("top-up: a scan's running file is not a top-up in flight (#1176)")
+{
+	fake.reset();
+	fake.scanRunning = true;
+	CHECK_FALSE(ProxyCards::topUpRunning());
+	fake.scanRunning = false;
+}
+
+TEST_CASE("top-up: a run refused while a scan runs takes neither the scan's progress nor its stamp (#1176)")
+{
+	fake.reset();
+	fake.scanRunning = true;
+	fake.ctl = [](bool)
+	{
+		// The scan's stamp, newer than the top-up's start, and the refusal.
+		std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+		std::lock_guard<std::mutex> g(fake.m);
+		fake.scan = CloudText::parseScanStamp(std::to_string((long long) time(nullptr))
+			+ " 1 scan cached=2 skipped=0 ready=4 limit=0 indexed=0 errors=1 added=2 why=SOME_GAMES_NOT_SAVED");
+		return 75;
+	};
+	ProxyCards::topUp(&window, false);
+	std::this_thread::sleep_for(std::chrono::milliseconds(4000));
+	CHECK(cardsNow().empty());
+	fake.scanRunning = false;
 	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 }
