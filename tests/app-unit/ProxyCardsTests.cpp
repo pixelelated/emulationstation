@@ -144,10 +144,11 @@ bool SystemConf::getBool(const std::string&, bool def) { return def; }
 
 void ThreadedCloudSync::start(Window*, const std::string&, const std::string&, const std::string&, Origin) {}
 bool ThreadedCloudSync::isRunning() { return fake.syncRunning; }
-void ThreadedCloudSync::writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why)
+bool ThreadedCloudSync::writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why)
 {
 	std::lock_guard<std::mutex> g(fake.m);
 	fake.stamps.push_back({ path, rc, token, why });
+	return true;
 }
 
 void Window::postToUiThread(const std::function<void()>& func, void*) { func(); }

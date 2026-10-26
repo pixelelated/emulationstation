@@ -60,7 +60,7 @@ namespace FakeLog
 	std::mutex& lock() { static std::mutex m; return m; }
 }
 
-void ThreadedCloudSync::writeStamp(const std::string&, int, const std::string&, const std::string&) {}
+bool ThreadedCloudSync::writeStamp(const std::string&, int, const std::string&, const std::string&) { return true; }
 std::string ThreadedCloudSync::whyForCode(int) { return "SOMETHING WENT WRONG"; }
 // Which restamp a stopped run asks for, and when its snapshot was taken:
 // readStamps' version field says whether the command had started (its

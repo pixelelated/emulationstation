@@ -817,6 +817,38 @@ TEST_CASE("ThreadedCloudSync starts its thread detached and keeps no handle to l
 	CHECK(cpp.find("std::thread(&ThreadedCloudSync::run, this).detach();") != std::string::npos);
 }
 
+TEST_CASE("ThreadedCloudSync writes its stamps whole or not at all, and says which (#1145, D-CLOUD-078)")
+{
+	// The case above's shape, for the stamp writer: the class cannot be built
+	// here, so its source is read. writeStamp used to fopen/fwrite a shared
+	// `.tmp` with nothing checked and rename it over the stamp, so a full
+	// card emptied the last good stamp and a stale temporary replaced it; the
+	// restamp logged success either way. The behaviour is proven by the T18
+	// audit's host fixture (docs/audits/2026_10_26-epic-m6-es-cloud-pages/
+	// tools/t18-stamp-fixture.py), which runs the shipped function; this
+	// holds the class to the writer the tests above prove.
+	const char* root = getenv("ES_SOURCE_ROOT");
+	const std::string base = root != nullptr && *root != '\0' ? root : ES_ROOT_DIR;
+	auto code = [](const std::string& text) {
+		std::string out;
+		std::istringstream in(text);
+		std::string line;
+		while (std::getline(in, line))
+			out += line.substr(0, line.find("//")) + "\n";
+		return out;
+	};
+	const std::string cpp = code(get(base + "/es-app/src/ThreadedCloudSync.cpp"));
+	REQUIRE_FALSE(cpp.empty());
+	const size_t at = cpp.find("bool ThreadedCloudSync::writeStamp(");
+	REQUIRE(at != std::string::npos);
+	const std::string writer = cpp.substr(at, cpp.find("\n}\n", at) - at);
+	CHECK(writer.find("Utils::AtomicFile::writeText(") != std::string::npos);
+	CHECK(writer.find("writeAllText(") == std::string::npos);
+	CHECK(writer.find("std::rename(") == std::string::npos);
+	// The restamp's log line follows the write's result.
+	CHECK(cpp.find("if (writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, \"\"))") != std::string::npos);
+}
+
 // ------------------------------------------------------ G-E1-03
 
 TEST_CASE("a reload keeps the changes still waiting to be saved, unless the file moved under them (G-E1-03)")

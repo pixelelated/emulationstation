@@ -10,6 +10,7 @@
 #include "components/AsyncNotificationComponent.h"
 #include "guis/GuiMsgBox.h"
 #include "SystemConf.h"
+#include "utils/AtomicFileUtil.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/Platform.h"
 #include "utils/StringUtil.h"
@@ -877,10 +878,14 @@ bool ThreadedCloudSync::cancelForLaunch(CancelRefusal* refusal, bool evenIfPlaye
 // rather than .config: a stamp carried in a settings backup onto a second
 // device would describe a run that device never made.
 //
-// Written whole or not at all. A temp file and a rename: the reader is the
-// menu, on another thread and possibly at this moment, and a half-written
-// line parses as "never" -- the one thing the stamp exists to stop the row
-// saying after a run.
+// Written whole or not at all (D-CLOUD-078): Utils::AtomicFile::writeText
+// writes a temporary of its own, syncs it, renames it into place and says
+// whether it landed. The reader is the menu, on another thread and possibly
+// at this moment, and a half-written line parses as "never" -- the one thing
+// the stamp exists to stop the row saying after a run. The writer used to
+// fopen a shared `.tmp`, check nothing and rename it regardless, so a full
+// card emptied the last good stamp and a stale temporary replaced it (the
+// T18 audit, #1145).
 void ThreadedCloudSync::recordOutcome(Origin origin, int rc, const std::string& token, const std::string& why)
 {
 	const char* name = origin == Origin::Startup ? "startup"
@@ -913,8 +918,8 @@ void ThreadedCloudSync::restampStoppedParts(const std::string& command, time_t r
 {
 	for (auto& name : CloudText::stampsToRestamp(readStamps(command), runStarted))
 	{
-		writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, "");
-		LOG(LogInfo) << "ThreadedCloudSync: " << name << " restamped as " << token;
+		if (writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, ""))
+			LOG(LogInfo) << "ThreadedCloudSync: " << name << " restamped as " << token;
 	}
 }
 
@@ -923,16 +928,21 @@ void ThreadedCloudSync::restampStoppedParts(const std::string& command, const st
 {
 	for (auto& name : CloudText::stampsToRestamp(readStamps(command), runStarted, &before))
 	{
-		writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, "");
-		LOG(LogInfo) << "ThreadedCloudSync: " << name << " restamped as " << token;
+		if (writeStamp(STAMP_DIR + name, CloudExit::Stopped, token, ""))
+			LOG(LogInfo) << "ThreadedCloudSync: " << name << " restamped as " << token;
 	}
 }
 
-// One stamp file, in the shape above, whichever surface reads it.
-void ThreadedCloudSync::writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why)
+// One stamp file, in the shape above, whichever surface reads it. True only
+// once the new line is in place; otherwise the previous stamp stands and the
+// log says so.
+bool ThreadedCloudSync::writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why)
 {
 	if (!Utils::FileSystem::createDirectory(Utils::FileSystem::getParent(path)))
-		return;
+	{
+		LOG(LogWarning) << "ThreadedCloudSync: " << path << " not written (no folder for it); the previous stamp stands";
+		return false;
+	}
 
 	// One line: the why is kept to printable characters and a single line
 	// so the reader's split cannot be confused by it.
@@ -942,10 +952,12 @@ void ThreadedCloudSync::writeStamp(const std::string& path, int rc, const std::s
 			sentence += c;
 	sentence = Utils::String::trim(sentence);
 
-	const std::string tmp = path + ".tmp";
-	Utils::FileSystem::writeAllText(tmp,
-		std::to_string(static_cast<long long>(time(nullptr))) + " " + std::to_string(rc) + " " + token
-		+ (sentence.empty() ? "" : " " + sentence) + "\n");
-	if (std::rename(tmp.c_str(), path.c_str()) != 0)
-		std::remove(tmp.c_str());
+	const std::string line = std::to_string(static_cast<long long>(time(nullptr))) + " " + std::to_string(rc) + " " + token
+		+ (sentence.empty() ? "" : " " + sentence) + "\n";
+	if (!Utils::AtomicFile::writeText(path, line))
+	{
+		LOG(LogWarning) << "ThreadedCloudSync: " << path << " not written; the previous stamp stands";
+		return false;
+	}
+	return true;
 }

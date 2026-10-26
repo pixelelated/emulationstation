@@ -14,7 +14,7 @@ public:
 	                  const std::string& title, const std::string& running = "",
 	                  Origin origin = Origin::None);
 	static bool isRunning();
-	static void writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why);
+	static bool writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why);
 	static std::string whyForCode(int rc);
 	static void restampStoppedParts(const std::string& command, time_t runStarted, const std::string& token);
 	static void restampStoppedParts(const std::string& command, const std::vector<CloudText::StampText>& before,

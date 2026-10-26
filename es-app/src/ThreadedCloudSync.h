@@ -93,7 +93,9 @@ public:
 	// One stamp file in the last-sync shape (recordOutcome's comment), at any
 	// path: recordOutcome's own, and a script's last-backup / last-restore
 	// when this process knows an outcome the script's trap could not name.
-	static void writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why);
+	// True only once the line is in place (Utils::AtomicFile::writeText);
+	// on false the previous stamp stands (#1145, D-CLOUD-078).
+	static bool writeStamp(const std::string& path, int rc, const std::string& token, const std::string& why);
 	// A run of `command` that began at runStarted was stopped: the part its
 	// stop interrupted -- the script stamp its trap wrote with 130 this run
 	// (CloudText::stampsToRestamp) -- is restamped with `token`, the
