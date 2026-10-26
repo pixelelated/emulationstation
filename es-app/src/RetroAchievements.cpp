@@ -171,7 +171,9 @@ std::string RetroAchievements::getLoginErrorMessage(HttpReq& req)
 // dead link on PLEASE WAIT with no end on the RG SP.
 static const long PAGE_REQUEST_MS = 15000L;
 
-// Use empty UserAgent with doRequest.php calls
+// The options every request here starts from: when an API login exists, a
+// User-Agent of the URL-encoded user and the version (the sign-in's and the
+// hash library's dorequest.php calls included).
 static HttpReqOptions getHttpOptions()
 {
 	HttpReqOptions options;
@@ -1041,6 +1043,8 @@ bool RetroAchievements::testAccount(const std::string& username, const std::stri
 			[](const std::string& s) { return HttpReq::urlEncode(s); });
 		options.dataToPost = signIn.body;
 		options.httpsRedirectsOnly = signIn.httpsRedirectsOnly;
+		options.timeout = signIn.timeoutMs;
+		options.stallTimeout = signIn.stallSeconds;
 
 		HttpReq request(signIn.url, &options);
 		std::string answer;

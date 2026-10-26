@@ -17,6 +17,8 @@
 #include "OfflineAchievements.h"
 #include "OfflineAchievementsText.h"
 #include "AppWindow.h"
+#include "RetroAchievementsText.h"
+#include <thread>
 #include "Settings.h"
 #include "components/ComponentList.h"
 #include "components/MultiLineMenuEntry.h"
@@ -319,18 +321,38 @@ private:
 // that follows turning the switch on (D-RA-012). The refresh it is handed
 // runs as the scan reports, when it ends and when the page closes, so the
 // row's line is right the moment the page is gone.
-static void offlineScanStart(Window* window, std::weak_ptr<MultiLineMenuEntry> weak)
+// The account the RETROACHIEVEMENTS SETTINGS page opened with: the one the
+// token on hand belongs to until the page's save at close signs a changed
+// account in (#1175).
+struct AccountAtOpen
+{
+	std::string user;
+	std::string password;
+};
+
+static void offlineScanStart(Window* window, std::weak_ptr<MultiLineMenuEntry> weak, const AccountAtOpen& atOpen)
 {
 	// The ctl reads the account from system.cfg, and a name typed on the
 	// page below is in memory until that page closes (GuiSettings saves at
 	// close): written now, so a sign-in followed by a scan is not refused
 	// for the account the player can see on the screen (fork #329).
-	SystemConf::getInstance()->saveSystemConf();
+	// The token on hand is the account the page opened with: after an account
+	// change it goes before the save, so a scan never runs with another
+	// account's token (#1175); the ctl signs the new one in with its password.
+	SystemConf* conf = SystemConf::getInstance();
+	const std::string token = conf->get("global.retroachievements.token");
+	if (RetroAchievementsText::tokenForScan(atOpen.user, atOpen.password, conf->get("global.retroachievements.username"),
+		conf->get("global.retroachievements.password"), token) != token)
+	{
+		conf->set("global.retroachievements.token", "");
+		LOG(LogInfo) << "retroachievements: the account changed before the scan; the earlier account's token is not carried into it";
+	}
+	conf->saveSystemConf();
 	window->pushGui(new GuiOfflineScan(window, "/usr/bin/raofflineproxy-ctl scan",
 		[weak] { offlineScanRefresh(weak); }));
 }
 
-static void offlineScanPressed(Window* window, std::weak_ptr<MultiLineMenuEntry> weak)
+static void offlineScanPressed(Window* window, std::weak_ptr<MultiLineMenuEntry> weak, const AccountAtOpen& atOpen)
 {
 	if (!offlineScanOn())
 	{
@@ -364,11 +386,11 @@ static void offlineScanPressed(Window* window, std::weak_ptr<MultiLineMenuEntry>
 	}
 
 	window->pushGui(new GuiMsgBox(window, text,
-		_("YES"), [window, weak] { offlineScanStart(window, weak); },
+		_("YES"), [window, weak, atOpen] { offlineScanStart(window, weak, atOpen); },
 		_("NO"), nullptr));
 }
 
-static std::shared_ptr<MultiLineMenuEntry> addOfflineScanRow(GuiSettings* s, Window* window)
+static std::shared_ptr<MultiLineMenuEntry> addOfflineScanRow(GuiSettings* s, Window* window, const AccountAtOpen& atOpen)
 {
 	// The line goes in at construction: ComponentList sizes the row from the
 	// entry as it is added, and an entry made with no substring is one line
@@ -385,7 +407,7 @@ static std::shared_ptr<MultiLineMenuEntry> addOfflineScanRow(GuiSettings* s, Win
 	ComponentListRow row;
 	row.addElement(entry, true);
 	row.addElement(makeArrow(window), false);
-	row.makeAcceptInputHandler([window, weak] { offlineScanPressed(window, weak); });
+	row.makeAcceptInputHandler([window, weak, atOpen] { offlineScanPressed(window, weak, atOpen); });
 	s->addRow(row);
 	return entry;
 }
@@ -413,7 +435,7 @@ static std::shared_ptr<MultiLineMenuEntry> addOfflineScanRow(GuiSettings* s, Win
 // on turns that setting on too (below), and the row has to show it, or the
 // parent's save at close would write the row's old state back.
 static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponent> hardcoreRow,
-	std::shared_ptr<std::weak_ptr<SwitchComponent>> indexRow)
+	std::shared_ptr<std::weak_ptr<SwitchComponent>> indexRow, const AccountAtOpen& atOpen)
 {
 	auto s = new GuiSettings(window, _("OFFLINE ACHIEVEMENTS (BETA)").c_str());
 
@@ -430,7 +452,7 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 	// rcheevos shows it while an award is waiting to reach the server and
 	// says nothing about what it means (fork #162); it is quoted so it reads
 	// as a thing on screen and not as a typo (D-RA-003).
-	std::weak_ptr<MultiLineMenuEntry> scanRow = addOfflineScanRow(s, window);
+	std::weak_ptr<MultiLineMenuEntry> scanRow = addOfflineScanRow(s, window, atOpen);
 	// The row follows a top-up the ctl runs while the page is open (fork
 	// #189); the page owns the component and deletes it with itself.
 	s->addChild(new OfflineRowRefresher(window, scanRow));
@@ -470,7 +492,7 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 	// and each row that is gone is simply not set -- system.cfg already
 	// holds what the ctl wrote, and the page below saves only what changed.
 	auto pending = std::make_shared<bool>(false);
-	auto apply = [window, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending](bool on)
+	auto apply = [window, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending, atOpen](bool on)
 	{
 		if (*pending)
 			return;
@@ -478,7 +500,7 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 		if (auto sw = offlineWeak.lock())
 			sw->setDimmed(true);
 
-		std::thread([window, on, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending]
+		std::thread([window, on, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending, atOpen]
 		{
 			std::string last;
 			// executeScriptLegacy: the public route that hands back the real
@@ -500,7 +522,7 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 			// Through AppWindow, as the scan job posts (#1173): the thread is
 			// detached, and its answer may come after main() has let the
 			// window go.
-			AppWindow::post(window, [window, on, outcome, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending]
+			AppWindow::post(window, [window, on, outcome, offlineWeak, hardcoreRow, indexRow, infoRow, setQuietly, scanRow, pending, atOpen]
 			{
 				*pending = false;
 				if (auto sw = offlineWeak.lock())
@@ -563,7 +585,7 @@ static void openOfflineAchievements(Window* window, std::weak_ptr<SwitchComponen
 						std::string text = _("SCAN GAMES FOR OFFLINE ACHIEVEMENTS NOW?") + std::string("\n\n")
 							+ _("THIS LOOKS AT EVERY GAME ON THIS CONSOLE AND SAVES ITS ACHIEVEMENT DATA SO ACHIEVEMENTS CAN BE EARNED WHILE OFFLINE. THIS CAN TAKE A WHILE FOR A LARGE LIBRARY.");
 						window->pushGui(new GuiMsgBox(window, text,
-							_("SCAN NOW"), [window, scanRow] { offlineScanStart(window, scanRow); },
+							_("SCAN NOW"), [window, scanRow, atOpen] { offlineScanStart(window, scanRow, atOpen); },
 							_("LATER"), nullptr));
 					}
 					else
@@ -657,7 +679,7 @@ GuiRetroAchievementsSettings::GuiRetroAchievementsSettings(Window* window) : Gui
 	{
 		std::weak_ptr<SwitchComponent> hardcoreRow = hardcore;
 		addWithDescription(_("OFFLINE ACHIEVEMENTS (BETA)"), _("Casual achievements only."), makeArrow(mWindow),
-			[window, hardcoreRow, indexRow] { openOfflineAchievements(window, hardcoreRow, indexRow); }, "", false, true);
+			[window, hardcoreRow, indexRow, username, password] { openOfflineAchievements(window, hardcoreRow, indexRow, AccountAtOpen{ username, password }); }, "", false, true);
 	}
 #endif
 	addSwitch(_("LEADERBOARDS"), _("Compete in high-score and best time leaderboards (requires hardcore)."), "global.retroachievements.leaderboards", false, nullptr);
@@ -797,26 +819,46 @@ GuiRetroAchievementsSettings::GuiRetroAchievementsSettings(Window* window) : Gui
 		}
 		else if (signIn == CheevosRetry::SaveSignIn::Now)
 		{
-			std::string tokenOrError;
-			bool refused = false;
-			if (RetroAchievements::testAccount(newUsername, newPassword, tokenOrError, &refused))
-				SystemConf::getInstance()->set("global.retroachievements.token", tokenOrError);
-			else
+			// Off the interface thread, bounded (#1175): the page closes at once,
+			// and the request carries a total and a stall bound
+			// (RetroAchievementsText::signInRequest). The old token is not this
+			// account's, so it goes now, before the page's own save writes
+			// system.cfg; the answer is kept only if the account is still the
+			// one that asked, and then saved.
+			SystemConf::getInstance()->set("global.retroachievements.token", "");
+			std::thread([window, newUsername, newPassword, accountChanged]
 			{
-				SystemConf::getInstance()->set("global.retroachievements.token", "");
-
-				if (refused)
-					window->pushGui(new GuiMsgBox(window,
-						_("RETROACHIEVEMENTS DIDN'T ACCEPT YOUR SIGN-IN:") + "\n" + tokenOrError + "\n\n"
-						+ _("RETROACHIEVEMENTS STAYS ON. CHECK YOUR USERNAME AND PASSWORD, THEN TRY AGAIN."),
-						_("OK"), nullptr, GuiMsgBoxIcon::ICON_ERROR));
-				else if (accountChanged)
-					window->pushGui(new GuiMsgBox(window,
-						_("COULDN'T REACH RETROACHIEVEMENTS TO SIGN YOU IN.\n\nRETROACHIEVEMENTS STAYS ON. IT'LL SIGN IN WHEN YOU'RE ONLINE."),
-						_("OK")));
-				else
-					LOG(LogWarning) << "retroachievements: could not reach RetroAchievements for a token (" << tokenOrError << "); the switch stays as set, and the sign-in runs when the network is up";
-			}
+				std::string tokenOrError;
+				bool refused = false;
+				const bool ok = RetroAchievements::testAccount(newUsername, newPassword, tokenOrError, &refused);
+				AppWindow::post(window, [window, newUsername, newPassword, accountChanged, ok, refused, tokenOrError]
+				{
+					SystemConf* conf = SystemConf::getInstance();
+					if (!RetroAchievementsText::sameAccount(newUsername, newPassword,
+						conf->get("global.retroachievements.username"), conf->get("global.retroachievements.password")))
+					{
+						LOG(LogInfo) << "retroachievements: a sign-in answered for an account that has changed since; its answer is not kept";
+						return;
+					}
+					if (ok)
+					{
+						conf->set("global.retroachievements.token", tokenOrError);
+						conf->saveSystemConf();
+						return;
+					}
+					if (refused)
+						window->pushGui(new GuiMsgBox(window,
+							_("RETROACHIEVEMENTS DIDN'T ACCEPT YOUR SIGN-IN:") + "\n" + tokenOrError + "\n\n"
+							+ _("RETROACHIEVEMENTS STAYS ON. CHECK YOUR USERNAME AND PASSWORD, THEN TRY AGAIN."),
+							_("OK"), nullptr, GuiMsgBoxIcon::ICON_ERROR));
+					else if (accountChanged)
+						window->pushGui(new GuiMsgBox(window,
+							_("COULDN'T REACH RETROACHIEVEMENTS TO SIGN YOU IN.\n\nRETROACHIEVEMENTS STAYS ON. IT'LL SIGN IN WHEN YOU'RE ONLINE."),
+							_("OK")));
+					else
+						LOG(LogWarning) << "retroachievements: could not reach RetroAchievements for a token (" << tokenOrError << "); the switch stays as set, and the sign-in runs when the network is up";
+				});
+			}).detach();
 		}
 		else if (!newState)
 			SystemConf::getInstance()->set("global.retroachievements.token", "");

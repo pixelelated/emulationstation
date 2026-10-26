@@ -43,3 +43,24 @@ TEST_CASE("RetroAchievements: a request carrying a credential is never redirecte
 	const auto request = RetroAchievementsText::signInRequest("t20probe", "secretish", encode);
 	CHECK(request.httpsRedirectsOnly);
 }
+
+TEST_CASE("RetroAchievements: the sign-in carries a total and a stall bound (#1175)")
+{
+	const auto request = RetroAchievementsText::signInRequest("t20probe", "x", encode);
+	CHECK(request.timeoutMs > 0);
+	CHECK(request.timeoutMs <= 30000);
+	CHECK(request.stallSeconds > 0);
+}
+
+TEST_CASE("RetroAchievements: a sign-in's answer belongs to the account that asked (#1175)")
+{
+	CHECK(RetroAchievementsText::sameAccount("Player", "pw", "player", "pw"));
+	CHECK_FALSE(RetroAchievementsText::sameAccount("player", "pw", "other", "pw"));
+	CHECK_FALSE(RetroAchievementsText::sameAccount("player", "pw", "player", "pw2"));
+}
+
+TEST_CASE("RetroAchievements: a scan started after an account change carries no other account's token (#1175)")
+{
+	CHECK(RetroAchievementsText::tokenForScan("a", "pw", "b", "pw2", "tokenA").empty());
+	CHECK(RetroAchievementsText::tokenForScan("a", "pw", "a", "pw", "tokenA") == "tokenA");
+}
