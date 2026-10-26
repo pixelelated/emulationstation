@@ -1,4 +1,5 @@
 #include "RetroAchievements.h"
+#include "RetroAchievementsText.h"
 #include "HttpReq.h"
 #include "ApiSystem.h"
 #include "SystemConf.h"
@@ -1034,15 +1035,29 @@ bool RetroAchievements::testAccount(const std::string& username, const std::stri
 	{
 		auto options = getHttpOptions();
 
-		HttpReq request("https://retroachievements.org/dorequest.php?r=login&u=" + HttpReq::urlEncode(username) + "&p=" + HttpReq::urlEncode(password), &options);
-		if (!request.wait())
-		{						
+		// The password in the body, never the URL, and no redirect off https
+		// (#1171), as the vendored client signs in.
+		const auto signIn = RetroAchievementsText::signInRequest(username, password,
+			[](const std::string& s) { return HttpReq::urlEncode(s); });
+		options.dataToPost = signIn.body;
+		options.httpsRedirectsOnly = signIn.httpsRedirectsOnly;
+
+		HttpReq request(signIn.url, &options);
+		std::string answer;
+		if (request.wait())
+			answer = request.getContent();
+		else if (request.status() == HttpReq::REQ_401_FORBIDDEN || request.status() == HttpReq::REQ_403_BADLOGIN)
+			// login2 may answer a refusal with 401 and its JSON, which HttpReq
+			// keeps as the error message: read it as the answer it is (#1171).
+			answer = request.getErrorMsg();
+		else
+		{
 			tokenOrError = request.getErrorMsg();
 			return false;
 		}
 
 		rapidjson::Document ogdoc;
-		ogdoc.Parse(request.getContent().c_str());
+		ogdoc.Parse(answer.c_str());
 		if (ogdoc.HasParseError() || !ogdoc.HasMember("Success"))
 		{
 			tokenOrError = "Unable to parse response";

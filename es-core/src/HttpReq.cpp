@@ -227,19 +227,25 @@ void HttpReq::performRequest(const std::string& url, HttpReqOptions* options)
 		return;
 	}
 
-	// set curl restrict redirect protocols
+	// set curl restrict redirect protocols; https alone for a request that
+	// carries a credential (HttpReqOptions::httpsRedirectsOnly, pixelelated #1171)
+	const bool httpsOnly = options != nullptr && options->httpsRedirectsOnly;
+	const char* redirProtocols = httpsOnly ? "https" : "http,https";
+	const long redirMask = httpsOnly ? (long) CURLPROTO_HTTPS : (long) (CURLPROTO_HTTP | CURLPROTO_HTTPS);
 #if WIN32
 	curl_version_info_data* version_info = curl_version_info(CURLVERSION_NOW);
 
 	unsigned int major, minor, patch;
 	if (version_info && sscanf(version_info->version, "%u.%u.%u", &major, &minor, &patch) == 3)
-		err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+		err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS_STR, redirProtocols);
 	else 
-		err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+		err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS, redirMask);
 #elif CURL_AT_LEAST_VERSION(7,85,0)
-	err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");	
+	err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS_STR, redirProtocols);
+	(void) redirMask;
 #else
-	err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+	err = curl_easy_setopt(mHandle, CURLOPT_REDIR_PROTOCOLS, redirMask);
+	(void) redirProtocols;
 #endif
 
 	if(err != CURLE_OK)

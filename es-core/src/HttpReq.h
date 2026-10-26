@@ -52,6 +52,7 @@ public:
 		connectTimeout = 10000L;
 		timeout = 0L;
 		stallTimeout = 0L;
+		httpsRedirectsOnly = false;
 	}
 
 	HttpReqOptions(const std::string& filename)
@@ -62,6 +63,7 @@ public:
 		connectTimeout = 10000L;
 		timeout = 0L;
 		stallTimeout = 0L;
+		httpsRedirectsOnly = false;
 	}
 
 	std::string outputFilename;
@@ -72,6 +74,10 @@ public:
 	std::string clientCert, clientKey;
 
 	long connectTimeout;
+	// A redirect may go to https only, never http: for a request that
+	// carries a credential (pixelelated #1171). False, the default, keeps
+	// http and https, as every request was before.
+	bool httpsRedirectsOnly;
 	// The whole request, connect included, in milliseconds; 0 (the default)
 	// leaves it unbounded, as every request was before. A caller asking a
 	// local service sets it, so a service that hangs cannot hold a page.

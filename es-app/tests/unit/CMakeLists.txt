@@ -48,6 +48,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/CaptureRotationTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/DisplayAspectTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/CommandLineTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/RetroAchievementsTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/TabStopsTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchCommandTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
