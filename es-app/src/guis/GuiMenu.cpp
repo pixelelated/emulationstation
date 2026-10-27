@@ -8460,7 +8460,7 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 						// reporting a cloud that is not there as not answering.
 						window->pushGui(new GuiMsgBox(window, _("NO CLOUD STORAGE IS SET UP ON THIS DEVICE YET.\n\nBACKUPS NEVER CARRY YOUR CLOUD SIGN-IN. CONNECT IT AGAIN UNDER GAME SETTINGS > MANAGE CLOUD STORAGE.")));
 					else
-						window->pushGui(new GuiMsgBox(window, _("YOUR CLOUD ISN'T ANSWERING.\n\nUSE CONNECT OR REPAIR CLOUD STORAGE IN GAME SETTINGS > MANAGE CLOUD STORAGE.")));
+						window->pushGui(new GuiMsgBox(window, _("YOUR CLOUD ISN'T ANSWERING.\n\nSIGN IN AGAIN UNDER GAME SETTINGS > MANAGE CLOUD STORAGE > CLOUD CONNECTIONS.")));
 				}));
 		});
 	}
