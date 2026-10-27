@@ -7,7 +7,7 @@
 #include "Log.h"
 
 ThreadedScraper* ThreadedScraper::mInstance = nullptr;
-bool ThreadedScraper::mPaused = false;
+std::atomic<bool> ThreadedScraper::mPaused(false);
 std::mutex ThreadedScraper::sProgressMutex;
 ThreadedScraper::Progress ThreadedScraper::sProgress;
 std::chrono::steady_clock::time_point ThreadedScraper::sStarted;
@@ -50,7 +50,7 @@ void ThreadedScraper::Process()
 		ProcessNextGame(thread);
 	}
 
-	mHandle = new std::thread(&ThreadedScraper::run, this);
+	mWorker = std::thread(&ThreadedScraper::run, this);
 }
 
 void ThreadedScraper::ProcessNextGame(ScraperThread* thread)
@@ -68,12 +68,13 @@ void ThreadedScraper::ProcessNextGame(ScraperThread* thread)
 
 ThreadedScraper::~ThreadedScraper()
 {
+	if (mWorker.joinable())
+		mWorker.join();
+
 	for (auto scraperThread : mScraperThreads)
 		delete scraperThread;
 
 	mScraperThreads.clear();
-
-	ThreadedScraper::mInstance = nullptr;
 }
 
 std::string ThreadedScraper::formatGameName(FileData* game)
@@ -218,6 +219,7 @@ void ThreadedScraper::run()
 				else
 				{					
 					mScraperThreads.erase(iter);
+					delete mScraperThread; // #1258: the vector held the only pointer
 					if (mScraperThreads.size() == 0)
 					{
 						mExitCode = ASYNC_DONE;
@@ -238,8 +240,9 @@ void ThreadedScraper::run()
 			<< " (errors " << sProgress.errors << (sProgress.cancelled ? ", cancelled" : "") << (sProgress.failed ? ", failed" : "") << ")";
 	}
 
-	delete this;
-	ThreadedScraper::mInstance = nullptr;
+	// The instance stays published, finished, until the interface thread
+	// reaps it: start() before a new run, or stop(). A worker that deleted
+	// itself here left stop() writing through a freed pointer (#1258).
 }
 
 // Called as each game is handed to a thread: the games finished so far are
@@ -287,10 +290,40 @@ void ThreadedScraper::acceptResult(ScraperThread& thread)
 	LOG(LogDebug) << "ThreadedScraper::acceptResult <<";
 }
 
+// The one publication rule (#1258): mInstance is read and written only under
+// sProgressMutex, set by start() and cleared by whoever claims the instance
+// to join and delete it -- stop(), or this reap of a finished run -- on the
+// interface thread.
+void ThreadedScraper::reapFinished()
+{
+	ThreadedScraper* finished = nullptr;
+	{
+		std::unique_lock<std::mutex> lock(sProgressMutex);
+		if (mInstance != nullptr && sProgress.finished)
+		{
+			finished = mInstance;
+			mInstance = nullptr;
+		}
+	}
+
+	delete finished; // joins the worker, which has ended
+}
+
+bool ThreadedScraper::isRunning()
+{
+	std::unique_lock<std::mutex> lock(sProgressMutex);
+	return mInstance != nullptr && !sProgress.finished;
+}
+
 void ThreadedScraper::start(Window* window, const std::queue<ScraperSearchParams>& searches)
 {
-	if (ThreadedScraper::mInstance != nullptr)
-		return;
+	reapFinished();
+
+	{
+		std::unique_lock<std::mutex> lock(sProgressMutex);
+		if (mInstance != nullptr)
+			return;
+	}
 
 	std::string error;
 	int threadCount = Scraper::getScraper()->getThreadCount(error);
@@ -303,37 +336,55 @@ void ThreadedScraper::start(Window* window, const std::queue<ScraperSearchParams
 	if (threadCount == 0)
 		threadCount = 1;
 
-	ThreadedScraper::mInstance = new ThreadedScraper(window, searches, threadCount);
+	auto instance = new ThreadedScraper(window, searches, threadCount);
+	{
+		std::unique_lock<std::mutex> lock(sProgressMutex);
+		mInstance = instance;
+	}
 
 	try
 	{
-		ThreadedScraper::mInstance->Process();
+		instance->Process();
 	}
 	catch (const std::exception& e)
 	{
+		// The snapshot Process() published as running ends here, so a page
+		// reading it ends too (#1258).
+		{
+			std::unique_lock<std::mutex> lock(sProgressMutex);
+			sProgress.finished = true;
+			sProgress.failed = true;
+			sProgress.failure = e.what();
+			sProgress.elapsedMs = (int) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - sStarted).count();
+			mInstance = nullptr;
+		}
+
 		window->pushGui(new GuiMsgBox(window, _("AN ERROR OCCURRED") + std::string(" :\r\n") + e.what()));
-		delete ThreadedScraper::mInstance;
-		ThreadedScraper::mInstance = nullptr;
+		delete instance;
 	}
 }
 
 // The player's CANCEL (D-UI-078): the run's loop ends at its next turn and
-// what was scraped stays scraped. Marked before the loop is told, so run()
-// finds it set however quickly it ends.
+// what was scraped stays scraped. A run that has already finished is not
+// marked cancelled (#1258, D-UI-129). The instance is claimed under the
+// lock, then joined and deleted here, on the interface thread: the join
+// lasts one turn of the loop plus whatever request the worker is in.
 void ThreadedScraper::stop()
 {
-	auto thread = ThreadedScraper::mInstance;
-	if (thread == nullptr)
-		return;
-
+	ThreadedScraper* thread = nullptr;
 	{
 		std::unique_lock<std::mutex> lock(sProgressMutex);
-		sProgress.cancelled = true;
-	}
-	try
-	{
+		thread = mInstance;
+		if (thread == nullptr)
+			return;
+
+		if (!sProgress.finished)
+			sProgress.cancelled = true;
+
 		thread->mExitCode = ASYNC_DONE;
+		mInstance = nullptr;
 	}
-	catch (...) {}
+
+	delete thread; // joins the worker
 }
 

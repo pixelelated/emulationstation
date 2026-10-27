@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -74,7 +75,9 @@ public:
 
 	static void start(Window* window, const std::queue<ScraperSearchParams>& searches);
 	static void stop();
-	static bool isRunning() { return mInstance != nullptr; }
+	// A run in flight: an instance that has not finished. A finished one
+	// waits for the interface thread to reap it (#1258).
+	static bool isRunning();
 	static Progress progress();
 	
 	static void pause() { mPaused = true; }
@@ -97,7 +100,9 @@ private:
 
 	void run();
 
-	std::thread* mHandle;
+	// The run's worker, owned: joined by stop(), by start()'s reap and by
+	// the destructor; never detached, never self-deleting (#1258).
+	std::thread mWorker;
 	std::queue<ScraperSearchParams> mSearchQueue;
 
 	std::vector<ScraperThread*> mScraperThreads;
@@ -108,10 +113,12 @@ private:
 
 	int mTotal;
 	int mThreadCount;
-	int mExitCode;
+	std::atomic<int> mExitCode;
 
-	static bool mPaused;
+	static std::atomic<bool> mPaused;
+	// Read and written only under sProgressMutex (#1258).
 	static ThreadedScraper* mInstance;
+	static void reapFinished();
 
 	static std::mutex sProgressMutex;
 	static Progress sProgress;
