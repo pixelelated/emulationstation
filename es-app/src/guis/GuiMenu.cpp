@@ -6534,24 +6534,34 @@ static void cloudSetupSetButtons(GuiSettings* s, const std::function<void()>& on
 		s->getMenu().addButton(_("CONTINUE"), _("continue"), onContinue);
 }
 
+// The device password, as a page that edits root.password saves it. The
+// editor writes the entry to SystemConf when it is accepted, and the page's
+// save writes SystemConf to disk after its hooks, so this hook decides what
+// stays: a non-empty entry that differs from the value the page opened with
+// is applied once by setrootpass; anything else -- unchanged, or emptied,
+// which setrootpass would refuse -- puts the opened value back, so an empty
+// root.password is never saved while the device keeps its password (T26
+// PL-05, #1219).
+static void applyDevicePassword(const std::string& opened, const std::string& flow)
+{
+	const std::string entered = SystemConf::getInstance()->get("root.password");
+	if (entered.empty() || entered == opened)
+	{
+		SystemConf::getInstance()->set("root.password", opened);
+		return;
+	}
+	SystemConf::getInstance()->saveSystemConf();
+	LOG(LogInfo) << flow << ": applying new device password";
+	Utils::Platform::runSystemCommand("setrootpass " + Utils::String::shellQuote(entered), "", nullptr); // fork #198
+}
+
 // View or change the SSH password; onDone runs after the page closes.
 static void cloudSetupOpenPasswordPage(Window* window, const std::string& current, const std::function<void()>& onDone)
 {
 	auto pw = new GuiSettings(window, _("SSH PASSWORD"));
 	cloudSetupAddFact(pw, window, _("CURRENT PASSWORD"), current.empty() ? _("<NOT SET>") : current);
 	pw->addInputTextConfigRow(_("CHANGE PASSWORD"), "root.password", false);
-	pw->addSaveFunc([current]
-	{
-		// Apply only a real change; running setrootpass with an
-		// empty value would clear the device password.
-		const std::string changed = SystemConf::getInstance()->get("root.password");
-		if (!changed.empty() && changed != current)
-		{
-			SystemConf::getInstance()->saveSystemConf();
-			LOG(LogInfo) << "cloud_setup wizard: applying new device password";
-			Utils::Platform::runSystemCommand("setrootpass " + Utils::String::shellQuote(changed), "", nullptr); // fork #198
-		}
-	});
+	pw->addSaveFunc([current] { applyDevicePassword(current, "cloud_setup wizard"); });
 	pw->onFinalize(onDone);
 	window->pushGui(pw);
 }
@@ -8429,16 +8439,7 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 	{
 		auto pw = new GuiSettings(window, _("DEVICE PASSWORD"));
 		pw->addInputTextConfigRow(_("DEVICE PASSWORD"), "root.password", false);
-		pw->addSaveFunc([rootPass]
-		{
-			const std::string changed = SystemConf::getInstance()->get("root.password");
-			if (!changed.empty() && changed != rootPass)
-			{
-				SystemConf::getInstance()->saveSystemConf();
-				LOG(LogInfo) << "restore relink: applying device password";
-				Utils::Platform::runSystemCommand("setrootpass " + Utils::String::shellQuote(changed), "", nullptr); // fork #198
-			}
-		});
+		pw->addSaveFunc([rootPass] { applyDevicePassword(rootPass, "restore relink"); });
 		pw->onFinalize([s, reopen] { s->close(); reopen(); });
 		window->pushGui(pw);
 	});
