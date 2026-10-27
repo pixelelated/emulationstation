@@ -1,4 +1,5 @@
 #include "utils/Uri.h"
+#include "scrapers/ScraperReplies.h"
 #include "StatusText.h"
 #include "scrapers/ScreenScraper.h"
 
@@ -1076,21 +1077,17 @@ int ScreenScraperScraper::getThreadCount(std::string &result)
 		return -1;
 	}
 
-	auto content = httpreq.getContent();
-
-	pugi::xml_document doc;
-	pugi::xml_parse_result parseResult = doc.load_string(content.c_str());
-	if (parseResult)
+	// An answer that is not a user-info document is a failure, not one
+	// thread (T21 PL-17, #1205): ScreenScraper refuses a sign-in with 200
+	// and a sentence.
+	const int threads = ScraperReplies::threadCount(httpreq.getContent());
+	if (threads < 0)
 	{
-		auto userInfo = ScreenScraperRequest::processUserInfo(doc);
-		
-		// userInfo.maxRequestsPerMin / userInfo.maxthreads;
-
-		if (userInfo.maxthreads > 0)
-			return userInfo.maxthreads;
-	}	
-
-	return 1;
+		LOG(LogError) << "ScreenScraper's user-info answer is not a user-info document";
+		result = _("SCREENSCRAPER ANSWERED WITH AN ERROR. TRY AGAIN LATER.");
+		return -1;
+	}
+	return threads;
 }
 
 #endif

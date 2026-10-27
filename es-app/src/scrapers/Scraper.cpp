@@ -1,4 +1,5 @@
 #include "scrapers/Scraper.h"
+#include "scrapers/ScraperReplies.h"
 
 #include "FileData.h"
 #include "ArcadeDBJSONScraper.h"
@@ -348,11 +349,13 @@ void ScraperHttpRequest::update()
 		}
 
 
+		// Seconds, or an HTTP-date as the wait until it, or the default
+		// (T21 PL-17, #1205; the sibling of the media download's read).
 		auto retryDelay = mRequest->getResponseHeader("Retry-After");
 		if (!retryDelay.empty())
 		{
 			mOverQuotaRetryCount = 1;
-			mOverQuotaRetryDelay = Utils::String::toInteger(retryDelay) * 1000;
+			mOverQuotaRetryDelay = ScraperReplies::retryAfterSeconds(retryDelay, time(nullptr), OVERQUOTA_RETRY_DELAY / 1000) * 1000;
 
 			if (!retryOn249() && mOverQuotaRetryDelay > 5000)
 			{
@@ -618,11 +621,13 @@ void ImageDownloadHandle::update()
 
 		setStatus(ASYNC_IN_PROGRESS);
 
+		// Seconds, or an HTTP-date as the wait until it, or the default:
+		// a date read as 0, and the retry came at once (T21 PL-17, #1205).
 		auto retryDelay = mRequest->getResponseHeader("Retry-After");
 		if (!retryDelay.empty())
 		{
 			mOverQuotaRetryCount = 1;
-			mOverQuotaRetryDelay = Utils::String::toInteger(retryDelay) * 1000;
+			mOverQuotaRetryDelay = ScraperReplies::retryAfterSeconds(retryDelay, time(nullptr), OVERQUOTA_RETRY_DELAY / 1000) * 1000;
 		}
 
 		mOverQuotaPendingTime = SDL_GetTicks();

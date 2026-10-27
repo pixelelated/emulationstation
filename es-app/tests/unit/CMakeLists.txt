@@ -179,6 +179,26 @@ set_target_properties(es-settings-tests PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
+# What the scraper reads out of a server's answer (T21 S13, #1205):
+# ScraperReplies.cpp with pugixml, as es-settings-tests finds it.
+add_executable(es-scraper-tests
+	${CMAKE_CURRENT_SOURCE_DIR}/ScraperRepliesTests.cpp
+	${ES_ROOT}/es-app/src/scrapers/ScraperReplies.cpp
+	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
+	${PUGIXML_INCLUDE_DIR}/pugixml/src/pugixml.cpp
+)
+target_include_directories(es-scraper-tests PRIVATE
+	${ES_ROOT}/es-app/src
+	${ES_ROOT}/es-core/src
+	${ES_ROOT}/external
+	${PUGIXML_INCLUDE_DIR}
+)
+set_target_properties(es-scraper-tests PROPERTIES
+	CXX_STANDARD 17
+	CXX_STANDARD_REQUIRED ON
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
 add_executable(es-conf-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/SystemConfTests.cpp
 	${ES_ROOT}/es-core/src/SystemConf.cpp
