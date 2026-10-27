@@ -85,6 +85,13 @@ namespace Utils
 		// Remove the marker beside `path`.
 		void clearUnrecorded(const std::string& path);
 
+		// Remove the files beside `path` named `path` + infix + <pid>.<n> --
+		// ".tmp." for a writer's temporary, ".new." for the lock's staging --
+		// whose process is gone (T21 PL-13, #1201): a writer killed between
+		// its create and its rename left one, and nothing swept it. A live
+		// process's file, and every other name, are left. The count removed.
+		int sweepDead(const std::string& path, const std::string& infix);
+
 		// Whether a key=value configuration text is one worth reading and
 		// worth keeping as the last-known-good record: something in it, no
 		// NUL bytes (a file cut by a power failure reads as a run of them),

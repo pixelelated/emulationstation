@@ -34,6 +34,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 // ------------------------------------------------------------ the doubles
@@ -770,4 +771,58 @@ TEST_CASE("a written-not-recorded file is not recorded at the next load either (
 		CHECK(get(path + ".backup") == "b.key=2\nc.key=3\n");
 		CHECK(modeOf(path + ".unrecorded") == -1);
 	}
+}
+
+// ------------------------------------------------------------ T21 S9 (#668)
+//
+// PL-13 (#1201): a writer killed before its rename left <path>.tmp.<pid>.<n>,
+// and the start swept only the old shared names -- one of which,
+// system.cfg.backup.tmp, is chksysconfig's own.
+
+namespace
+{
+	long deadChild()
+	{
+		const pid_t child = fork();
+		if (child == 0)
+			_exit(0);
+		int status = 0;
+		waitpid(child, &status, 0);
+		return (long) child;
+	}
+}
+
+TEST_CASE("the start leaves chksysconfig's system.cfg.backup.tmp alone (T21 PL-13, #1201)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "system.hostname=qa\n");
+	put(path + ".backup.tmp", "system.hostname=qa\n");
+	SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(get(path + ".backup.tmp") == "system.hostname=qa\n");
+}
+
+TEST_CASE("the start and every save sweep a gone writer's temporaries, and keep a live one's (T21 PL-13, #1201)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string lockPath = dir / ".system.cfg.lock";
+	const std::string dead = std::to_string(deadChild());
+	const std::string mine = std::to_string((long) getpid());
+	put(path, "system.hostname=qa\n");
+	put(path + ".tmp." + dead + ".0", "system.hostname=");
+	put(path + ".backup.tmp." + dead + ".1", "system.hostname=qa\n");
+	put(lockPath + ".new." + dead + ".0", dead + "\n");
+	put(path + ".tmp." + mine + ".900", "system.hostname=qa\n");
+
+	SystemConf* conf = SystemConfTestAccess::fresh(path, lockPath, 300);
+	CHECK(modeOf(path + ".tmp." + dead + ".0") == -1);
+	CHECK(modeOf(path + ".backup.tmp." + dead + ".1") == -1);
+	CHECK(modeOf(lockPath + ".new." + dead + ".0") == -1);
+	CHECK(modeOf(path + ".tmp." + mine + ".900") != -1);
+
+	put(path + ".tmp." + dead + ".2", "system.hostname=");
+	CHECK(conf->set("qa.k", "1"));
+	CHECK(conf->saveSystemConf());
+	CHECK(modeOf(path + ".tmp." + dead + ".2") == -1);
 }

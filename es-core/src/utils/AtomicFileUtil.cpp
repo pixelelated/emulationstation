@@ -11,6 +11,7 @@
 #if !defined(_WIN32)
 #include <fcntl.h>
 #include <signal.h>
+#include <dirent.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -296,6 +297,48 @@ namespace Utils
 		void clearUnrecorded(const std::string& path)
 		{
 			std::remove((path + kUnrecordedSuffix).c_str());
+		}
+
+		int sweepDead(const std::string& path, const std::string& infix)
+		{
+#if defined(_WIN32)
+			(void) path; (void) infix;
+			return 0;
+#else
+			const size_t slash = path.find_last_of('/');
+			const std::string dir = slash == std::string::npos ? "." : (slash == 0 ? "/" : path.substr(0, slash));
+			const std::string prefix = (slash == std::string::npos ? path : path.substr(slash + 1)) + infix;
+
+			DIR* d = ::opendir(dir.c_str());
+			if (d == nullptr)
+				return 0;
+			std::vector<std::string> gone;
+			while (struct dirent* entry = ::readdir(d))
+			{
+				const std::string name = entry->d_name;
+				if (name.compare(0, prefix.size(), prefix) != 0)
+					continue;
+				// <pid>.<n>, digits both, and nothing else.
+				const std::string rest = name.substr(prefix.size());
+				const size_t dot = rest.find('.');
+				if (dot == std::string::npos || dot == 0 || dot + 1 >= rest.size()
+					|| rest.find_first_not_of("0123456789") != dot
+					|| rest.find_first_not_of("0123456789", dot + 1) != std::string::npos)
+					continue;
+				const long pid = std::strtol(rest.substr(0, dot).c_str(), nullptr, 10);
+				// Only a process known to be gone: a live one's file is its own,
+				// and one this cannot ask about (EPERM) is alive.
+				if (pid > 0 && ::kill((pid_t) pid, 0) != 0 && errno == ESRCH)
+					gone.push_back(dir + "/" + name);
+			}
+			::closedir(d);
+
+			int removed = 0;
+			for (const auto& file : gone)
+				if (::unlink(file.c_str()) == 0)
+					removed++;
+			return removed;
+#endif
 		}
 
 		bool narrowTo(const std::string& path, int mode)

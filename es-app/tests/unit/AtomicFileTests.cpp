@@ -1156,3 +1156,45 @@ TEST_CASE("a recovery copy takes the mode asked for, not its source's (T21 PL-05
 	CHECK(modeOfFile(dir / "es_settings.cfg") == 0600);
 	CHECK(get(dir / "es_settings.cfg") == "<config/>\n");
 }
+
+// ------------------------------------------------------------ T21 S9 (#668)
+
+namespace
+{
+	bool there(const std::string& path)
+	{
+		return ::access(path.c_str(), F_OK) == 0;
+	}
+}
+
+TEST_CASE("sweepDead removes a gone process's temporaries and staging, and nothing else (T21 PL-13, #1201)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string dead = std::to_string((long) deadPid());
+	const std::string mine = std::to_string((long) getpid());
+	put(path, "a=1\n");
+	put(path + ".tmp." + dead + ".0", "a=");
+	put(path + ".tmp." + dead + ".17", "a=1\n");
+	put(path + ".tmp." + mine + ".3", "a=1\n");      // this process: alive
+	put(path + ".tmp", "a=1\n");                     // the shell's shared name
+	put(path + ".tmp.x.1", "a=1\n");                 // not a pid
+	put(path + ".unrecorded", "# marker\n");
+	put(dir / "other.cfg.tmp." + dead + ".0", "b=2\n");   // another file's
+
+	CHECK(sweepDead(path, ".tmp.") == 2);
+	CHECK_FALSE(there(path + ".tmp." + dead + ".0"));
+	CHECK_FALSE(there(path + ".tmp." + dead + ".17"));
+	CHECK(there(path + ".tmp." + mine + ".3"));
+	CHECK(there(path + ".tmp"));
+	CHECK(there(path + ".tmp.x.1"));
+	CHECK(there(path + ".unrecorded"));
+	CHECK(there(dir / "other.cfg.tmp." + dead + ".0"));
+	CHECK(get(path) == "a=1\n");
+
+	const std::string lock = dir / ".system.cfg.lock";
+	put(lock + ".new." + dead + ".0", dead + "\n");
+	CHECK(sweepDead(lock, ".new.") == 1);
+	CHECK_FALSE(there(lock + ".new." + dead + ".0"));
+	CHECK(sweepDead(dir / "absent.cfg", ".tmp.") == 0);
+}

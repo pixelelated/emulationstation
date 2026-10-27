@@ -248,17 +248,23 @@ bool SystemConf::loadSystemConf(bool keepPending)
 	return loaded;
 }
 
+// What a writer killed between its create and its rename left beside the
+// file, the record and the lock: <name>.tmp.<pid>.<n> and the lock's
+// <lock>.new.<pid>.<n>, removed when their process is gone (T21 PL-13,
+// #1201). The shared names are not touched: system.cfg.tmp is the shell's
+// set_setting's and is read by the load (PL-064), and system.cfg.backup.tmp
+// is chksysconfig backup's own -- the start used to remove it, believing
+// nothing else wrote it.
+static void sweepGoneWriters(const std::string& file, const std::string& lockPath)
+{
+	Utils::AtomicFile::sweepDead(file, ".tmp.");
+	Utils::AtomicFile::sweepDead(file + ".backup", ".tmp.");
+	Utils::AtomicFile::sweepDead(lockPath, ".new.");
+}
+
 bool SystemConf::loadFromDisk()
 {
-
-	// The record's own temporary, from a build before PL-063 gave every
-	// write a temporary of its own, is litter: nothing else writes that name.
-	// system.cfg.tmp is not removed any more (PL-064): it is read below, and
-	// it is also the name the shell's set_setting writes and renames -- a
-	// start that deleted it under a script's write made the script's rename
-	// fail and its key vanish. chksysconfig sweeps it at boot, before any
-	// script runs.
-	std::remove((mSystemConfFile + ".backup.tmp").c_str());
+	sweepGoneWriters(mSystemConfFile, sLockPath);
 
 	// The choice, and a recovery's write-back under the settings lock the
 	// save and the shell's set_setting take (audit of the fix round, gpt
@@ -398,6 +404,8 @@ bool SystemConf::saveSystemConf()
 			if (written.find(kv.first) == written.cend() && changedConf.find(kv.first) == changedConf.cend())
 				lost.push_back(kv.first);
 	}
+
+	sweepGoneWriters(mSystemConfFile, sLockPath);
 
 	changedConf.clear();
 	mPendingBase.clear();

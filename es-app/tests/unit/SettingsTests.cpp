@@ -32,6 +32,7 @@
 #include <vector>
 
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 // ------------------------------------------------------------ the doubles
@@ -218,4 +219,30 @@ TEST_CASE("a save on one thread while another reads and writes (run under Thread
 	stop = true;
 	worker.join();
 	CHECK(settings->getString("Language") == "fr_FR");
+}
+
+// ------------------------------------------------------------ the sweeps (T21 PL-13, #1201)
+
+TEST_CASE("Settings' start and save sweep a gone writer's temporaries (T21 PL-13, #1201)")
+{
+	ScratchDir dir;
+	const pid_t child = fork();
+	if (child == 0)
+		_exit(0);
+	int status = 0;
+	waitpid(child, &status, 0);
+	const std::string dead = std::to_string((long) child);
+	put(dir / "es_settings.cfg", kRecord);
+	put(dir / "es_settings.cfg.backup", kRecord);
+	put(dir / ("es_settings.cfg.tmp." + dead + ".0"), "<?xml");
+	put(dir / ("es_settings.cfg.backup.tmp." + dead + ".4"), kRecord);
+
+	Settings* settings = SettingsTestAccess::fresh(dir.path);
+	CHECK(::access((dir / ("es_settings.cfg.tmp." + dead + ".0")).c_str(), F_OK) != 0);
+	CHECK(::access((dir / ("es_settings.cfg.backup.tmp." + dead + ".4")).c_str(), F_OK) != 0);
+
+	put(dir / ("es_settings.cfg.tmp." + dead + ".5"), "<?xml");
+	CHECK(settings->setString("Language", "de_DE"));
+	CHECK(settings->saveFile());
+	CHECK(::access((dir / ("es_settings.cfg.tmp." + dead + ".5")).c_str(), F_OK) != 0);
 }

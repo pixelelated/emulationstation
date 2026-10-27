@@ -565,6 +565,9 @@ bool Settings::saveFile()
 		keepOwed();
 	}
 
+	Utils::AtomicFile::sweepDead(path, ".tmp.");
+	Utils::AtomicFile::sweepDead(path + ".backup", ".tmp.");
+
 	Scripting::fireEvent("config-changed");
 	Scripting::fireEvent("settings-changed");
 
@@ -588,6 +591,11 @@ void Settings::loadFile()
 	// record's own temporary likewise.
 	std::remove((path + ".tmp").c_str());
 	std::remove((path + ".backup.tmp").c_str());
+	// And what a writer killed before its rename left: its own temporaries,
+	// when their process is gone (T21 PL-13, #1201).
+	Utils::AtomicFile::sweepDead(path, ".tmp.");
+	Utils::AtomicFile::sweepDead(backup, ".tmp.");
+	Utils::AtomicFile::sweepDead(sLockPath, ".new.");
 
 	// Kept private, narrowed once here (T21 PL-05, #1193): the file carries
 	// the scraper's account and its developer pair, and shipped 0644.
