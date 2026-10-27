@@ -8226,16 +8226,19 @@ void GuiMenu::openCloudSetup(Window* window)
 		auto picker = new GuiSettings(window, _("WHICH CONNECTION?"));
 		for (auto remote : remotes)
 		{
-			picker->addEntry(cloudSetupDisplayName(remote), true, [window, s, picker, remote]
+			// The picker is the only page a row may hand on: the wizard's
+			// first step replaces it, or refuses (no network) and leaves it
+			// for another press. A row that closed the chooser here kept it
+			// captured, and the press after a refusal closed it a second
+			// time (T26 PL-01, #1215).
+			picker->addEntry(cloudSetupDisplayName(remote), true, [window, picker, remote]
 			{
-				// The chooser (s) is not the page owning this handler,
-				// so closing it here is safe; the picker itself is
-				// replaced by the wizard page.
-				s->close();
 				cloudSetupShowSshStep(window, CloudSetupMode::RepairRemote, remote, "", picker);
 			});
 		}
-		window->pushGui(picker);
+		// The chooser (s) is replaced by the picker, as every wizard page
+		// replaces the one before it: the last statement of s's own row.
+		cloudSetupPresent(window, picker, s);
 	});
 
 	window->pushGui(s);
