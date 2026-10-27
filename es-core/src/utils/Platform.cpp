@@ -890,14 +890,24 @@ namespace Utils
 
 		std::string GetShOutput(const std::string& mStr)
 		{
-			std::string result, file;
-			FILE* pipe{popen(mStr.c_str(), "r")};
+			// The output's lines joined without their newlines, as callers
+			// have always read it. Each chunk lost its last byte whatever it
+			// was -- the newline of a short line, but a real character of every
+			// 255-byte piece of a long one, and of a last line with no newline
+			// -- and a failed popen was read from (T26 PL-11, #1225). Now only
+			// a newline is dropped, and a command that cannot start gives "".
+			std::string result;
+			FILE* pipe = popen(mStr.c_str(), "r");
+			if (pipe == nullptr)
+				return result;
 			char buffer[256];
 
-			while(fgets(buffer, sizeof(buffer), pipe) != NULL)
+			while (fgets(buffer, sizeof(buffer), pipe) != NULL)
 			{
-				file = buffer;
-				result += file.substr(0, file.size() - 1);
+				std::string chunk = buffer;
+				if (!chunk.empty() && chunk.back() == '\n')
+					chunk.pop_back();
+				result += chunk;
 			}
 
 			pclose(pipe);

@@ -17,7 +17,8 @@ Two parts:
      `*proceed`); every write of the selection goes through the checked
      writer; and every press that sets `*proceed` asked the checked writer
      first.
-  2. The checked writer itself: the shipped cloudShellQuote,
+  2. The checked writer itself: the quoting it calls (es-core's shellQuote
+     since T26 S8),
      cloudSetSystemsCommand, cloudSelectionRead and cloudSaveSelection are
      compiled out of GuiMenu.cpp unchanged against a stand-in for
      ApiSystem that runs the command through /bin/sh with the script's path
@@ -119,11 +120,22 @@ else:
     else:
         fail("BIOS files alone do not open a page with the verb (or the branch runs a script itself)")
 
+
+def quoting():
+    """The quoting the source calls: its own cloudShellQuote while it had
+    one; es-core's Utils::String::shellQuote, from this tree's StringUtil.cpp,
+    since T26 S8 (#1225) made that the one function."""
+    if 'static std::string cloudShellQuote(' in source:
+        return definition('static std::string cloudShellQuote(')
+    util = (Path(__file__).resolve().parents[1] / "es-core/src/utils/StringUtil.cpp").read_text()
+    start = util.index('std::string shellQuote(const std::string& _string)')
+    end = util.index('} // shellQuote', start)
+    return 'namespace Utils { namespace String {\n' + util[start:end] + '}\n} }\n'
+
 # ----------------------------------------------------------- 2. behaviour
 
 try:
-    pieces = [definition(s) for s in (
-        'static std::string cloudShellQuote(',
+    pieces = [quoting()] + [definition(s) for s in (
         'static std::string cloudSetSystemsCommand(',
         'static bool cloudSelectionRead(',
         'static bool cloudSaveSelection(',

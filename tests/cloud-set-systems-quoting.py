@@ -3,8 +3,8 @@
 The names on CONTENT TO RESTORE are folder names in the player's cloud, read
 from `cloud_content_restore --scan`; the picker hands the ticked ones back
 with `--set-systems` through executeScriptLegacy, which is a shell. This
-compiles the shipped cloudSetSystemsCommand and cloudShellQuote out of
-GuiMenu.cpp unchanged, runs the command they build through /bin/sh with the
+compiles the shipped cloudSetSystemsCommand and the quoting it calls out of
+GuiMenu.cpp (and es-core's StringUtil.cpp) unchanged, runs the command they build through /bin/sh with the
 script's path pointed at a stand-in that records its arguments, and checks
 that a hostile name runs nothing and arrives as the one argument the script
 has always taken.
@@ -39,11 +39,23 @@ def definition(signature):
     return source[start:end]
 
 
+def quoting():
+    """The quoting the source calls: its own cloudShellQuote while it had
+    one; es-core's Utils::String::shellQuote, from this tree's StringUtil.cpp,
+    since T26 S8 (#1225) made that the one function."""
+    if 'static std::string cloudShellQuote(' in source:
+        return definition('static std::string cloudShellQuote(')
+    util = (Path(__file__).resolve().parents[1] / "es-core/src/utils/StringUtil.cpp").read_text()
+    start = util.index('std::string shellQuote(const std::string& _string)')
+    end = util.index('} // shellQuote', start)
+    return 'namespace Utils { namespace String {\n' + util[start:end] + '}\n} }\n'
+
+
 harness = r'''
 #include <iostream>
 #include <string>
 #include <vector>
-''' + definition('static std::string cloudShellQuote(') + '\n' \
+''' + quoting() + '\n' \
     + definition('static std::string cloudSetSystemsCommand(') + r'''
 int main(int argc, char** argv)
 {

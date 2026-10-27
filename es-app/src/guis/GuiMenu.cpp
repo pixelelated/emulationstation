@@ -4103,7 +4103,6 @@ static void cloudAddDimmedRow(GuiSettings* s, Window* window, const std::string&
 	row.addElement(right, false);
 	s->addRow(row);
 }
-static std::string cloudShellQuote(const std::string& value);
 
 // The picker's selection, handed to the content script as it closes. The
 // names are folder names in the player's cloud (--scan's first field) --
@@ -4118,7 +4117,7 @@ static std::string cloudSetSystemsCommand(const std::vector<std::string>& names)
 	std::string picked;
 	for (auto& name : names)
 		picked += (picked.empty() ? "" : " ") + name;
-	return "/usr/bin/cloud_content_restore --set-systems " + cloudShellQuote(picked);
+	return "/usr/bin/cloud_content_restore --set-systems " + Utils::String::shellQuote(picked);
 }
 
 // Where --set-systems keeps the selection (cloud_content_restore's
@@ -4204,7 +4203,7 @@ static bool cloudScanStamped(const std::string& name)
 	if (run.empty()) return false;
 	const std::string mode = name == "content-done" ? sCloudContentScanMode : "";
 	return ApiSystem::executeScriptLegacy("timeout 5 /usr/bin/cloud_scan --stamp-valid "
-		+ cloudShellQuote(name) + " " + cloudShellQuote(run) + mode,
+		+ Utils::String::shellQuote(name) + " " + Utils::String::shellQuote(run) + mode,
 		[](const std::string&) {}).second == 0;
 }
 static void cloudCheckChanged(Window* window)
@@ -5245,7 +5244,7 @@ static void cloudScanContent(Window* window, bool backup, bool content, bool med
 	sCloudContentScanRun = run;
 	sCloudContentScanMode = cloudContentMode(content, media);
 	auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan --content --run-id "
-		+ cloudShellQuote(run) + sCloudContentScanMode, _("CHECKING YOUR CLOUD"), 1);
+		+ Utils::String::shellQuote(run) + sCloudContentScanMode, _("CHECKING YOUR CLOUD"), 1);
 	page->setAutoContinue([window, run, then]
 	{
 		if (sCloudContentScanRun != run || !cloudScanStamped("content-done"))
@@ -5275,7 +5274,7 @@ static void cloudOpenTransfer(Window* window, bool backup)
 	}
 	const std::string run = cloudNewCheckId();
 	sCloudScanRun = run;
-	auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan --run-id " + cloudShellQuote(run), _("CHECKING YOUR CLOUD"), 3);
+	auto page = new GuiCloudTransfer(window, "/usr/bin/cloud_scan --run-id " + Utils::String::shellQuote(run), _("CHECKING YOUR CLOUD"), 3);
 	page->setAutoContinue([window, backup, run]
 	{
 		if (sCloudScanRun != run || !cloudScanStamped("done"))
@@ -7274,6 +7273,63 @@ static std::vector<std::string> cloudRemoteLines(const std::vector<std::string>&
 	return cloudHelperLines(argv);
 }
 
+// A cloud_remote change (create, update, select, remove), read whole: its
+// output's lines, stderr with stdout, and its exit status. GetShOutput, which
+// these read with, joined the lines, so "OK=<name>" was parsed two ways --
+// anywhere in the text by one caller, at its start by the other -- and the
+// name could run on into the next line (T26 PL-11, #1225). Not
+// executeScriptLegacy: that echoes each line to stdout, unmasked, and a
+// create's command and a script's usage text carry the form's credentials.
+struct CloudRemoteResult
+{
+	int rc = -1;   // -1: it could not start or did not exit
+	std::vector<std::string> lines;
+	std::string text() const
+	{
+		std::string joined;
+		for (const auto& line : lines)
+			joined += (joined.empty() ? "" : "\n") + line;
+		return joined;
+	}
+};
+
+static CloudRemoteResult cloudRemoteRun(const std::string& args, int timeoutSeconds)
+{
+	CloudRemoteResult result;
+	const std::string command = "timeout " + std::to_string(timeoutSeconds) + " /usr/bin/cloud_remote " + args + " 2>&1";
+	FILE* pipe = popen(command.c_str(), "r");
+	if (pipe == nullptr)
+		return result;
+	std::string output;
+	char buffer[4096];
+	size_t count;
+	while ((count = fread(buffer, 1, sizeof(buffer), pipe)) > 0)
+		output.append(buffer, count);
+	const int status = pclose(pipe);
+	if (status != -1 && WIFEXITED(status))
+		result.rc = WEXITSTATUS(status);
+	for (auto& line : Utils::String::split(output, '\n'))
+	{
+		if (!line.empty() && line.back() == '\r')
+			line.pop_back();
+		if (!line.empty())
+			result.lines.push_back(line);
+	}
+	return result;
+}
+
+// The connection a change names on success: a whole line "OK=<name>" and a
+// zero exit, or nothing.
+static std::string cloudRemoteOkName(const CloudRemoteResult& result)
+{
+	if (result.rc != 0)
+		return "";
+	for (const auto& line : result.lines)
+		if (line.size() > 3 && line.compare(0, 3, "OK=") == 0)
+			return Utils::String::trim(line.substr(3));
+	return "";
+}
+
 static std::string cloudConnectionError(const std::string& output)
 {
 	if (output.find("A cloud operation is running.") != std::string::npos)
@@ -7315,21 +7371,12 @@ static std::vector<CloudBackend> cloudRemoteBackends()
 	return list;
 }
 
-// Shell-quote a value on its way to cloud_remote. Passwords and keys routinely
-// contain characters the shell would otherwise act on, and a mangled secret
-// fails in a way that looks like the provider rejecting the credential.
-static std::string cloudShellQuote(const std::string& value)
-{
-	std::string quoted = "'";
-	for (char c : value)
-	{
-		if (c == '\'')
-			quoted += "'\\''";
-		else
-			quoted += c;
-	}
-	return quoted + "'";
-}
+// Values on their way to cloud_remote are quoted by Utils::String::shellQuote:
+// passwords and keys routinely contain characters the shell would otherwise
+// act on, and a mangled secret fails in a way that looks like the provider
+// rejecting the credential. This file's own copy of the same algorithm,
+// cloudShellQuote, went in T26 S8 (PL-21), after tests/shell-quote-equality.py
+// showed the two byte-equal over its corpus.
 
 // Open an editor that reads the value from `values` rather than the copy
 // addInputTextRow captured when the row was built. Without this the second
@@ -7555,16 +7602,16 @@ static void cloudRemoteShowFormWith(Window* window, const CloudBackend& backend,
 			return;
 		}
 
-		std::string cmd = std::string(values->count("__edit__") ? "update " : "create ") + cloudShellQuote(name) + " "
-			+ cloudShellQuote(backend.name);
+		std::string cmd = std::string(values->count("__edit__") ? "update " : "create ") + Utils::String::shellQuote(name) + " "
+			+ Utils::String::shellQuote(backend.name);
 		// The sub-provider is a real config value, not just a filter.
 		if (!backend.subprovider.empty())
-			cmd += " " + cloudShellQuote("provider=" + backend.subprovider);
+			cmd += " " + Utils::String::shellQuote("provider=" + backend.subprovider);
 		for (auto& kv : *values)
 		{
 			if (Utils::String::startsWith(kv.first, "__") || Utils::String::trim(kv.second).empty())
 				continue;
-			cmd += " " + cloudShellQuote(kv.first + "=" + kv.second);
+			cmd += " " + Utils::String::shellQuote(kv.first + "=" + kv.second);
 		}
 
 		window->pushGui(new GuiMsgBox(window,
@@ -7578,25 +7625,23 @@ static void cloudRemoteShowFormWith(Window* window, const CloudBackend& backend,
 				// are each bounded to 40 seconds, below this outer deadline. Behind GuiLoading, because that round trip
 				// ran in this callback on the interface thread (fork #103);
 				// the outer box is for an rclone that outlives its own flags.
-				window->pushGui(new GuiLoading<std::string>(window, _("CONNECTING..."),
+				window->pushGui(new GuiLoading<CloudRemoteResult>(window, _("CONNECTING..."),
 					[cmd](IGuiLoadingHandler*)
 					{
-						std::string out = Utils::Platform::GetShOutput(
-							"timeout 100 /usr/bin/cloud_remote " + cmd + " 2>&1");
+						const CloudRemoteResult out = cloudRemoteRun(cmd, 100);
 						// Masked: the command carries the form's pass=, key= and
 						// token= values, and a script that echoes its arguments
 						// in a usage or an error would put them in es_log.txt
 						// (#308 8-es claude F-ES-21; fork #177's rule, every
 						// logged command line).
-						LOG(LogInfo) << "cloud_remote create: " << Utils::String::maskSecrets(out);
+						LOG(LogInfo) << "cloud_remote create: rc=" << out.rc << " " << Utils::String::maskSecrets(out.text());
 						return out;
 					},
-					[window, s](std::string out)
+					[window, s](CloudRemoteResult out)
 					{
-						if (out.find("OK=") != std::string::npos)
+						const std::string remote = cloudRemoteOkName(out);
+						if (!remote.empty())
 						{
-							const size_t start = out.find("OK=") + 3;
-							const std::string remote = Utils::String::trim(out.substr(start, out.find_first_of("\r\n", start) - start));
 							cloudSetupShowDoneStep(window, remote, s);
 							return;
 						}
@@ -7605,7 +7650,7 @@ static void cloudRemoteShowFormWith(Window* window, const CloudBackend& backend,
 						// "it failed".
 						window->pushGui(new GuiMsgBox(window,
 							_("THE CONNECTION COULDN'T BE SAVED.") + std::string("\n\n") +
-								cloudConnectionError(out),
+								cloudConnectionError(out.text()),
 							_("OK"), nullptr));
 					}));
 			},
@@ -7708,10 +7753,10 @@ static void cloudOAuthStart(Window* window, const CloudBackend& backend,
 		// rclone's backend names are lowercase identifiers, and a page headed
 		// with one reads like a typo on the screen where somebody is deciding
 		// whether to trust us with their storage.
-		std::string cmd = "setsid sh -c " + cloudShellQuote(
-			"/usr/bin/cloud_oauth serve " + cloudShellQuote(backend.name)
-			+ " --name " + cloudShellQuote(remoteName)
-			+ " --label " + cloudShellQuote(backend.label)
+		std::string cmd = "setsid sh -c " + Utils::String::shellQuote(
+			"/usr/bin/cloud_oauth serve " + Utils::String::shellQuote(backend.name)
+			+ " --name " + Utils::String::shellQuote(remoteName)
+			+ " --label " + Utils::String::shellQuote(backend.label)
 			+ (backend.reauthorize ? " --replace" : "")
 			+ " --timeout 900 >/dev/null 2>&1") + " </dev/null >/dev/null 2>&1 &";
 		Utils::Platform::runSystemCommand(cmd, "", nullptr);
@@ -7960,7 +8005,7 @@ static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
 		Utils::Platform::runSystemCommand(
 			"rm -f /tmp/cloud-oauth-qr*.png; /usr/bin/qrencode -o " + qrPath
 			+ " -s 8 -m 4 --background=FFFFFF --foreground=000000 -l M "
-			+ cloudShellQuote(url), "", nullptr);
+			+ Utils::String::shellQuote(url), "", nullptr);
 
 		std::vector<std::pair<std::string, bool>> lines;
 		if (onDevice)
@@ -8201,14 +8246,14 @@ static bool cloudConnectionManual(Window* window)
 
 static void cloudConnectionChange(Window* window, const std::string& command, GuiSettings* page)
 {
-	window->pushGui(new GuiLoading<std::string>(window, _("SAVING CONNECTION"),
-		[command](IGuiLoadingHandler*) { return Utils::Platform::GetShOutput("timeout 60 /usr/bin/cloud_remote " + command + " 2>&1"); },
-		[window, page](const std::string& result)
+	window->pushGui(new GuiLoading<CloudRemoteResult>(window, _("SAVING CONNECTION"),
+		[command](IGuiLoadingHandler*) { return cloudRemoteRun(command, 60); },
+		[window, page](const CloudRemoteResult& result)
 		{
-			if (!Utils::String::startsWith(result, "OK="))
+			if (cloudRemoteOkName(result).empty())
 			{
 				window->pushGui(new GuiMsgBox(window,
-					_("THE CONNECTION COULDN'T BE CHANGED.") + std::string("\n\n") + cloudConnectionError(result), _("OK")));
+					_("THE CONNECTION COULDN'T BE CHANGED.") + std::string("\n\n") + cloudConnectionError(result.text()), _("OK")));
 				return;
 			}
 			page->close();
@@ -8242,7 +8287,7 @@ static void cloudConnectionDetailsWith(Window* window, const std::string& name, 
 		if (!cloudConnectionManual(window)) return;
 		window->pushGui(new GuiMsgBox(window,
 			_("USE THIS CONNECTION FOR CLOUD TOOLS? YOUR SELECTED FOLDER PATHS WILL STAY THE SAME. CHECK THEM BEFORE YOUR NEXT BACKUP OR RESTORE."),
-			_("USE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "select " + cloudShellQuote(name), s); }, _("CANCEL"), nullptr));
+			_("USE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "select " + Utils::String::shellQuote(name), s); }, _("CANCEL"), nullptr));
 	});
 	for (auto backend : backends)
 	{
@@ -8275,7 +8320,7 @@ static void cloudConnectionDetailsWith(Window* window, const std::string& name, 
 		if (!cloudConnectionManual(window)) return;
 		window->pushGui(new GuiMsgBox(window,
 			_("REMOVE THIS CONNECTION FROM THIS DEVICE? YOUR CLOUD FILES STAY WHERE THEY ARE. IF THIS IS YOUR ACTIVE CONNECTION, CHOOSE ANOTHER BEFORE USING CLOUD TOOLS."),
-			_("REMOVE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "remove " + cloudShellQuote(name), s); }, _("CANCEL"), nullptr));
+			_("REMOVE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "remove " + Utils::String::shellQuote(name), s); }, _("CANCEL"), nullptr));
 	});
 	cloudSetupPresent(window, s, nullptr);
 }
@@ -8497,6 +8542,14 @@ void GuiMenu::openCloudSetup(Window* window)
 static void networkApplyWifi(Window* window, const std::string& title,
 	const std::function<bool()>& apply, const std::function<void(bool)>& onDone);
 
+// A shell's `echo $?`, as an exit status: digits only, else -1 (a failure).
+static int cloudExitStatus(const std::string& text)
+{
+	if (text.empty() || text.size() > 3 || text.find_first_not_of("0123456789") != std::string::npos)
+		return -1;
+	return atoi(text.c_str());
+}
+
 void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 {
 	const std::string restoreMarker = "/storage/.config/.restore-finish-pending";
@@ -8673,7 +8726,10 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 				[](auto gui)
 				{
 					std::string out = Utils::String::trim(Utils::Platform::GetShOutput("/usr/bin/cloud_setup --check >/dev/null 2>&1; echo $?"));
-					int rc = atoi(out.c_str());
+					// An empty or garbled status is a failure, never 0: atoi read
+					// a shell that printed nothing as YOUR CLOUD IS ANSWERING (T26
+					// PL-11, #1225).
+					const int rc = cloudExitStatus(out);
 					LOG(LogInfo) << "restore relink: cloud --check rc=" << rc;
 					return rc;
 				},
