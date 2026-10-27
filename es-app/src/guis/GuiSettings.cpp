@@ -106,12 +106,12 @@ void GuiSettings::save()
 	if (!mDoSave)
 		return;
 
-	if(!mSaveFuncs.size())
-		return;
-
 	for(auto it = mSaveFuncs.cbegin(); it != mSaveFuncs.cend(); it++)
 		(*it)();
 
+	// The stores are written whether or not the page registered a save
+	// function: a text row or a page that sets as it goes (the LED colour) has
+	// none, and each store writes only when something changed (#1237).
 	Settings::getInstance()->saveFile();
 	SystemConf::getInstance()->saveSystemConf();
 }
