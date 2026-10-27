@@ -82,7 +82,7 @@ GameNameFormatter::GameNameFormatter(SystemData* system)
 
 	mShowYear =
 		mSortId == FileSorts::RELEASEDATE_ASCENDING ||
-		mSortId == FileSorts::RELEASEDATE_ASCENDING ||
+		mSortId == FileSorts::RELEASEDATE_DESCENDING || // #1264
 		mSortId == FileSorts::SYSTEM_RELEASEDATE_ASCENDING ||
 		mSortId == FileSorts::SYSTEM_RELEASEDATE_DESCENDING ||
 		mSortId == FileSorts::RELEASEDATE_SYSTEM_ASCENDING ||
@@ -172,7 +172,7 @@ std::string GameNameFormatter::getDisplayName(FileData* fd, bool showFolderIcon,
 		if (seconds > 0)
 		{
 			int h = 0, m = 0, s = 0;
-			h = (seconds / 3600) % 24;
+			h = seconds / 3600; // a day and more stays in the hours (#1264)
 			m = (seconds / 60) % 60;
 			s = seconds % 60;
 

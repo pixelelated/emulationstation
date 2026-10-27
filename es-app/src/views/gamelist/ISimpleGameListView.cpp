@@ -120,8 +120,9 @@ void ISimpleGameListView::onFileChanged(FileData* /*file*/, FileChangeType /*cha
 		while (mCursorStack.size())
 			mCursorStack.pop();
 
+		// The old cursor is a placeholder the populate may have deleted and
+		// replaced: the populated list's own cursor stands (#1266).
 		populateList(mRoot->getChildrenListToDisplay());
-		setCursor(cursor);
 	}
 }
 

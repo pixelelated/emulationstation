@@ -814,9 +814,11 @@ void DetailedContainer::updateControls(FileData* file, bool isClearing, int move
 
 			auto src = mVideo->getSnapshotSource();
 
-			if (src == TITLESHOT && Utils::FileSystem::exists(file->getMetadata(MetaDataId::TitleShot)))
+			// The game content tier's writer can be outside ES (the cloud content
+			// restore, the player over SSH): read uncached (#1263).
+			if (src == TITLESHOT && Utils::FileSystem::exists(file->getMetadata(MetaDataId::TitleShot), false))
 				snapShot = file->getMetadata(MetaDataId::TitleShot);
-			else if (src == BOXART && Utils::FileSystem::exists(file->getMetadata(MetaDataId::BoxArt)))
+			else if (src == BOXART && Utils::FileSystem::exists(file->getMetadata(MetaDataId::BoxArt), false))
 				snapShot = file->getMetadata(MetaDataId::BoxArt);
 			else if (src == MARQUEE && !file->getMarqueePath().empty())
 				snapShot = file->getMarqueePath();
@@ -824,11 +826,11 @@ void DetailedContainer::updateControls(FileData* file, bool isClearing, int move
 				snapShot = file->getThumbnailPath();
 			else if ((src == IMAGE || src == TITLESHOT) && !file->getImagePath().empty())
 				snapShot = file->getImagePath();
-			else if (src == FANART && Utils::FileSystem::exists(file->getMetadata(MetaDataId::FanArt)))
+			else if (src == FANART && Utils::FileSystem::exists(file->getMetadata(MetaDataId::FanArt), false))
 				snapShot = file->getMetadata(MetaDataId::FanArt);
-			else if (src == CARTRIDGE && Utils::FileSystem::exists(file->getMetadata(MetaDataId::Cartridge)))
+			else if (src == CARTRIDGE && Utils::FileSystem::exists(file->getMetadata(MetaDataId::Cartridge), false))
 				snapShot = file->getMetadata(MetaDataId::Cartridge);
-			else if (src == MIX && Utils::FileSystem::exists(file->getMetadata(MetaDataId::Mix)))
+			else if (src == MIX && Utils::FileSystem::exists(file->getMetadata(MetaDataId::Mix), false))
 				snapShot = file->getMetadata(MetaDataId::Mix);
 
 			mVideo->setImage(snapShot, false, mVideo->getMaxSizeInfo());
@@ -860,7 +862,7 @@ void DetailedContainer::updateControls(FileData* file, bool isClearing, int move
 				{
 					if (id == MetaDataId::Marquee)
 					{
-						if (Utils::FileSystem::exists(file->getMarqueePath()))
+						if (Utils::FileSystem::exists(file->getMarqueePath(), false))
 						{
 							image = file->getMarqueePath();
 							break;
@@ -870,7 +872,7 @@ void DetailedContainer::updateControls(FileData* file, bool isClearing, int move
 					}
 
 					std::string path = file->getMetadata(id);
-					if (Utils::FileSystem::exists(path))
+					if (Utils::FileSystem::exists(path, false))
 					{
 						image = path;
 						break;
@@ -900,7 +902,7 @@ void DetailedContainer::updateControls(FileData* file, bool isClearing, int move
 		{
 			bool hasManualOrMagazine = Settings::getInstance()->getBool("PreloadMedias") ?
 				!file->getMetadata(MetaDataId::Manual).empty() || !file->getMetadata(MetaDataId::Magazine).empty() :
-				Utils::FileSystem::exists(file->getMetadata(MetaDataId::Manual)) || Utils::FileSystem::exists(file->getMetadata(MetaDataId::Magazine));
+				Utils::FileSystem::exists(file->getMetadata(MetaDataId::Manual), false) || Utils::FileSystem::exists(file->getMetadata(MetaDataId::Magazine), false);
 
 			if (mManual != nullptr)
 				mManual->setVisible(hasManualOrMagazine);
@@ -913,7 +915,7 @@ void DetailedContainer::updateControls(FileData* file, bool isClearing, int move
 		{
 			bool hasMap = Settings::getInstance()->getBool("PreloadMedias") ?
 				!file->getMetadata(MetaDataId::Map).empty() :
-				Utils::FileSystem::exists(file->getMetadata(MetaDataId::Map));
+				Utils::FileSystem::exists(file->getMetadata(MetaDataId::Map), false);
 
 			if (mMap != nullptr)
 				mMap->setVisible(hasMap);

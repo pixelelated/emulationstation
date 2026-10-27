@@ -230,8 +230,10 @@ void SystemView::populate()
 		// Something is wrong, there is not a single system to show, check if UI mode is not full
 		if (!UIModeController::getInstance()->isUIModeFull())
 		{
+			// The switch is saved here, whatever HiddenSystems decides below (#1265).
 			Settings::getInstance()->setString("UIMode", "Full");
-			mWindow->pushGui(new GuiMsgBox(mWindow, "The selected UI mode has nothing to show,\n returning to UI mode: FULL", "OK", nullptr));
+			Settings::getInstance()->saveFile();
+			mWindow->pushGui(new GuiMsgBox(mWindow, _("EVERY SYSTEM IS HIDDEN IN THIS MODE. SWITCHING BACK TO THE FULL MODE."), _("OK"), nullptr));
 		}
 
 		if (Settings::getInstance()->setString("HiddenSystems", ""))
