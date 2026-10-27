@@ -201,7 +201,7 @@ GuiGameOptions::GuiGameOptions(Window* window, FileData* game) : GuiComponent(wi
 						});
 					msgBox->addGroup(_("OPTIONS"));
 					msgBox->addInputTextConfigRow(_("NETPLAY NICKNAME"), "global.netplay.nickname", false);
-					msgBox->addInputTextConfigRow(_("PLAYER PASSWORD"), "global.netplay.password", false);
+					msgBox->addInputTextConfigRow(_("PLAYER PASSWORD"), "global.netplay.password", true); // masked (#1253)
 
 					bool adhocEnabled = SystemConf::getInstance()->getBool("wifi.adhoc.enabled");
 					if (!adhocEnabled)
