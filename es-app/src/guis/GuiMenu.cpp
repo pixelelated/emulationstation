@@ -5744,6 +5744,21 @@ void GuiMenu::openCloud(Window* window, bool onFolderRow)
 	window->pushGui(s);
 }
 
+// The global VIDEO FILTER is read by setsettings.sh as `game_setting
+// videofilter`, so it is stored as global.videofilter. The row wrote
+// global.videofilters until T26 (PL-03, #1217), which nothing reads; a device
+// that set it then keeps that choice until the row is saved again.
+static std::string globalVideoFilter()
+{
+	std::string value = SystemConf::getInstance()->get("global.videofilter");
+	return value.empty() ? SystemConf::getInstance()->get("global.videofilters") : value;
+}
+
+static void setGlobalVideoFilter(const std::string& value)
+{
+	SystemConf::getInstance()->set("global.videofilter", value);
+}
+
 void GuiMenu::openGamesSettings()
 {
 	Window* window = mWindow;
@@ -5925,7 +5940,7 @@ void GuiMenu::openGamesSettings()
 	if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::SHADERS) && !hasGlobalFeature("shaderset"))
 	{
 #endif
-			std::string currentVideofilter = SystemConf::getInstance()->get("global.videofilters");
+			std::string currentVideofilter = globalVideoFilter();
 
 			auto videofilters_choices = std::make_shared<OptionListComponent<std::string> >(mWindow, _("VIDEO FILTER"), false);
 			videofilters_choices->add(_("AUTO"), "auto", currentVideofilter.empty() || currentVideofilter == "auto");
@@ -5944,7 +5959,7 @@ void GuiMenu::openGamesSettings()
 				videofilters_choices->selectFirstItem();
 
 			s->addWithLabel(_("VIDEO FILTER"), videofilters_choices);
-			s->addSaveFunc([videofilters_choices] { SystemConf::getInstance()->set("global.videofilters", videofilters_choices->getSelected()); });
+			s->addSaveFunc([videofilters_choices] { setGlobalVideoFilter(videofilters_choices->getSelected()); });
 #if !defined(ROCKNIX)
 		}
 #endif
@@ -9330,6 +9345,28 @@ void GuiMenu::openThemeConfiguration(Window* mWindow, GuiComponent* s, std::shar
 	mWindow->pushGui(themeconfig);
 }
 
+// GAME MEDIAS DURING FAST SCROLLING is read by IList as
+// Settings::ScrollLoadMedias, from es_settings.cfg. The row stored it in
+// system.cfg until T26 (PL-04, #1218), where nothing reads it, so the switch
+// did nothing. Settings writes no value equal to its default, so an OFF in
+// es_settings.cfg cannot be told from a device that never saved one: the old
+// key answers only while es_settings.cfg says nothing, and a save keeps the
+// old key equal to the new value wherever it is already written, so it can
+// never turn the switch back on.
+static bool scrollLoadMedias()
+{
+	if (Settings::getInstance()->getBool("ScrollLoadMedias"))
+		return true;
+	return !SystemConf::getInstance()->get("ScrollLoadMedias").empty() && SystemConf::getInstance()->getBool("ScrollLoadMedias");
+}
+
+static void setScrollLoadMedias(bool value)
+{
+	Settings::getInstance()->setBool("ScrollLoadMedias", value);
+	if (!SystemConf::getInstance()->get("ScrollLoadMedias").empty())
+		SystemConf::getInstance()->setBool("ScrollLoadMedias", value);
+}
+
 void GuiMenu::openUISettings() 
 {
 	auto pthis = this;
@@ -9485,7 +9522,10 @@ void GuiMenu::openUISettings()
 	s->addOptionList(_("LIST TRANSITION"), { { _("auto"), "auto" },{ _("fade"), "fade" },{ _("slide"), "slide" },{ _("fade & slide"), "fade & slide" },{ _("instant"), "instant" } }, "TransitionStyle", true);
 	s->addOptionList(_("GAME LAUNCH TRANSITION"), { { _("auto"), "auto" },{ _("fade"), "fade" },{ _("fast fade"), "fast fade" },{ _("slide"), "slide" },{ _("fast slide"), "fast slide" },{ _("instant"), "instant" } }, "GameTransitionStyle", true);
 
-	s->addSwitch(_("GAME MEDIAS DURING FAST SCROLLING"), "ScrollLoadMedias", false); 
+	auto scrollMedias = std::make_shared<SwitchComponent>(mWindow);
+	scrollMedias->setState(scrollLoadMedias());
+	s->addWithLabel(_("GAME MEDIAS DURING FAST SCROLLING"), scrollMedias);
+	s->addSaveFunc([scrollMedias] { setScrollLoadMedias(scrollMedias->getState()); });
 
 	s->addSwitch(_("SHOW CLOCK"), "DrawClock", true);
 	s->addSwitch(_("ON-SCREEN HELP"), "ShowHelpPrompts", true, [s] { s->setVariable("reloadAll", true); });
