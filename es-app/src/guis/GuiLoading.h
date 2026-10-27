@@ -10,6 +10,7 @@
 #include "components/MenuComponent.h"
 #include "components/BusyComponent.h"
 #include "guis/GuiMsgBox.h"
+#include <atomic>
 #include <string>
 #include <thread>
 #include <mutex>
@@ -36,7 +37,7 @@ public:
 		mTextChanged = false;
 
 		mRunning = true;
-		mHandle = new std::thread(&GuiLoading::threadLoading, this);
+		mHandle = std::thread(&GuiLoading::threadLoading, this);
 		mBusyAnim.setText(title);
 		mBusyAnim.setSize(mSize);
 
@@ -48,7 +49,8 @@ public:
 	~GuiLoading()
 	{
 		mRunning = false;
-		mHandle->join();
+		if (mHandle.joinable())
+			mHandle.join();
 	}
 
 	void setText(const std::string& text) override
@@ -89,8 +91,14 @@ public:
 
 		mBusyAnim.update(deltaTime);
 
-		if (!mRunning)
+		// The worker publishes its result with a release store of mRunning, and
+		// the result is read only after the join (#1251: a plain bool, read
+		// here and written there, and the thread object never freed).
+		if (!mRunning.load(std::memory_order_acquire))
 		{
+			if (mHandle.joinable())
+				mHandle.join();
+
 			if (mFunc2)
 			{
 				Window* window = mWindow;
@@ -110,7 +118,7 @@ private:
 	void threadLoading()
 	{
 		result = mFunc(this);
-		mRunning = false;
+		mRunning.store(false, std::memory_order_release);
 	}
 
 	void updateText()
@@ -128,8 +136,8 @@ private:
 	}
 
     BusyComponent	mBusyAnim;
-    std::thread*	mHandle;
-    bool			mRunning;
+    std::thread		mHandle;
+    std::atomic<bool>	mRunning;
 
 	std::mutex		mTextMutex;
 	std::string		mText;
