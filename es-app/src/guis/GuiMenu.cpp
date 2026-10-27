@@ -11943,8 +11943,11 @@ void GuiMenu::saveSubsetSettings()
 		if (Utils::FileSystem::exists(fileName))
 			Utils::FileSystem::removeFile(fileName);
 	}
-	else
-		Utils::FileSystem::writeAllText(fileName, fileData);
+	// Whole or not at all: writeAllText wrote in place, so a kill or a power
+	// cut mid-write left the theme's settings cut (T26 PL-25, #1231; Backlog
+	// #1186). A write that fails leaves the previous file and says so.
+	else if (!Utils::AtomicFile::writeText(fileName, fileData))
+		LOG(LogError) << "saveSubsetSettings: could not write " << fileName << "; the previous theme settings are kept";
 
 }
 
