@@ -15,6 +15,8 @@
 #include <unistd.h>
 #endif
 #include <condition_variable>
+#include <fstream>
+#include <map>
 #include <mutex>
 #include <thread>
 
@@ -39,6 +41,8 @@ namespace
 		SaveStateJobQueue queue;
 		std::thread thread;
 		bool stop = false;
+		unsigned nextTicket = 0;
+		std::map<unsigned, int> outcomes;   // a copy's ticket -> 1 made, 0 not; read once
 	};
 
 	std::mutex gWorkerMutex;
@@ -66,11 +70,16 @@ namespace
 	// differently -- and it fails closed: a lock file that exists and
 	// cannot be opened is a transfer we cannot rule out. RunLock::held,
 	// which this used first, took that as free.
+	const char* jobWord(const SaveStateJob& job)
+	{
+		return job.kind == SaveStateJob::Kind::Delete ? "deletion" : "copy";
+	}
+
 	bool transferGone(Worker* w, const SaveStateJob& job)
 	{
 		if (!Utils::AtomicFile::isFlockHeld(CLOUD_SYNC_LOCK_PATH))
 			return true;
-		LOG(LogInfo) << "save state deletion waits: a cloud transfer holds the lock (" << job.stateFile << ")";
+		LOG(LogInfo) << "save state " << jobWord(job) << " waits: a cloud transfer holds the lock (" << job.stateFile << ")";
 		bool stopping = false;
 		std::chrono::steady_clock::time_point giveUpAt;
 		for (;;)
@@ -84,7 +93,7 @@ namespace
 			}
 			if (!Utils::AtomicFile::isFlockHeld(CLOUD_SYNC_LOCK_PATH))
 			{
-				LOG(LogInfo) << "save state deletion goes ahead: the cloud transfer has ended (" << job.stateFile << ")";
+				LOG(LogInfo) << "save state " << jobWord(job) << " goes ahead: the cloud transfer has ended (" << job.stateFile << ")";
 				return true;
 			}
 			if (!stop)
@@ -96,7 +105,7 @@ namespace
 			}
 			else if (std::chrono::steady_clock::now() >= giveUpAt)
 			{
-				LOG(LogWarning) << "save state deletion not made at exit: a cloud transfer still held the lock; " << job.stateFile << " stays";
+				LOG(LogWarning) << "save state " << jobWord(job) << " not made at exit: a cloud transfer still held the lock (" << job.stateFile << ")";
 				return false;
 			}
 			std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -150,27 +159,34 @@ namespace
 		}
 	};
 
-	void runDelete(Worker* w, const SaveStateJob& job)
+	// Asked, then taken: a transfer that took the lock between the two sends
+	// the job back to waiting for it; a lock that cannot be taken at all
+	// fails closed, as isFlockHeld does -- it waits. False when the job is
+	// not to be made (exit came first).
+	bool takeTransferLock(Worker* w, const SaveStateJob& job, TransferLock& held)
 	{
-		// Asked, then taken: a transfer that took the lock between the two
-		// sends the deletion back to waiting for it; a lock that cannot be
-		// taken at all fails closed, as isFlockHeld does -- it waits.
-		TransferLock held;
 		for (;;)
 		{
 			if (!transferGone(w, job))
-				return;
+				return false;
 			if (held.take())
-				break;
-			LOG(LogInfo) << "save state deletion waits: the transfer lock was taken as the deletion began (" << job.stateFile << ")";
+				return true;
+			LOG(LogInfo) << "save state " << jobWord(job) << " waits: the transfer lock was taken as it began (" << job.stateFile << ")";
 			std::this_thread::sleep_for(std::chrono::milliseconds(200));
 			std::unique_lock<std::mutex> lock(w->mutex);
 			if (w->stop)
 			{
-				LOG(LogWarning) << "save state deletion not made at exit: the transfer lock could not be taken; " << job.stateFile << " stays";
-				return;
+				LOG(LogWarning) << "save state " << jobWord(job) << " not made at exit: the transfer lock could not be taken (" << job.stateFile << ")";
+				return false;
 			}
 		}
+	}
+
+	void runDelete(Worker* w, const SaveStateJob& job)
+	{
+		TransferLock held;
+		if (!takeTransferLock(w, job, held))
+			return;
 
 		// Record the deletion before the file goes (#21 R3, D-CLOUD-053): the
 		// next pass then propagates a decided deletion instead of asking about
@@ -205,14 +221,70 @@ namespace
 			LOG(LogInfo) << "save state deleted: " << job.stateFile;
 	}
 
-	void runCopy(const SaveStateJob& job)
+	// The size of the file at `path`, or -1 when it cannot be opened.
+	long long sizeOf(const std::string& path)
 	{
-		// No transfer lock here, and none needed: the copy's write to the
-		// saves tree was made at the press, synchronously, behind the
-		// manager's gate (GuiSaveState's savesTreeBusy, copyToSlot); what is
-		// queued is only the record, which writes under
-		// /storage/.cache/cloud_sync -- serialised by cloud_capture's
-		// capture_lock, read by no transfer (the audit of the fix round).
+		std::ifstream f(path, std::ios::binary | std::ios::ate);
+		return f ? (long long) f.tellg() : -1;
+	}
+
+	// COPY TO FREE SLOT's write (#1242), under the transfer lock: the state,
+	// then its thumbnail, each through AtomicFile::copy (a temporary renamed
+	// into place, so a stopped copy leaves no torn file), and each checked by
+	// its size against the source's -- the artifact, not the call's answer.
+	// A slot that is no longer free is not written; a copy that fails takes
+	// back what it wrote, so the slot is as it was. True when both are made.
+	bool makeCopy(Worker* w, const SaveStateJob& job)
+	{
+		TransferLock held;
+		if (!takeTransferLock(w, job, held))
+			return false;
+
+		if (Utils::FileSystem::exists(job.stateFile, false) || (!job.screenshot.empty() && Utils::FileSystem::exists(job.screenshot, false)))
+		{
+			LOG(LogWarning) << "save state copy not made: " << job.stateFile << " is no longer a free slot";
+			return false;
+		}
+
+		const long long size = sizeOf(job.source);
+		bool made = size >= 0 && Utils::AtomicFile::copy(job.source, job.stateFile) && sizeOf(job.stateFile) == size;
+		if (made && !job.sourceShot.empty() && !job.screenshot.empty())
+		{
+			const long long shot = sizeOf(job.sourceShot);
+			made = shot >= 0 && Utils::AtomicFile::copy(job.sourceShot, job.screenshot) && sizeOf(job.screenshot) == shot;
+		}
+		if (made)
+		{
+			LOG(LogInfo) << "save state copied: " << job.source << " -> " << job.stateFile;
+			return true;
+		}
+
+		if (Utils::FileSystem::exists(job.stateFile, false))
+			Utils::FileSystem::removeFile(job.stateFile);
+		if (!job.screenshot.empty() && Utils::FileSystem::exists(job.screenshot, false))
+			Utils::FileSystem::removeFile(job.screenshot);
+		LOG(LogWarning) << "save state copy not made: " << job.source << " -> " << job.stateFile;
+		return false;
+	}
+
+	void runCopy(Worker* w, const SaveStateJob& job)
+	{
+		// The copy itself, when the job carries one (a ticket), and its
+		// outcome published for the page before the record: the record writes
+		// only under /storage/.cache/cloud_sync -- serialised by
+		// cloud_capture's capture_lock, read by no transfer (the audit of the
+		// fix round) -- so it needs no lock and the page need not wait for it.
+		if (job.ticket != 0)
+		{
+			const bool made = makeCopy(w, job);
+			{
+				std::lock_guard<std::mutex> lock(w->mutex);
+				w->outcomes[job.ticket] = made ? 1 : 0;
+			}
+			if (!made)
+				return;
+		}
+
 		//
 		// A slot the manager copied had no entry from any capture mode (#206):
 		// exit mode records only files written after the launch, and the
@@ -260,7 +332,7 @@ namespace
 			if (job.kind == SaveStateJob::Kind::Delete)
 				runDelete(w, job);
 			else
-				runCopy(job);
+				runCopy(w, job);
 
 			{
 				std::lock_guard<std::mutex> lock(w->mutex);
@@ -293,17 +365,35 @@ void SaveStateBookkeeper::deleteLater(const std::string& stateFile, const std::s
 	w->wake.notify_one();
 }
 
-void SaveStateBookkeeper::recordCopy(const std::string& stateFile, const std::string& source,
+unsigned SaveStateBookkeeper::copyLater(const std::string& source, const std::string& sourceShot,
+	const std::string& stateFile, const std::string& screenshot,
 	const std::string& system, const std::string& rom)
 {
 	Worker* w = worker(true);
+	unsigned ticket;
 	{
 		std::lock_guard<std::mutex> lock(w->mutex);
-		if (!w->queue.enqueueCopy(stateFile, source, system, rom))
-			return;
+		ticket = ++w->nextTicket;
+		if (!w->queue.enqueueCopy(stateFile, source, system, rom, sourceShot, screenshot, ticket))
+			return 0;
 	}
-	LOG(LogInfo) << "save state copy queued for the record: " << stateFile;
+	LOG(LogInfo) << "save state copy queued: " << source << " -> " << stateFile;
 	w->wake.notify_one();
+	return ticket;
+}
+
+int SaveStateBookkeeper::copyOutcome(unsigned ticket)
+{
+	Worker* w = worker(false);
+	if (w == nullptr || ticket == 0)
+		return -1;
+	std::lock_guard<std::mutex> lock(w->mutex);
+	auto it = w->outcomes.find(ticket);
+	if (it == w->outcomes.end())
+		return -1;
+	const int outcome = it->second;
+	w->outcomes.erase(it);
+	return outcome;
 }
 
 bool SaveStateBookkeeper::isPending(const std::string& stateFile)

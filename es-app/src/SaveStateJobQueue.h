@@ -32,6 +32,12 @@ struct SaveStateJob
 	std::string source;       // Copy: the file it was copied from
 	std::string system;       // Copy: the game's system name
 	std::string rom;          // Copy: the game's ROM path
+	// Copy made on the worker (COPY TO FREE SLOT, #1242): the source's
+	// thumbnail, or empty, and the ticket its outcome is read by; ticket 0 is
+	// a copy already made, to record only. `screenshot` is then the new
+	// thumbnail's path.
+	std::string sourceShot;
+	unsigned ticket = 0;
 };
 
 class SaveStateJobQueue
@@ -43,7 +49,8 @@ public:
 
 	// Queue a copy to be recorded. Returns false on an empty path.
 	bool enqueueCopy(const std::string& stateFile, const std::string& source,
-		const std::string& system, const std::string& rom);
+		const std::string& system, const std::string& rom,
+		const std::string& sourceShot = "", const std::string& screenshot = "", unsigned ticket = 0);
 
 	// Move the next queued job to running and hand it out. False when
 	// nothing is queued or a job is already running.

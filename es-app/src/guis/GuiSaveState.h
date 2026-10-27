@@ -73,4 +73,9 @@ protected:
 	// pressed, and a rebuild would only tear every tile down and replay the
 	// selection animation a second later -- the flash of #207 (D-UI-074).
 	std::vector<std::string> mShown;
+
+	// COPY TO FREE SLOT on the worker (#1242): the ticket copyOutcome reads,
+	// 0 when no copy is running, and the new slot's file, for the cursor.
+	unsigned mCopyTicket = 0;
+	std::string mCopyFile;
 };

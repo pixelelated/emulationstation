@@ -493,6 +493,11 @@ bool GuiSaveState::input(InputConfig* config, Input input)
 	
 	if (input.value != 0 && config->isMappedTo("x", input))
 	{
+		// A copy already on the worker: a second press waits for it, as a
+		// press on a deleting tile does (#1242).
+		if (mCopyTicket != 0)
+			return true;
+
 		// The same gate DELETE carries (D-CLOUD-053): a copy is a writer of
 		// the saves tree, and a sync reading that tree must not meet it. It
 		// had none until #206.
@@ -511,22 +516,27 @@ bool GuiSaveState::input(InputConfig* config, Input input)
 				return true;
 
 			int slot = mRepository->getNextFreeSlot(mGame, toCopy.saveState->config);
-			if (slot >= 0)
+			if (slot < 0)
 			{
-				if (toCopy.saveState->copyToSlot(slot))
-				{
-					// The copy is a file no capture mode would ever record
-					// (#206): exit mode takes only what a launch wrote, the
-					// verify passes adopt nothing new. The manager made it, so
-					// the manager records it -- on the worker, as the source's
-					// version at the new path; the tile is real already.
-					FileData* game = mGame->getSourceFileData();
-					SaveStateBookkeeper::recordCopy(toCopy.saveState->makeStateFilename(slot),
-						toCopy.saveState->fileName, game->getSystem()->getName(), game->getPath());
-					mRepository->refresh();
-					loadGrid();
-				}
+				mWindow->pushGui(new GuiMsgBox(mWindow, _("THERE'S NO FREE SLOT LEFT. DELETE A SAVE STATE FIRST.")));
+				return true;
 			}
+
+			// The copy is made on the worker, under the transfer lock, checked
+			// by its size and then recorded as the source's version at the new
+			// path (#206), and update() reads how it went by its ticket
+			// (#1242: it was made here, on the interface thread, and nothing
+			// was said when copyToSlot's true had copied nothing). The worker
+			// is handed strings, never the SaveState, which the next refresh()
+			// frees (D-UI-073).
+			const std::string shot = toCopy.saveState->getScreenShot();
+			FileData* game = mGame->getSourceFileData();
+			mCopyFile = toCopy.saveState->makeStateFilename(slot);
+			mCopyTicket = SaveStateBookkeeper::copyLater(toCopy.saveState->fileName, shot,
+				mCopyFile, shot.empty() ? std::string() : toCopy.saveState->makeStateFilename(slot, true, true),
+				game->getSystem()->getName(), game->getPath());
+			if (mCopyTicket == 0)
+				mWindow->pushGui(new GuiMsgBox(mWindow, _("THE COPY COULDN'T BE MADE. YOUR SAVE STATES ARE AS THEY WERE.")));
 		}
 
 		return true;
@@ -539,10 +549,39 @@ void GuiSaveState::update(int deltaTime)
 {
 	GuiComponent::update(deltaTime);
 
+	// A copy's outcome (#1242), read before the compare below: a copy made
+	// puts the cursor on its new tile with a word; one that was not says so,
+	// and the grid stays as it was.
+	if (mCopyTicket != 0)
+	{
+		const int copied = SaveStateBookkeeper::copyOutcome(mCopyTicket);
+		if (copied != -1)
+		{
+			mCopyTicket = 0;
+			if (copied == 1)
+			{
+				mRepository->refresh();
+				loadGrid();
+				const std::vector<SaveStateItem> items = mGrid->getObjects();
+				for (int i = 0; i < (int) items.size(); i++)
+				{
+					if (items[i].saveState != nullptr && items[i].saveState->fileName == mCopyFile)
+					{
+						mGrid->setCursorIndex(i);
+						break;
+					}
+				}
+				mWindow->displayNotificationMessage(_("SAVE STATE COPIED."));
+			}
+			else
+				mWindow->pushGui(new GuiMsgBox(mWindow, _("THE COPY COULDN'T BE MADE. YOUR SAVE STATES ARE AS THEY WERE.")));
+		}
+	}
+
 	// A job has landed (D-UI-073): a deletion's files are gone, or a copy's
-	// record is written. The page already showed the outcome the frame the
-	// player pressed -- the tile hidden, the copy's tile added -- so in the
-	// normal case the disk now agrees with the page and there is nothing to
+	// record is written. The page already showed the outcome -- the tile
+	// hidden the frame the player pressed, the copy's tile added when its
+	// outcome was read (#1242) -- so in the normal case the disk now agrees with the page and there is nothing to
 	// draw. Rebuilding anyway tore every tile down and replayed the selection
 	// animation a second after YES: the flash of #207. So the page is rebuilt
 	// only when the disk disagrees with it (D-UI-074) -- a deletion whose

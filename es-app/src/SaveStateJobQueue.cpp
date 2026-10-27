@@ -17,7 +17,8 @@ bool SaveStateJobQueue::enqueueDelete(const std::string& stateFile, const std::s
 }
 
 bool SaveStateJobQueue::enqueueCopy(const std::string& stateFile, const std::string& source,
-	const std::string& system, const std::string& rom)
+	const std::string& system, const std::string& rom,
+	const std::string& sourceShot, const std::string& screenshot, unsigned ticket)
 {
 	if (stateFile.empty() || source.empty())
 		return false;
@@ -28,6 +29,9 @@ bool SaveStateJobQueue::enqueueCopy(const std::string& stateFile, const std::str
 	job.source = source;
 	job.system = system;
 	job.rom = rom;
+	job.sourceShot = sourceShot;
+	job.screenshot = screenshot;
+	job.ticket = ticket;
 	mQueue.push_back(job);
 	return true;
 }

@@ -20,14 +20,14 @@
 // gone (D-CLOUD-132): it re-keyed slots the renumber had moved, and nothing
 // renumbers since D-UI-069.
 //
-// A copy made with COPY TO FREE SLOT is recorded on the worker too, through
-// `cloud_capture --adopt` (#206): the file is real the moment it is copied
-// and its tile shows at once; the manifest learns of it a moment later, as
-// the source's version at the new path. Only a deletion waits for and takes
-// the cloud transfer lock: its unlink is the one write to the saves tree the
-// worker makes. The copy's write was made at the press, behind the manager's
-// gate, and the record writes only the capture manifest, which no transfer
-// reads (the audit of the fix round).
+// COPY TO FREE SLOT runs on the worker too (#1242): it waits for and takes
+// the cloud transfer lock as a deletion does, copies the state and its
+// thumbnail, and checks the copy against the source's size -- the file, not
+// a copy call's answer -- before it is recorded through `cloud_capture
+// --adopt` (#206) as the source's version at the new path. A copy that fails
+// leaves nothing at the new slot. The page reads the outcome by its ticket
+// (copyOutcome) and says how it went; until #1242 the copy was made at the
+// press, on the interface thread, and nothing said when it failed.
 //
 // The rules (D-UI-073), because each guards a way this can crash or lie:
 //   - the worker holds path strings per job and never a pointer to a page
@@ -48,10 +48,18 @@ public:
 	// only if the disk disagrees with the page (#207).
 	static void deleteLater(const std::string& stateFile, const std::string& screenshot);
 
-	// Record a copy the manager just made: `stateFile` now holds `source`'s
-	// bytes. Returns at once; the tile is already real.
-	static void recordCopy(const std::string& stateFile, const std::string& source,
+	// Copy `source` to the free slot `stateFile`, and `sourceShot` to
+	// `screenshot` when there is one, on the worker under the transfer lock;
+	// then record it. Returns at once with the ticket copyOutcome reads, or 0
+	// when nothing was queued.
+	static unsigned copyLater(const std::string& source, const std::string& sourceShot,
+		const std::string& stateFile, const std::string& screenshot,
 		const std::string& system, const std::string& rom);
+
+	// A copy's outcome by its ticket: -1 while it is queued or running, 1 when
+	// the copy is made and the same size as its source, 0 when it is not (and
+	// nothing is left at the new slot). A final answer is given once.
+	static int copyOutcome(unsigned ticket);
 
 	// Queued or running for deletion: the tile is hidden, the file may
 	// still be on disk.
@@ -60,7 +68,7 @@ public:
 	// Finished jobs since the process started.
 	static unsigned completed();
 
-	// A deletion is running with the cloud transfer lock held (runDelete):
+	// A deletion or a copy is running with the cloud transfer lock held:
 	// the lock the manager's DELETE and COPY refusal asks about is this
 	// process's own for that moment, not a transfer's.
 	static bool holdsTransferLock();

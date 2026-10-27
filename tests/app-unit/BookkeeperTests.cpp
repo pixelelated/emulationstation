@@ -196,6 +196,96 @@ TEST_CASE("bookkeeper: a deletion holds the transfer lock while it runs")
 	CHECK((WIFEXITED(after) && WEXITSTATUS(after) == 0));
 }
 
+// COPY TO FREE SLOT on the worker (#1242): the copy waits for a transfer as a
+// deletion does, is checked by its size, leaves nothing at the slot when it
+// fails, is recorded only once made, and its outcome is read once.
+namespace
+{
+	std::string bytes(size_t n)
+	{
+		std::string b(n, '\0');
+		for (size_t i = 0; i < n; i++)
+			b[i] = (char) (i * 131 % 251);   // NULs and high bytes: a state is not text
+		return b;
+	}
+
+	std::string readFile(const std::string& p)
+	{
+		std::ifstream f(p, std::ios::binary);
+		return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+	}
+
+	int outcomeWithin(unsigned ticket, int ms)
+	{
+		int o = -1;
+		waitFor([&] { o = SaveStateBookkeeper::copyOutcome(ticket); return o != -1; }, ms);
+		return o;
+	}
+}
+
+TEST_CASE("bookkeeper: a copy waits for a transfer, then is made whole and posted once")
+{
+	const std::string lock = CLOUD_SYNC_LOCK_PATH;
+	const std::string src = lock + ".copy-a.state1", shot = src + ".png";
+	const std::string dst = lock + ".copy-a.state2", dstShot = dst + ".png";
+	const std::string data = bytes(256 * 1024);
+	std::ofstream(src, std::ios::binary) << data;
+	std::ofstream(shot, std::ios::binary) << bytes(3000);
+	const int adoptsBefore = runsNamed("--adopt");
+	const pid_t holder = holdLock(lock);
+	const unsigned ticket = SaveStateBookkeeper::copyLater(src, shot, dst, dstShot, "nes", "/r/Bobl.nes");
+	REQUIRE(ticket != 0);
+	std::this_thread::sleep_for(std::chrono::milliseconds(800));
+	CHECK(SaveStateBookkeeper::copyOutcome(ticket) == -1);           // still waiting
+	CHECK_MESSAGE(!fileExists(dst), "the copy was written while a transfer held the lock");
+	release(holder, lock);
+	CHECK(outcomeWithin(ticket, 5000) == 1);
+	CHECK(SaveStateBookkeeper::copyOutcome(ticket) == -1);           // given once
+	CHECK(readFile(dst) == data);
+	CHECK(readFile(dstShot) == bytes(3000));
+	CHECK(waitFor([&] { return runsNamed("--adopt") == adoptsBefore + 1; }, 5000));
+	CHECK_FALSE(SaveStateBookkeeper::holdsTransferLock());
+	for (auto& f : { src, shot, dst, dstShot })
+		std::remove(f.c_str());
+}
+
+TEST_CASE("bookkeeper: a copy that cannot be made leaves the slot empty and is not recorded")
+{
+	const std::string lock = CLOUD_SYNC_LOCK_PATH;
+	const std::string src = lock + ".copy-b.state1";
+	const std::string ro = lock + ".copy-b.ro";
+	std::ofstream(src, std::ios::binary) << bytes(4096);
+	::mkdir(ro.c_str(), 0755);
+	::chmod(ro.c_str(), 0555);
+	const std::string dst = ro + "/b.state2";
+	const int adoptsBefore = runsNamed("--adopt");
+	const unsigned ticket = SaveStateBookkeeper::copyLater(src, "", dst, "", "nes", "/r/Bobl.nes");
+	CHECK(outcomeWithin(ticket, 5000) == 0);
+	CHECK_FALSE(fileExists(dst));
+	// A missing source is not made either.
+	const unsigned gone = SaveStateBookkeeper::copyLater(lock + ".copy-b.absent", "", lock + ".copy-b.state3", "", "nes", "/r/Bobl.nes");
+	CHECK(outcomeWithin(gone, 5000) == 0);
+	CHECK_FALSE(fileExists(lock + ".copy-b.state3"));
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	CHECK(runsNamed("--adopt") == adoptsBefore);
+	::chmod(ro.c_str(), 0755);
+	::rmdir(ro.c_str());
+	std::remove(src.c_str());
+}
+
+TEST_CASE("bookkeeper: a copy never writes over a slot that is no longer free")
+{
+	const std::string lock = CLOUD_SYNC_LOCK_PATH;
+	const std::string src = lock + ".copy-c.state1", dst = lock + ".copy-c.state2";
+	std::ofstream(src, std::ios::binary) << bytes(4096);
+	std::ofstream(dst, std::ios::binary) << "taken";
+	const unsigned ticket = SaveStateBookkeeper::copyLater(src, "", dst, "", "nes", "/r/Bobl.nes");
+	CHECK(outcomeWithin(ticket, 5000) == 0);
+	CHECK(readFile(dst) == "taken");
+	std::remove(src.c_str());
+	std::remove(dst.c_str());
+}
+
 TEST_CASE("bookkeeper: exit does not wait out a transfer, and deletes nothing under it")
 {
 	const std::string lock = CLOUD_SYNC_LOCK_PATH;
