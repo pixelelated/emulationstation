@@ -1095,3 +1095,64 @@ TEST_CASE("a save never merges onto a file the load would not have taken (audit 
 		CHECK(baseWhole);
 	}
 }
+
+// ------------------------------------------------------------ T21 S5 (#668)
+//
+// PL-05 (#1193): system.cfg, es_settings.cfg and their records carry the
+// Wi-Fi key and the account passwords, and shipped 0645 and 0644. The stores
+// are kept at kPrivateMode: narrowed once at start, and a recovery copy takes
+// that mode rather than its source's.
+
+namespace
+{
+	int modeOfFile(const std::string& path)
+	{
+		struct stat st;
+		return ::stat(path.c_str(), &st) == 0 ? (int) (st.st_mode & 07777) : -1;
+	}
+}
+
+TEST_CASE("writeText over a 0645 file with 0600 asked for leaves 0600 (T21 PL-05, #1193)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "a=1\n");
+	REQUIRE(::chmod(path.c_str(), 0645) == 0);
+	CHECK(writeText(path, "a=2\n", kPrivateMode));
+	CHECK(modeOfFile(path) == 0600);
+}
+
+TEST_CASE("narrowTo takes a 0645 file and a 0644 record to 0600, once, and leaves an absent one alone (T21 PL-05, #1193)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "a=1\n");
+	put(path + ".backup", "a=1\n");
+	REQUIRE(::chmod(path.c_str(), 0645) == 0);
+	REQUIRE(::chmod((path + ".backup").c_str(), 0644) == 0);
+	CHECK(narrowTo(path, kPrivateMode));
+	CHECK(narrowTo(path + ".backup", kPrivateMode));
+	CHECK(modeOfFile(path) == 0600);
+	CHECK(modeOfFile(path + ".backup") == 0600);
+	CHECK(get(path) == "a=1\n");
+
+	// Again: nothing to do, nothing changed.
+	CHECK(narrowTo(path, kPrivateMode));
+	CHECK(modeOfFile(path) == 0600);
+	// A file already more private keeps its mode; an absent one is no error.
+	REQUIRE(::chmod(path.c_str(), 0400) == 0);
+	CHECK(narrowTo(path, kPrivateMode));
+	CHECK(modeOfFile(path) == 0400);
+	CHECK(narrowTo(dir / "absent.cfg", kPrivateMode));
+	CHECK(modeOfFile(dir / "absent.cfg") == -1);
+}
+
+TEST_CASE("a recovery copy takes the mode asked for, not its source's (T21 PL-05, #1193)")
+{
+	ScratchDir dir;
+	put(dir / "es_settings.cfg.backup", "<config/>\n");
+	REQUIRE(::chmod((dir / "es_settings.cfg.backup").c_str(), 0644) == 0);
+	CHECK(copy(dir / "es_settings.cfg.backup", dir / "es_settings.cfg", kPrivateMode));
+	CHECK(modeOfFile(dir / "es_settings.cfg") == 0600);
+	CHECK(get(dir / "es_settings.cfg") == "<config/>\n");
+}

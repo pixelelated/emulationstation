@@ -264,6 +264,32 @@ namespace Utils
 			return writeText(dst, text, modeOf(src, 0644));
 		}
 
+		bool copy(const std::string& src, const std::string& dst, int mode)
+		{
+			bool ok = false;
+			const std::string text = readText(src, &ok);
+			if (!ok)
+				return false;
+			return writeText(dst, text, mode);
+		}
+
+		bool narrowTo(const std::string& path, int mode)
+		{
+#if defined(_WIN32)
+			(void) path; (void) mode;
+			return true;
+#else
+			struct stat st;
+			if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+				return true;
+			const mode_t now = st.st_mode & 07777;
+			const mode_t narrowed = now & (mode_t) (mode & 07777);
+			if (narrowed == now)
+				return true;
+			return ::chmod(path.c_str(), narrowed) == 0;
+#endif
+		}
+
 		bool isUsableKeyValues(const std::string& text)
 		{
 			if (text.empty() || text.find('\0') != std::string::npos)

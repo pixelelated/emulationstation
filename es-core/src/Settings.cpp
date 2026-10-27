@@ -521,7 +521,10 @@ bool Settings::saveFile()
 	StringWriter writer;
 	doc.save(writer);
 
-	if (!Utils::AtomicFile::writeText(path, writer.out))
+	// Private, both the file and its record, from the same constant (T21
+	// PL-05, #1193): never wider than kPrivateMode, never wider than now.
+	const int mode = Utils::AtomicFile::modeOf(path, Utils::AtomicFile::kPrivateMode) & Utils::AtomicFile::kPrivateMode;
+	if (!Utils::AtomicFile::writeText(path, writer.out, mode))
 	{
 		// Kept dirty, so the next save tries again rather than believing this
 		// one happened.
@@ -530,7 +533,7 @@ bool Settings::saveFile()
 		return false;
 	}
 	// The record is made no less private than the live file (#308 F-ES-08).
-	if (!Utils::AtomicFile::writeText(path + ".backup", writer.out, Utils::AtomicFile::modeOf(path, 0644)))
+	if (!Utils::AtomicFile::writeText(path + ".backup", writer.out, mode))
 		LOG(LogWarning) << "Settings::saveFile() : could not write the last-known-good record " << path << ".backup";
 
 	Scripting::fireEvent("config-changed");
@@ -556,6 +559,12 @@ void Settings::loadFile()
 	// record's own temporary likewise.
 	std::remove((path + ".tmp").c_str());
 	std::remove((path + ".backup.tmp").c_str());
+
+	// Kept private, narrowed once here (T21 PL-05, #1193): the file carries
+	// the scraper's account and its developer pair, and shipped 0644.
+	for (const std::string& copy : { path, backup })
+		if (!Utils::AtomicFile::narrowTo(copy, Utils::AtomicFile::kPrivateMode))
+			LOG(LogWarning) << "Settings: could not make " << copy << " private";
 
 	pugi::xml_document doc;
 	bool loaded = false;
@@ -614,7 +623,8 @@ void Settings::loadFile()
 
 	if (fromBackup)
 	{
-		if (!Utils::AtomicFile::copy(backup, path))
+		// The stores' mode, not the record's (T21 PL-05, #1193).
+		if (!Utils::AtomicFile::copy(backup, path, Utils::AtomicFile::modeOf(backup, Utils::AtomicFile::kPrivateMode) & Utils::AtomicFile::kPrivateMode))
 			LOG(LogError) << "Could not write " << path << " back from its last-known-good record";
 		sRecovered = true;
 	}
@@ -626,7 +636,7 @@ void Settings::loadFile()
 		const std::string live = Utils::AtomicFile::readText(path, &ok);
 		// No less private than the live file, and rewritten for its mode
 		// alone where an earlier build made it wider (#308 F-ES-08).
-		const int mode = Utils::AtomicFile::modeOf(path, 0644);
+		const int mode = Utils::AtomicFile::modeOf(path, Utils::AtomicFile::kPrivateMode) & Utils::AtomicFile::kPrivateMode;
 		if (ok && (live != Utils::AtomicFile::readText(backup) || Utils::AtomicFile::modeOf(backup, mode) != mode)
 			&& !Utils::AtomicFile::writeText(backup, live, mode))
 			LOG(LogWarning) << "Could not write the last-known-good record " << backup;

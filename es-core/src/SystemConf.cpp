@@ -72,6 +72,14 @@ SystemConf::SystemConf()
 
 	Utils::AtomicFile::setSeedPath(mSystemConfFile, sSeedPath);
 
+	// The file and every copy of it are kept private, narrowed once here:
+	// an image shipped them 0645, with the Wi-Fi key and the passwords in
+	// them, and every writer since keeps the mode it finds (T21 PL-05,
+	// #1193). Idempotent; a failure is logged and the load goes on.
+	for (const std::string& copy : { mSystemConfFile, mSystemConfFile + ".backup", mSystemConfFile + ".tmp" })
+		if (!Utils::AtomicFile::narrowTo(copy, Utils::AtomicFile::kPrivateMode))
+			LOG(LogWarning) << "SystemConf: could not make " << copy << " private";
+
 	loadSystemConf();	
 }
 
@@ -132,7 +140,7 @@ void SystemConf::recordLastGood(const std::string& text, int recoveredMode)
 	// is no file -- made a 0600 temporary's text a 0644 record (audit of the
 	// fix round, gpt G2-E-core-05).
 	const std::string backup = mSystemConfFile + ".backup";
-	const int mode = current.mode & (recoveredMode >= 0 ? recoveredMode : 07777);
+	const int mode = current.mode & (recoveredMode >= 0 ? recoveredMode : 07777) & Utils::AtomicFile::kPrivateMode;
 	if (Utils::AtomicFile::readText(backup) == text && Utils::AtomicFile::modeOf(backup, mode) == mode)
 		return;
 	if (!Utils::AtomicFile::writeText(backup, text, mode))

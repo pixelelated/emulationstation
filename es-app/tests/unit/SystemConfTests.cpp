@@ -699,3 +699,25 @@ TEST_CASE("a live file equal to the image's seed beside a differing record loads
 	CHECK(get(path + ".backup") == record);
 	CHECK(get(path) == record);
 }
+
+// ------------------------------------------------------------ T21 S5 (#668)
+
+TEST_CASE("the start narrows system.cfg and its record to 0600 (T21 PL-05, #1193)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string text = "system.hostname=qa\nwifi.ssid=Home\n";
+	put(path, text);
+	put(path + ".backup", text);
+	REQUIRE(::chmod(path.c_str(), 0645) == 0);
+	REQUIRE(::chmod((path + ".backup").c_str(), 0644) == 0);
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->get("wifi.ssid") == "Home");
+	CHECK(modeOf(path) == 0600);
+	CHECK(modeOf(path + ".backup") == 0600);
+
+	CHECK(conf->set("wifi.ssid", "Cafe"));
+	CHECK(conf->saveSystemConf());
+	CHECK(modeOf(path) == 0600);
+	CHECK(modeOf(path + ".backup") == 0600);
+}

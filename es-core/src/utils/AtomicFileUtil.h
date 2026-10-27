@@ -56,6 +56,19 @@ namespace Utils
 		// all, with src's mode. False when src could not be read or dst could
 		// not be written.
 		bool copy(const std::string& src, const std::string& dst);
+		// The same, with dst made `mode` (T21 PL-05, #1193): a settings
+		// store's recovery copy takes the stores' mode, not its source's.
+		bool copy(const std::string& src, const std::string& dst, int mode);
+
+		// The mode the settings stores and their records are kept at: they
+		// carry the Wi-Fi key and the account passwords (T21 PL-05, #1193).
+		const int kPrivateMode = 0600;
+
+		// Take away every permission bit outside `mode` from the regular
+		// file at `path`, once: idempotent, a no-op for a file already that
+		// private or not there. False only when a chmod that was needed
+		// failed. The stores call it at start for each of their copies.
+		bool narrowTo(const std::string& path, int mode);
 
 		// Whether a key=value configuration text is one worth reading and
 		// worth keeping as the last-known-good record: something in it, no
