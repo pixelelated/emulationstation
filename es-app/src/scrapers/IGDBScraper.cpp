@@ -139,6 +139,7 @@ bool IGDBScraper::ensureToken()
 		return true;
 
 	mToken = "";
+	mTokenUnreachable = false;
 
 	if (Settings::getInstance()->getString("IGDBClientID").empty() || Settings::getInstance()->getString("IGDBSecret").empty())
 		return false;
@@ -146,6 +147,9 @@ bool IGDBScraper::ensureToken()
 	HttpReqOptions options;
 	options.customHeaders.push_back("Content-Type: application/x-www-form-urlencoded");
 	options.dataToPost = "client_id=" + Settings::getInstance()->getString("IGDBClientID") + "&client_secret=" + Settings::getInstance()->getString("IGDBSecret") + "&grant_type=client_credentials";
+
+	options.stallTimeout = SCRAPER_STALL_TIMEOUT; // #1262
+	options.timeout = SCRAPER_TOKEN_TIMEOUT;
 
 	HttpReq request("https://id.twitch.tv/oauth2/token", &options);
 	if (request.wait())
@@ -161,6 +165,7 @@ bool IGDBScraper::ensureToken()
 		}
 	}
 
+	mTokenUnreachable = request.status() == HttpReq::REQ_IO_ERROR;
 	return false;
 }
 
@@ -169,7 +174,7 @@ void IGDBScraper::generateRequests(const ScraperSearchParams& params, std::queue
 	if (!ensureToken())
 	{
 		if (!params.isManualScrape)
-			throw std::runtime_error(_("INVALID CREDENTIALS"));
+			throw std::runtime_error(mTokenUnreachable ? _("YOU'RE NOT ONLINE.") : _("INVALID CREDENTIALS")); // #1259
 
 		return;
 	}
@@ -321,14 +326,14 @@ bool IGDBRequest::process(const std::string& response, std::vector<ScraperSearch
 		std::string err = std::string("IGDBRequest - Error parsing JSON. \n\t") + GetParseError_En(doc.GetParseError());
 		setError(err);
 		LOG(LogError) << err;
-		return false;
+		return true; // the error is set; false is only the rate limit (#1259)
 	}
 
 	if (!doc.IsArray() || !doc.Size())
 	{
 		std::string warn = "IGDBRequest - Response is not valid.\n";
 		LOG(LogWarning) << warn;
-		return false;
+		return true; // no match; false is only the rate limit (#1259)
 	}
 
 	for (int i = 0; i < (int)doc.Size(); ++i)

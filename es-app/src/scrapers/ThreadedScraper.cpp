@@ -40,16 +40,8 @@ void ThreadedScraper::Process()
 		sStarted = std::chrono::steady_clock::now();
 	}
 
-	for (int i = 0; i < mThreadCount; i++)
-	{
-		if (mSearchQueue.size() == 0)
-			break;
-
-		ScraperThread* thread = new ScraperThread(i);
-		mScraperThreads.push_back(thread);
-		ProcessNextGame(thread);
-	}
-
+	// The first hand-outs -- a search, and a token fetch with it -- are the
+	// worker's, so none runs on the interface thread (#1262).
 	mWorker = std::thread(&ThreadedScraper::run, this);
 }
 
@@ -169,6 +161,11 @@ void ThreadedScraper::processError(int status, const std::string statusString)
 	}
 	else
 	{
+		if (status == HttpReq::REQ_IO_ERROR)
+			mOfflineErrors++;
+		else if (status == HttpReq::REQ_429_TOOMANYREQUESTS)
+			mBusyErrors++;
+
 		mErrors.push_back(statusString);
 		std::unique_lock<std::mutex> lock(sProgressMutex);
 		sProgress.errors = (int) mErrors.size();
@@ -177,63 +174,101 @@ void ThreadedScraper::processError(int status, const std::string statusString)
 
 void ThreadedScraper::run()
 {
-	while (mExitCode == ASYNC_IN_PROGRESS)
+	try
 	{
-		if (mPaused)
+		for (int i = 0; i < mThreadCount; i++)
 		{
-			while (mExitCode == ASYNC_IN_PROGRESS && mPaused)
-			{
-				std::this_thread::yield();
-				std::this_thread::sleep_for(std::chrono::milliseconds(500));
-			}
+			if (mSearchQueue.size() == 0 || mExitCode != ASYNC_IN_PROGRESS)
+				break;
+
+			ScraperThread* thread = new ScraperThread(i);
+			mScraperThreads.push_back(thread);
+			ProcessNextGame(thread);
 		}
-		
-		for (auto iter = mScraperThreads.cbegin(); iter != mScraperThreads.cend(); ++iter)
+
+		if (mScraperThreads.size() == 0)
+			mExitCode = ASYNC_DONE; // nothing was handed out
+
+		while (mExitCode == ASYNC_IN_PROGRESS)
 		{
-			if (mExitCode != ASYNC_IN_PROGRESS)
-				break;
-
-			auto mScraperThread = *iter;
-
-			int state = mScraperThread->updateState();
-			switch (state)
+			if (mPaused)
 			{
-			case ASYNC_DONE:
-				acceptResult(*mScraperThread);
-				break;
-
-			case ASYNC_ERROR:
-				processError(mScraperThread->getError(), mScraperThread->getErrorString());
-				break;
-
-			default:
-				//std::this_thread::yield();
-				// std::this_thread::sleep_for(std::chrono::milliseconds(10));
-				break;
+				while (mExitCode == ASYNC_IN_PROGRESS && mPaused)
+				{
+					std::this_thread::yield();
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				}
 			}
-
-			if (mExitCode == ASYNC_IN_PROGRESS && state != ASYNC_IN_PROGRESS)
+		
+			for (auto iter = mScraperThreads.cbegin(); iter != mScraperThreads.cend(); ++iter)
 			{
-				if (!mSearchQueue.empty())
-					ProcessNextGame(mScraperThread);
-				else
-				{					
-					mScraperThreads.erase(iter);
-					delete mScraperThread; // #1258: the vector held the only pointer
-					if (mScraperThreads.size() == 0)
-					{
-						mExitCode = ASYNC_DONE;
-						LOG(LogDebug) << "ThreadedScraper::finished";
-					}
+				if (mExitCode != ASYNC_IN_PROGRESS)
 					break;
+
+				auto mScraperThread = *iter;
+
+				int state = mScraperThread->updateState();
+				switch (state)
+				{
+				case ASYNC_DONE:
+					acceptResult(*mScraperThread);
+					break;
+
+				case ASYNC_ERROR:
+					processError(mScraperThread->getError(), mScraperThread->getErrorString());
+					break;
+
+				default:
+					//std::this_thread::yield();
+					// std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					break;
+				}
+
+				if (mExitCode == ASYNC_IN_PROGRESS && state != ASYNC_IN_PROGRESS)
+				{
+					if (!mSearchQueue.empty())
+						ProcessNextGame(mScraperThread);
+					else
+					{					
+						mScraperThreads.erase(iter);
+						delete mScraperThread; // #1258: the vector held the only pointer
+						if (mScraperThreads.size() == 0)
+						{
+							mExitCode = ASYNC_DONE;
+							LOG(LogDebug) << "ThreadedScraper::finished";
+						}
+						break;
+					}
 				}
 			}
 		}
 	}
-	
+	catch (const std::exception& e)
+	{
+		// generateRequests' throw (a token that could not be had), here
+		// or at a later hand-out, ends the run with its words (#1262).
+		LOG(LogError) << "ThreadedScraper: " << e.what();
+		mExitCode = ASYNC_ERROR;
+		std::unique_lock<std::mutex> lock(sProgressMutex);
+		sProgress.failed = true;
+		sProgress.failure = e.what();
+	}
+
+	updateUI(); // the games neither queued nor in hand, all of them at a run's end (#1259)
+
 	{
 		// How it ended, for the page: the elapsed time freezes here.
 		std::unique_lock<std::mutex> lock(sProgressMutex);
+
+		// A run whose requests reached nothing ends COULDN'T FINISH with
+		// the class's why on the page's line 4; a run whose requests all
+		// answered is COMPLETED with its counts (#1259, D-UI-030).
+		if (!sProgress.failed && !sProgress.cancelled && (mOfflineErrors > 0 || mBusyErrors > 0))
+		{
+			sProgress.failed = true;
+			sProgress.failure = mOfflineErrors >= mBusyErrors ? _("YOU'RE NOT ONLINE.") : _("THE SCRAPER IS BUSY RIGHT NOW.");
+		}
+
 		sProgress.finished = true;
 		sProgress.elapsedMs = (int) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - sStarted).count();
 		LOG(LogInfo) << "ThreadedScraper: finished " << sProgress.done << " of " << sProgress.total

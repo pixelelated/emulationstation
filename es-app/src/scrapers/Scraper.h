@@ -13,6 +13,12 @@
 #include <assert.h>
 #include "FileData.h"
 
+// Seconds a scraper request may move no byte before it ends with an error
+// (#1262, the hash library's shape: ROCKNIX fork #299). A token exchange
+// also takes a total bound, in milliseconds: its body is a few hundred bytes.
+#define SCRAPER_STALL_TIMEOUT 30L
+#define SCRAPER_TOKEN_TIMEOUT 30000L
+
 class FileData;
 class SystemData;
 class MDResolveHandle;
@@ -103,6 +109,11 @@ private:
 	HttpReq* mRequest;
 	HttpReqOptions mOptions;
 	int	mRetryCount;
+
+	// A process() that returned false (the scraper's per-minute limit) is
+	// asked once more, from the primary URL, mUrl (#1259).
+	std::string mRetryUrl;
+	bool mProcessRetried = false;
 
 	int mOverQuotaPendingTime;
 	int mOverQuotaRetryDelay;

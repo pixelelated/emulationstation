@@ -173,6 +173,7 @@ bool HfsDBScraper::ensureToken()
 		return true;
 	
 	mToken = "";
+	mTokenUnreachable = false;
 
 	std::string token;
 
@@ -192,6 +193,9 @@ bool HfsDBScraper::ensureToken()
 	options.dataToPost = "&username=" + user + "&password=" + pass;
 	options.customHeaders.push_back("Authorization: Basic " + basicAuth);
 
+	options.stallTimeout = SCRAPER_STALL_TIMEOUT; // #1262
+	options.timeout = SCRAPER_TOKEN_TIMEOUT;
+
 	HttpReq request("https://db.hfsplay.fr/api/v1/auth/token", &options);
 	if (request.wait())
 	{
@@ -206,6 +210,7 @@ bool HfsDBScraper::ensureToken()
 		}
 	}
 
+	mTokenUnreachable = request.status() == HttpReq::REQ_IO_ERROR;
 	return false;
 }
 
@@ -214,7 +219,7 @@ void HfsDBScraper::generateRequests(const ScraperSearchParams& params, std::queu
 	if (!ensureToken())
 	{
 		if (!params.isManualScrape)
-			throw std::runtime_error(_("INVALID CREDENTIALS"));
+			throw std::runtime_error(mTokenUnreachable ? _("YOU'RE NOT ONLINE.") : _("INVALID CREDENTIALS")); // #1259
 
 		return;
 	}

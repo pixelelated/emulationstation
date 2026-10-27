@@ -29,6 +29,9 @@ private:
 
 	std::string mToken;
 	Utils::Time::DateTime mTokenDate;
+	// The last token request reached nothing (no network, a refused or
+	// stalled connection): not a rejected sign-in (#1259).
+	bool mTokenUnreachable = false;
 };
 
 class HfsDBRequest : public ScraperHttpRequest

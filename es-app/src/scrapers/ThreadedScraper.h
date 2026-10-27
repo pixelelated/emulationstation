@@ -97,6 +97,9 @@ private:
 	std::string		mCurrentGame;
 
 	std::vector<std::string> mErrors;
+	// The request failures by class, for the run's why (#1259).
+	int mOfflineErrors = 0;
+	int mBusyErrors = 0;
 
 	void run();
 

@@ -74,6 +74,11 @@ Scraper* Scraper::getScraper(const std::string name)
 		if (scrap.first == scraper)
 			return scrap.second;
 
+	// A saved name this build does not register (a build with another key
+	// set, or an upgrade from one) falls back to the first it does (#1261).
+	if (!Scraper::scrapers.empty())
+		return Scraper::scrapers[0].second;
+
 	return nullptr;
 }
 
@@ -93,7 +98,7 @@ bool Scraper::hasAnyMedia(FileData* file)
 			return true;
 
 	if (isMediaSupported(ScraperMediaSource::Wheel) || isMediaSupported(ScraperMediaSource::Marquee))
-		if (Settings::getInstance()->getString("ScrapperLogoSrc").empty() && !file->getMetadata(MetaDataId::Marquee).empty() && Utils::FileSystem::exists(file->getMetadata(MetaDataId::Marquee)))
+		if (!Settings::getInstance()->getString("ScrapperLogoSrc").empty() && !file->getMetadata(MetaDataId::Marquee).empty() && Utils::FileSystem::exists(file->getMetadata(MetaDataId::Marquee))) // #1267: as hasMissingMedia reads it
 			return true;
 
 	if (isMediaSupported(ScraperMediaSource::Manual))
@@ -263,6 +268,8 @@ ScraperHttpRequest::ScraperHttpRequest(std::vector<ScraperSearchResult>& results
 
 	if (options != nullptr)
 		mOptions = *options;
+
+	mOptions.stallTimeout = SCRAPER_STALL_TIMEOUT; // #1262
 	
 	mRequest = new HttpReq(url, &mOptions);
 	mUrl = url;
@@ -297,7 +304,8 @@ void ScraperHttpRequest::update()
 
 			LOG(LogDebug) << "REQ_429_TOOMANYREQUESTS : Retrying";
 
-			std::string url = mRequest->getUrl();
+			std::string url = mRetryUrl.empty() ? mRequest->getUrl() : mRetryUrl;
+			mRetryUrl.clear();
 			delete mRequest;
 			mRequest = new HttpReq(url, &mOptions);
 		}
@@ -311,13 +319,23 @@ void ScraperHttpRequest::update()
 	if (status == HttpReq::REQ_IN_PROGRESS)
 		return;
 
-	if (status == HttpReq::REQ_SUCCESS)
-	{
-		std::string body = mRequest->getContent();
-		mResponses[mDependencyId] = body;
+	// A dependency request that found nothing or reached nothing (TheGamesDB's
+	// images) leaves its response absent; the primary's is still processed,
+	// never discarded (#1259).
+	bool dependencyFailed = !mDependencyId.empty() && (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR);
+	if (dependencyFailed)
+		LOG(LogWarning) << "ScraperHttpRequest dependency " << mDependencyId << " failed (status: " << status << ")";
 
-		if (mDependencyId.empty())
-			preProcess(body);
+	if (status == HttpReq::REQ_SUCCESS || dependencyFailed)
+	{
+		if (!dependencyFailed)
+		{
+			std::string body = mRequest->getContent();
+			mResponses[mDependencyId] = body;
+
+			if (mDependencyId.empty())
+				preProcess(body);
+		}
 
 		if (!mDependencyQueue.empty())
 		{
@@ -334,7 +352,30 @@ void ScraperHttpRequest::update()
 		}
 
 		setStatus(ASYNC_DONE); // if process() has an error, status will be changed to ASYNC_ERROR
-		process(mResponses[""], mResults);
+		if (!process(mResponses[""], mResults) && mStatus == ASYNC_DONE)
+		{
+			// false is the scraper's "too many requests this minute": asked
+			// once more from the primary URL after the over-quota delay, then
+			// an error the run counts (#1259).
+			if (mProcessRetried)
+			{
+				setError(HttpReq::REQ_429_TOOMANYREQUESTS, "the scraper asked to wait, twice");
+				return;
+			}
+
+			mProcessRetried = true;
+			mResults.clear();
+			mResponses.clear();
+			mDependencyId.clear();
+			while (!mDependencyQueue.empty())
+				mDependencyQueue.pop();
+
+			mRetryUrl = mUrl;
+			mOverQuotaRetryDelay = OVERQUOTA_RETRY_DELAY;
+			mOverQuotaPendingTime = SDL_GetTicks();
+			setStatus(ASYNC_IN_PROGRESS);
+		}
+
 		return;
 	}
 
@@ -343,7 +384,9 @@ void ScraperHttpRequest::update()
 		mRetryCount++;
 		if (mRetryCount >= mOverQuotaRetryCount)
 		{
-			setStatus(ASYNC_DONE); // Ignore error
+			// Retries spent: an error the run counts, not a game with no
+			// match; not on the run's fatal list, so a batch goes on (#1259).
+			setError(status, Utils::String::removeHtmlTags(mRequest->getErrorMsg()));
 			return;
 		}
 
@@ -356,7 +399,7 @@ void ScraperHttpRequest::update()
 
 			if (!retryOn249() && mOverQuotaRetryDelay > 5000)
 			{
-				setStatus(ASYNC_DONE); // Ignore error if delay > 5 seconds
+				setError(status, Utils::String::removeHtmlTags(mRequest->getErrorMsg())); // a wait the run will not make (#1259)
 				return;
 			}
 		}
@@ -368,8 +411,10 @@ void ScraperHttpRequest::update()
 		return;
 	}
 
-	// Ignored errors
-	if (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR)
+	// A 404 is the search's "no match". An IO error -- no network, a refused,
+	// reset or stalled connection -- falls to the errors below, which the run
+	// counts (#1259).
+	if (status == HttpReq::REQ_404_NOTFOUND)
 	{
 		setStatus(ASYNC_DONE);
 		return;
@@ -538,6 +583,7 @@ ImageDownloadHandle::ImageDownloadHandle(const std::string& url, const std::stri
 
 	HttpReqOptions options;
 	options.outputFilename = path;
+	options.stallTimeout = SCRAPER_STALL_TIMEOUT; // #1262
 
 	if (url.find("screenscraper") != std::string::npos && url.find("/medias/") != std::string::npos)
 	{
@@ -593,7 +639,9 @@ void ImageDownloadHandle::update()
 
 			std::string url = mRequest->getUrl();
 			delete mRequest;
-			mRequest = new HttpReq(url, mSavePath);
+			HttpReqOptions options(mSavePath);
+			options.stallTimeout = SCRAPER_STALL_TIMEOUT; // #1262
+			mRequest = new HttpReq(url, &options);
 		}
 
 		return;
@@ -609,7 +657,7 @@ void ImageDownloadHandle::update()
 		mRetryCount++;
 		if (mRetryCount >= mOverQuotaRetryCount)
 		{
-			setStatus(ASYNC_DONE); // Ignore error
+			setError(status, "the media download was refused: too many requests"); // #1259
 			return;
 		}
 
@@ -627,14 +675,8 @@ void ImageDownloadHandle::update()
 		return;
 	}
 
-	// Ignored errors
-	if (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR)
-	{
-		setStatus(ASYNC_DONE);
-		return;
-	}
-
-	// Blocking errors
+	// A 404, an IO error and every other failure are errors the run counts:
+	// a media that did not arrive is not a media that did (#1259).
 	if (status != HttpReq::REQ_SUCCESS)
 	{
 		setError(status, Utils::String::removeHtmlTags(mRequest->getErrorMsg()));
@@ -669,19 +711,29 @@ void ImageDownloadHandle::update()
 			if (!trueExtension.empty() && trueExtension != ext)
 			{
 				auto newFileName = Utils::FileSystem::changeExtension(mSavePath, trueExtension);
-				if (Utils::FileSystem::renameFile(mSavePath, newFileName))
+				if (!Utils::FileSystem::renameFile(mSavePath, newFileName))
 				{
-					mSavePath = newFileName;
-					ext = trueExtension;
+					setError("the media file could not be renamed: " + newFileName); // #1259
+					return;
 				}
+
+				mSavePath = newFileName;
+				ext = trueExtension;
 			}
 		}
 
 		// It's an image ?
 		if (mSavePath.find("-fanart") == std::string::npos && mSavePath.find("-bezel") == std::string::npos && mSavePath.find("-map") == std::string::npos && (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp" || ext == ".gif"))
 		{
-			try { resizeImage(mSavePath, mMaxWidth, mMaxHeight); }
+			bool prepared = false;
+			try { prepared = resizeImage(mSavePath, mMaxWidth, mMaxHeight); }
 			catch(...) { }
+
+			if (!prepared)
+			{
+				setError("the media could not be prepared: " + mSavePath); // #1259
+				return;
+			}
 		}
 	}
 

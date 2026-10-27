@@ -3,6 +3,7 @@
 #include <memory>
 #include <thread>
 #include "scrapers/GamesDBJSONScraperResources.h"
+#include "scrapers/Scraper.h"
 #include "utils/FileSystemUtil.h"
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -150,7 +151,9 @@ std::unique_ptr<HttpReq> TheGamesDBJSONRequestResources::fetchResource(const std
 	path += endpoint;
 	path += "?apikey=" + getApiKey();
 
-	return std::unique_ptr<HttpReq>(new HttpReq(path));
+	HttpReqOptions options;
+	options.stallTimeout = SCRAPER_STALL_TIMEOUT; // #1262
+	return std::unique_ptr<HttpReq>(new HttpReq(path, &options));
 }
 
 
