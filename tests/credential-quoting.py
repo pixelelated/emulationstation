@@ -31,7 +31,9 @@ import re
 import sys
 
 CREDENTIAL_COMMANDS = ("setrootpass", "wifictl connect", "wifictl enable", "wifictl join", "wifictl forget",
-                       "cloud_setup --set-syncpath", "--connect", "--host --port")
+                       "cloud_setup --set-syncpath", "--connect", "--host --port",
+                       # Moonlight's SERVER IP, typed by the player (fork #1238)
+                       "moonlight quit", "moonlight pair -pin")
 # A site inside a WIN32-only region is code no ROCKNIX build compiles (fork
 # #275: the netplay command has a Windows twin beside the ROCKNIX one); the
 # check reads the region markers and leaves those sites alone.
@@ -144,6 +146,8 @@ SELF_TEST = (
     ('"setrootpass " + std::string(text.c_str())', ["std::string(text.c_str())"]),
     ('"wifictl join " + std::string(Utils::String::shellQuote(name))', []),
     ('"wifictl join " + std::string("--scan")', []),
+    ('"moonlight quit " + server_ip', ["server_ip"]),
+    ('"moonlight pair -pin " + Utils::String::shellQuote(pin) + " " + Utils::String::shellQuote(server_ip)', []),
 )
 
 

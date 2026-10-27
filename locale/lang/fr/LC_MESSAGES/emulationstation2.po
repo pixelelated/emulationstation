@@ -4860,7 +4860,7 @@ msgstr "Connexion au serveur impossible"
 msgid "PAIR WITH SERVER"
 msgstr "APPAIRER AVEC LE SERVEUR"
 
-msgid "Succesfully paired with server"
+msgid "Successfully paired with server"
 msgstr "Appairage avec le serveur réussi"
 
 msgid "UNPAIR WITH SERVER"
@@ -4871,6 +4871,18 @@ msgstr "Désappairé et paramètres effacés"
 
 msgid "Unpaired from server"
 msgstr "Désappairé du serveur"
+
+#: es-app/src/guis/GuiMoonlight.cpp
+msgid "The pairing files couldn't be removed. This device is still paired."
+msgstr "Les fichiers d’appairage n’ont pas pu être supprimés. Cet appareil est toujours appairé."
+
+#: es-app/src/guis/GuiMoonlight.cpp
+msgid "The game list couldn't be saved. Your Moonlight games are as they were."
+msgstr "La liste des jeux n’a pas pu être enregistrée. Vos jeux Moonlight sont inchangés."
+
+#: es-app/src/guis/GuiMoonlight.cpp
+msgid "The pairing file couldn't be read. Try pairing again."
+msgstr "Le fichier d’appairage n’a pas pu être lu. Réessayez l’appairage."
 
 msgid "SERVER IP"
 msgstr "IP DU SERVEUR"
