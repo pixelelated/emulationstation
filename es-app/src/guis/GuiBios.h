@@ -21,6 +21,7 @@ public:
 
 	virtual std::vector<HelpPrompt> getHelpPrompts() override;
 	virtual void onSizeChanged() override;
+	void render(const Transform4x4f& parentTrans) override;
 
 protected:
 	GuiBios(Window* window, const std::vector<BiosSystem> bioses);
@@ -33,6 +34,9 @@ private:
 	void centerWindow();
 
 	std::vector<BiosSystem> mBios;
+	// The system rows the list was last built with: 0 when it holds only a
+	// sentence, which has nothing to open (getHelpPrompts, #1246).
+	int mSystemRows = 0;
 
 	NinePatchComponent				mBackground;
 	ComponentGrid					mGrid;

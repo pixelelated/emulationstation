@@ -1,4 +1,5 @@
 #include "guis/GuiBios.h"
+#include "BiosText.h"
 
 #include "ApiSystem.h"
 #include "guis/GuiSettings.h"
@@ -135,12 +136,18 @@ void GuiBios::loadList()
 		int         present;
 	};
 
+	mSystemRows = 0;
 	std::vector<Entry> entries;
+	// A system with no games is not loaded, and its name came out as the
+	// short one made proper -- Nds, Psx (#1246): the full name is read from
+	// the system definitions, which do not need the system loaded.
+	const std::map<std::string, std::string> defined = SystemData::getKnownSystemNames();
 	for (auto& systemBiosData : mBios)
 	{
 		Entry e;
 		e.data = systemBiosData;
-		e.name = Utils::String::proper(systemBiosData.name);
+		auto definedName = defined.find(systemBiosData.name);
+		e.name = definedName != defined.end() && !definedName->second.empty() ? definedName->second : Utils::String::proper(systemBiosData.name);
 		e.hasGames = false;
 		e.missing = e.untested = e.present = 0;
 
@@ -217,17 +224,12 @@ void GuiBios::loadList()
 		spacer->setSize(theme->Text.font->getLetterHeight() * 0.5f, 0);
 		row.addElement(spacer, false);
 
-		const int total = e.missing + e.untested + e.present;
-		std::string summary;
-		if (e.missing == 0 && e.untested == 0)
-			summary = _("ALL PRESENT") + std::string(" (") + std::to_string(total) + ")";
-		else
-		{
-			if (e.missing > 0)
-				summary = std::to_string(e.missing) + " " + _("OF") + " " + std::to_string(total) + " " + _("MISSING");
-			if (e.untested > 0)
-				summary += (summary.empty() ? "" : ", ") + std::to_string(e.untested) + " " + _("NOT A KNOWN VERSION");
-		}
+		// One sentence per count, from the catalog's own form for that count
+		// (#1245).
+		const std::string summary = BiosText::summary(e.missing, e.untested, e.present,
+			ngettext("%i OF %i MISSING", "%i OF %i MISSING", e.missing),
+			ngettext("%i NOT A KNOWN VERSION", "%i NOT KNOWN VERSIONS", e.untested),
+			_("ALL PRESENT (%i)"));
 
 		auto line = std::make_shared<MultiLineMenuEntry>(mWindow, e.name, summary);
 		row.addElement(line, true);
@@ -238,6 +240,7 @@ void GuiBios::loadList()
 		row.makeAcceptInputHandler([window, data, name] { GuiBios::openSystem(window, data, name); });
 
 		mList->addRow(row);
+		mSystemRows++;
 	}
 
 	if (idx >= 0 && idx < mList->size())
@@ -280,6 +283,18 @@ void GuiBios::openSystem(Window* window, const BiosSystem& system, const std::st
 	window->pushGui(s);
 }
 
+// With full-screen menus on -- every handheld panel -- Window draws no help
+// while a second page is open, so this page's bar (DETAILS, BACK, REFRESH)
+// was never shown (#1246). Drawn here when the page is on top, as the save
+// state manager does (GuiSaveState::render); Window then skips its own.
+void GuiBios::render(const Transform4x4f& parentTrans)
+{
+	GuiComponent::render(parentTrans);
+
+	if (mWindow->peekGui() == this && Renderer::ScreenSettings::fullScreenMenus())
+		mWindow->renderHelpPromptsEarly(parentTrans);
+}
+
 void GuiBios::centerWindow()
 {
 	if (Renderer::ScreenSettings::fullScreenMenus())
@@ -292,8 +307,13 @@ void GuiBios::centerWindow()
 
 bool GuiBios::input(InputConfig* config, Input input)
 {
+	// DETAILS follows the focus (getHelpPrompts), so the bar is asked again
+	// after the press has moved it.
 	if (GuiComponent::input(config, input))
+	{
+		updateHelpPrompts();
 		return true;
+	}
 
 	if (input.value != 0 && config->isMappedTo(BUTTON_BACK, input))
 	{
@@ -313,10 +333,12 @@ bool GuiBios::input(InputConfig* config, Input input)
 std::vector<HelpPrompt> GuiBios::getHelpPrompts()
 {
 	std::vector<HelpPrompt> prompts;
-	// Only when there is a system to open: the THE BIOS CHECK RETURNED
-	// NOTHING row has no action, and a prompt that does nothing is worse than
-	// none (#308 8-es claude F-ES-28; es-code-traps.md, the help bar).
-	if (!mBios.empty())
+	// Only while a system's row is focused: the sentence row has no action,
+	// and on REFRESH or BACK the press is the button's. A prompt that does
+	// nothing is worse than none (#308 8-es claude F-ES-28; es-code-traps.md,
+	// the help bar). It followed mBios, which a list that is not shown --
+	// the not-run sentence -- still fills (#1246).
+	if (mSystemRows > 0 && mGrid.getSelectedComponent() == mList)
 		prompts.push_back(HelpPrompt(BUTTON_OK, _("DETAILS")));
 	prompts.push_back(HelpPrompt(BUTTON_BACK, _("BACK")));
 	prompts.push_back(HelpPrompt("start", _("REFRESH")));

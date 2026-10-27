@@ -7006,3 +7006,22 @@ msgstr "RÉESSAYEZ PLUS TARD, OU SCRAPEZ UN JEU DEPUIS SON PROPRE MENU."
 #: es-app/src/guis/GuiScraperRun.cpp
 msgid "TRY AGAIN LATER."
 msgstr "RÉESSAYEZ PLUS TARD."
+
+#: es-app/src/guis/GuiBios.cpp
+#, c-format
+msgid "%i OF %i MISSING"
+msgid_plural "%i OF %i MISSING"
+msgstr[0] "%i SUR %i MANQUANT"
+msgstr[1] "%i SUR %i MANQUANTS"
+
+#: es-app/src/guis/GuiBios.cpp
+#, c-format
+msgid "%i NOT A KNOWN VERSION"
+msgid_plural "%i NOT KNOWN VERSIONS"
+msgstr[0] "%i DE VERSION INCONNUE"
+msgstr[1] "%i DE VERSION INCONNUE"
+
+#: es-app/src/guis/GuiBios.cpp
+#, c-format
+msgid "ALL PRESENT (%i)"
+msgstr "TOUS PRÉSENTS (%i)"
