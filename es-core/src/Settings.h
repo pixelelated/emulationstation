@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <set>
+#include <mutex>
 #include "utils/Delegate.h"
 
 // Non-cached settings macros
@@ -138,6 +139,13 @@ public:
 private:
 	static Settings* sInstance;
 	static bool sRecovered;
+	// The settings lock both stores take around a save (D-CLOUD-186,
+	// SystemConf's sLockPath) and the budget for it. Members so the unit
+	// tests can point them at a scratch directory; nothing else sets them.
+	static std::string sLockPath;
+	static int sLockBudgetMs;
+	// es-app/tests/unit/SettingsTests.cpp: a fresh instance per case.
+	friend struct SettingsTestAccess;
 
 	Settings();
 
@@ -160,6 +168,11 @@ private:
 
 	bool mLoaded;
 	void updateCachedSetting(const std::string& name);
+
+	// The maps and mWasChanged, read and written from more than one thread
+	// (T21 PL-12, #1200): recursive, because a set reads back through the
+	// getters (updateCachedSetting).
+	mutable std::recursive_mutex mMutex;
 };
 
 #endif // ES_CORE_SETTINGS_H

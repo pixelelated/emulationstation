@@ -144,6 +144,35 @@ set_target_properties(es-fs-tests PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
+# Settings itself (T21 S8, #1200): Settings.cpp, FileSystemUtil.cpp and
+# AtomicFileUtil.cpp with pugixml's source, and doubles for the rest
+# (SettingsTests.cpp). pugixml is the external/pugixml submodule; a tree
+# without it checked out names a copy at the same commit.
+find_path(PUGIXML_INCLUDE_DIR pugixml/src/pugixml.hpp HINTS ${ES_ROOT}/external)
+if(NOT PUGIXML_INCLUDE_DIR)
+	message(FATAL_ERROR "pugixml/src/pugixml.hpp was not found; pass -DPUGIXML_INCLUDE_DIR=<dir holding pugixml/>")
+endif()
+add_executable(es-settings-tests
+	${CMAKE_CURRENT_SOURCE_DIR}/SettingsTests.cpp
+	${ES_ROOT}/es-core/src/Settings.cpp
+	${ES_ROOT}/es-core/src/utils/AtomicFileUtil.cpp
+	${ES_ROOT}/es-core/src/utils/FileSystemUtil.cpp
+	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
+	${ES_ROOT}/es-core/src/utils/md5.cpp
+	${PUGIXML_INCLUDE_DIR}/pugixml/src/pugixml.cpp
+)
+target_include_directories(es-settings-tests PRIVATE
+	${ES_ROOT}/es-core/src
+	${ES_ROOT}/external
+	${PUGIXML_INCLUDE_DIR}
+)
+target_link_libraries(es-settings-tests PRIVATE Threads::Threads)
+set_target_properties(es-settings-tests PROPERTIES
+	CXX_STANDARD 17
+	CXX_STANDARD_REQUIRED ON
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
 add_executable(es-conf-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/SystemConfTests.cpp
 	${ES_ROOT}/es-core/src/SystemConf.cpp

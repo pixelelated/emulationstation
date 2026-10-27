@@ -14,6 +14,8 @@
 
 Settings* Settings::sInstance = NULL;
 bool Settings::sRecovered = false;
+std::string Settings::sLockPath = "/tmp/.system.cfg.lock";
+int Settings::sLockBudgetMs = 5000;
 static std::string mEmptyString = "";
 Delegate<ISettingsChangedEvent> Settings::settingChanged;
 
@@ -468,73 +470,100 @@ void saveMap(pugi::xml_node &node, std::map<K, V>& map, const char* type, std::m
 
 bool Settings::saveFile()
 {
-	if (!mWasChanged)
-		return false;
-
-	mWasChanged = false;
-
-	LOG(LogDebug) << "Settings::saveFile() : Saving Settings to file.";
-
-	const std::string path = Paths::getUserEmulationStationPath() + "/es_settings.cfg";
-
-	pugi::xml_document doc;
-
-	pugi::xml_node config = doc.append_child("config"); // root element
-
-	saveMap<std::string, bool>(config, mBoolMap, "bool", mDefaultBoolMap, false);
-	saveMap<std::string, int>(config, mIntMap, "int", mDefaultIntMap, 0);
-	saveMap<std::string, float>(config, mFloatMap, "float", mDefaultFloatMap, 0);
-
-	//saveMap<std::string, std::string>(config, mStringMap, "string");
-	for(auto iter = mStringMap.cbegin(); iter != mStringMap.cend(); iter++)
+	// The maps are read under the mutex, once, into the bytes to write; a
+	// change made after that marks the store dirty again and is the next
+	// save's (T21 PL-12, #1200). The writes then go under the settings lock
+	// SystemConf and the shell take (D-CLOUD-186).
+	std::string text;
 	{
-		// key is on the "don't save" list, so don't save it
-		if (std::find(settings_dont_save.cbegin(), settings_dont_save.cend(), iter->first) != settings_dont_save.cend())
-			continue;
+		std::lock_guard<std::recursive_mutex> lock(mMutex);
+		if (!mWasChanged)
+			return false;
 
-		// Value is not known, and empty, don't save it
-		auto def = mDefaultStringMap.find(iter->first);
-		if (def == mDefaultStringMap.cend() && iter->second.empty())
-			continue;
+		mWasChanged = false;
 
-		// Value is know and has default value, don't save it
-		if (def != mDefaultStringMap.cend() && def->second == iter->second)
-			continue;
+		LOG(LogDebug) << "Settings::saveFile() : Saving Settings to file.";
 
-		pugi::xml_node node = config.append_child("string");
-		node.append_attribute("name").set_value(iter->first.c_str());
-		node.append_attribute("value").set_value(iter->second.c_str());
+		pugi::xml_document doc;
+
+		pugi::xml_node config = doc.append_child("config"); // root element
+
+		saveMap<std::string, bool>(config, mBoolMap, "bool", mDefaultBoolMap, false);
+		saveMap<std::string, int>(config, mIntMap, "int", mDefaultIntMap, 0);
+		saveMap<std::string, float>(config, mFloatMap, "float", mDefaultFloatMap, 0);
+
+		//saveMap<std::string, std::string>(config, mStringMap, "string");
+		for(auto iter = mStringMap.cbegin(); iter != mStringMap.cend(); iter++)
+		{
+			// key is on the "don't save" list, so don't save it
+			if (std::find(settings_dont_save.cbegin(), settings_dont_save.cend(), iter->first) != settings_dont_save.cend())
+				continue;
+
+			// Value is not known, and empty, don't save it
+			auto def = mDefaultStringMap.find(iter->first);
+			if (def == mDefaultStringMap.cend() && iter->second.empty())
+				continue;
+
+			// Value is know and has default value, don't save it
+			if (def != mDefaultStringMap.cend() && def->second == iter->second)
+				continue;
+
+			pugi::xml_node node = config.append_child("string");
+			node.append_attribute("name").set_value(iter->first.c_str());
+			node.append_attribute("value").set_value(iter->second.c_str());
+		}
+
+		// Serialised once, then written through a temporary and a rename
+		// (D-CLOUD-079): save_file opened the live path for writing, which
+		// truncates it, and a process killed before the write completed -- or a
+		// battery gone at that instant -- left an empty es_settings.cfg that the
+		// next start read as "no settings" and the next save made permanent.
+		// The same bytes go to the last-known-good record, because what was just
+		// written is, by construction, the newest good state (D-CLOUD-078).
+		struct StringWriter : pugi::xml_writer
+		{
+			std::string out;
+			void write(const void* data, size_t size) override { out.append((const char*) data, size); }
+		};
+		StringWriter writer;
+		doc.save(writer);
+		text = writer.out;
 	}
 
-	// Serialised once, then written through a temporary and a rename
-	// (D-CLOUD-079): save_file opened the live path for writing, which
-	// truncates it, and a process killed before the write completed -- or a
-	// battery gone at that instant -- left an empty es_settings.cfg that the
-	// next start read as "no settings" and the next save made permanent.
-	// The same bytes go to the last-known-good record, because what was just
-	// written is, by construction, the newest good state (D-CLOUD-078).
-	struct StringWriter : pugi::xml_writer
+	const std::string path = Paths::getUserEmulationStationPath() + "/es_settings.cfg";
+	auto keepOwed = [this]
 	{
-		std::string out;
-		void write(const void* data, size_t size) override { out.append((const char*) data, size); }
+		std::lock_guard<std::recursive_mutex> lock(mMutex);
+		mWasChanged = true;
 	};
-	StringWriter writer;
-	doc.save(writer);
+
+	Utils::AtomicFile::PidLock fileLock(sLockPath);
+	if (!fileLock.acquire(sLockBudgetMs))
+	{
+		LOG(LogWarning) << "Settings::saveFile() : the settings lock was not free within " << sLockBudgetMs << " ms; nothing written -- the changes are kept for the next save";
+		keepOwed();
+		return false;
+	}
 
 	// Private, both the file and its record, from the same constant (T21
 	// PL-05, #1193): never wider than kPrivateMode, never wider than now.
 	const int mode = Utils::AtomicFile::modeOf(path, Utils::AtomicFile::kPrivateMode) & Utils::AtomicFile::kPrivateMode;
-	if (!Utils::AtomicFile::writeText(path, writer.out, mode))
+	if (!Utils::AtomicFile::writeText(path, text, mode))
 	{
 		// Kept dirty, so the next save tries again rather than believing this
 		// one happened.
 		LOG(LogError) << "Settings::saveFile() : could not write " << path << "; the changes are kept for the next save";
-		mWasChanged = true;
+		keepOwed();
 		return false;
 	}
 	// The record is made no less private than the live file (#308 F-ES-08).
-	if (!Utils::AtomicFile::writeText(path + ".backup", writer.out, mode))
-		LOG(LogWarning) << "Settings::saveFile() : could not write the last-known-good record " << path << ".backup";
+	// A record that could not be written is owed: the next save writes it,
+	// changed or not (T21 PL-12, #1200).
+	if (!Utils::AtomicFile::writeText(path + ".backup", text, mode))
+	{
+		LOG(LogWarning) << "Settings::saveFile() : could not write the last-known-good record " << path << ".backup -- the next save writes it";
+		keepOwed();
+	}
 
 	Scripting::fireEvent("config-changed");
 	Scripting::fireEvent("settings-changed");
@@ -566,22 +595,47 @@ void Settings::loadFile()
 		if (!Utils::AtomicFile::narrowTo(copy, Utils::AtomicFile::kPrivateMode))
 			LOG(LogWarning) << "Settings: could not make " << copy << " private";
 
+	// A settings document is one that parses and has <config> at its root
+	// (T21 PL-12, #1200): any well-formed XML used to be taken, and then
+	// recorded over the record. Parsed from the bytes read, which are the
+	// bytes recorded below -- the record used to be read again by name.
+	auto parse = [](pugi::xml_document& d, const std::string& text, std::string& why)
+	{
+		d.reset();
+		pugi::xml_parse_result result = d.load_buffer(text.data(), text.size());
+		if (!result)
+		{
+			why = result.description();
+			return false;
+		}
+		if (!d.child("config"))
+		{
+			why = "no <config> element";
+			return false;
+		}
+		return true;
+	};
+
 	pugi::xml_document doc;
 	bool loaded = false;
 	bool fromBackup = false;
+	std::string liveText;
 	const bool liveExists = Utils::FileSystem::exists(path);
 	if (liveExists)
 	{
-		pugi::xml_parse_result result = doc.load_file(WINSTRINGW(path).c_str());
-		loaded = (bool) result;
+		bool ok = false;
+		liveText = Utils::AtomicFile::readText(path, &ok);
+		std::string why = "it could not be read";
+		loaded = ok && parse(doc, liveText, why);
 		if (!loaded)
-			LOG(LogError) << "Could not parse Settings file!\n   " << result.description();
+			LOG(LogError) << "Could not parse Settings file!\n   " << why;
 	}
 	if (!loaded && Utils::FileSystem::exists(backup))
 	{
-		doc.reset();
-		pugi::xml_parse_result result = doc.load_file(WINSTRINGW(backup).c_str());
-		if (result)
+		bool ok = false;
+		const std::string backupText = Utils::AtomicFile::readText(backup, &ok);
+		std::string why = "it could not be read";
+		if (ok && parse(doc, backupText, why))
 		{
 			loaded = true;
 			fromBackup = true;
@@ -589,7 +643,7 @@ void Settings::loadFile()
 				<< " -- loading the last-known-good record " << backup << " and writing it back";
 		}
 		else
-			LOG(LogError) << "Could not parse the last-known-good record " << backup << "!\n   " << result.description();
+			LOG(LogError) << "Could not parse the last-known-good record " << backup << "!\n   " << why;
 	}
 	if (!loaded)
 		return;
@@ -632,12 +686,11 @@ void Settings::loadFile()
 	{
 		// The file that just parsed is the last known good: record it, and
 		// only when the record would change -- this runs at every start.
-		bool ok = false;
-		const std::string live = Utils::AtomicFile::readText(path, &ok);
+		const std::string& live = liveText;
 		// No less private than the live file, and rewritten for its mode
 		// alone where an earlier build made it wider (#308 F-ES-08).
 		const int mode = Utils::AtomicFile::modeOf(path, Utils::AtomicFile::kPrivateMode) & Utils::AtomicFile::kPrivateMode;
-		if (ok && (live != Utils::AtomicFile::readText(backup) || Utils::AtomicFile::modeOf(backup, mode) != mode)
+		if ((live != Utils::AtomicFile::readText(backup) || Utils::AtomicFile::modeOf(backup, mode) != mode)
 			&& !Utils::AtomicFile::writeText(backup, live, mode))
 			LOG(LogWarning) << "Could not write the last-known-good record " << backup;
 	}
@@ -646,6 +699,7 @@ void Settings::loadFile()
 //Print a warning message if the setting we're trying to get doesn't already exist in the map, then return the value in the map.
 #define SETTINGS_GETSET(type, mapName, getMethodName, setMethodName, defaultValue) type Settings::getMethodName(const std::string& name) \
 { \
+	std::lock_guard<std::recursive_mutex> lock(mMutex); \
 	auto it = mapName.find(name); \
 	if (it == mapName.cend()) \
 		return defaultValue; \
@@ -654,6 +708,7 @@ void Settings::loadFile()
 } \
 bool Settings::setMethodName(const std::string& name, type value) \
 { \
+	std::lock_guard<std::recursive_mutex> lock(mMutex); \
 	if (mapName.count(name) == 0 || mapName[name] != value) { \
 		mapName[name] = value; \
 		if (std::find(settings_dont_save.cbegin(), settings_dont_save.cend(), name) == settings_dont_save.cend()) \
@@ -670,6 +725,7 @@ SETTINGS_GETSET(float, mFloatMap, getFloat, setFloat, 0.0f);
 
 std::string Settings::getString(const std::string& name)
 {
+	std::lock_guard<std::recursive_mutex> lock(mMutex);
 	auto it = mStringMap.find(name);
 	if (it == mStringMap.cend())
 		return mEmptyString;
@@ -679,6 +735,7 @@ std::string Settings::getString(const std::string& name)
 
 bool Settings::setString(const std::string& name, const std::string& value)
 {
+	std::lock_guard<std::recursive_mutex> lock(mMutex);
 	if (mStringMap.count(name) == 0 || mStringMap[name] != value)
 	{
 		if (value == "" && mStringMap.count(name) == 0)
@@ -698,6 +755,7 @@ bool Settings::setString(const std::string& name, const std::string& value)
 
 SettingType Settings::getSettingType(const std::string& name)
 {
+	std::lock_guard<std::recursive_mutex> lock(mMutex);
 	if (mStringMap.find(name) != mStringMap.cend())
 		return SettingType::String;
 
@@ -715,6 +773,7 @@ SettingType Settings::getSettingType(const std::string& name)
 
 std::vector<std::string> Settings::getSettingsNames()
 {
+	std::lock_guard<std::recursive_mutex> lock(mMutex);
 	std::vector<std::string> ret;
 	
 	for (auto item : mStringMap)
