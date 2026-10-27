@@ -315,8 +315,14 @@ void GuiSettings::addInputTextRow(const std::string& title, const std::string& v
 
 	row.addElement(bracket, false);
 
-	auto updateVal = [this, font, ed, password, onsave](const std::string &newVal)
+	// The value the editor opens on: the last one saved, not the one the row was
+	// built with, so an unchanged OK cannot write the old value back (#1255).
+	auto current = std::make_shared<std::string>(value);
+
+	auto updateVal = [this, font, ed, password, onsave, current](const std::string &newVal)
 	{
+		*current = newVal;
+
 		if (!password)
 		{
 			ed->setValue(newVal);
@@ -335,9 +341,9 @@ void GuiSettings::addInputTextRow(const std::string& title, const std::string& v
 
 	}; // ok callback (apply new value to ed)
 
-	row.makeAcceptInputHandler([this, title, updateVal, customEditor, value, password]
+	row.makeAcceptInputHandler([this, title, updateVal, customEditor, current, password]
 	{
-	  std::string data = value;
+	  std::string data = *current;
 #ifdef BATOCERA
 		if (password && (SystemConf::getInstance()->get("system.security.enabled") == "1"))
 			data.clear();
