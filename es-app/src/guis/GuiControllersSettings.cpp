@@ -206,6 +206,7 @@ GuiControllersSettings::GuiControllersSettings(Window* wnd, int autoSel) : GuiSe
 		if (Settings::getInstance()->setBool("ShowControllerActivity", activity->getState()))
 		{
 			Window* parent = window;
+			save(); // the page's other rows, AUTOCONFIGURE among them (#1243)
 			delete this;
 			openControllersSettings(parent, 1);
 		}

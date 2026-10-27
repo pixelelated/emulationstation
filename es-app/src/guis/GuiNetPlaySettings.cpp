@@ -183,6 +183,7 @@ void GuiNetPlaySettings::addRelayServerOptions(int selectItem)
 		}
 		
 		Window* pw = mWindow;
+		save(); // the page's other rows, ENABLE NETPLAY among them (#1243)
 		delete this;
 		pw->pushGui(new GuiNetPlaySettings(pw, 1));
 	});
