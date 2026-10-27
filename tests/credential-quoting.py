@@ -30,8 +30,10 @@ import os
 import re
 import sys
 
+# ledcontrol takes no credential, but a value kept from system.cfg that a
+# player can select (led.color), spliced the same way (T26 PL-13, #1227).
 CREDENTIAL_COMMANDS = ("setrootpass", "wifictl connect", "wifictl enable", "wifictl join", "wifictl forget",
-                       "cloud_setup --set-syncpath", "--connect", "--host --port")
+                       "cloud_setup --set-syncpath", "--connect", "--host --port", "ledcontrol")
 # A site inside a WIN32-only region is code no ROCKNIX build compiles (fork
 # #275: the netplay command has a Windows twin beside the ROCKNIX one); the
 # check reads the region markers and leaves those sites alone.
@@ -54,7 +56,9 @@ def win32_only_lines(text):
         elif any(stack):
             out.add(n)
     return out
-SITE = re.compile(r'"((?:timeout \d+ )?(?:/usr/bin/)?(?:%s)) (?:\\")?"\s*\+\s*' % "|".join(re.escape(c) for c in CREDENTIAL_COMMANDS))
+# A command may sit inside another shell's double quotes ("/usr/bin/sh -lc
+# \"/usr/bin/ledcontrol " + value): the site is the same command.
+SITE = re.compile(r'"((?:/usr/bin/sh -lc \\")?(?:timeout \d+ )?(?:/usr/bin/)?(?:%s)) (?:\\")?"\s*\+\s*' % "|".join(re.escape(c) for c in CREDENTIAL_COMMANDS))
 OPERAND = re.compile(r'\+\s*([A-Za-z_][\w:]*)\s*(\(?)')
 # The calls that make an operand safe: everything else spliced in -- a bare
 # name or any other call, SystemConf::getInstance()->get(...) included -- is a
@@ -144,6 +148,8 @@ SELF_TEST = (
     ('"setrootpass " + std::string(text.c_str())', ["std::string(text.c_str())"]),
     ('"wifictl join " + std::string(Utils::String::shellQuote(name))', []),
     ('"wifictl join " + std::string("--scan")', []),
+    ('"/usr/bin/sh -lc \\"/usr/bin/ledcontrol " + newColor + "\\""', ["newColor"]),
+    ('"/usr/bin/ledcontrol " + Utils::String::shellQuote(newColor))', []),
 )
 
 

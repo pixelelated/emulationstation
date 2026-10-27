@@ -2174,7 +2174,11 @@ void GuiMenu::openSystemSettings()
 		optionsColors->setSelectedChangedCallback([](const std::string& newColor) {
 			SystemConf::getInstance()->set("led.color", newColor);
 			SystemConf::getInstance()->saveSystemConf();
-			Utils::Platform::runSystemCommand("/usr/bin/sh -lc \"/usr/bin/ledcontrol " + newColor + "\"", "", nullptr);
+			// Two shells read this: the colour, kept from system.cfg and
+			// selectable, is quoted for the inner one, and the inner command
+			// for the outer one. Inside the outer double quotes it had been,
+			// $( ) and backticks stayed live (T26 PL-13, #1227).
+			Utils::Platform::runSystemCommand("/usr/bin/sh -lc " + Utils::String::shellQuote("/usr/bin/ledcontrol " + Utils::String::shellQuote(newColor)), "", nullptr);
 		});
 
 		s->addSaveFunc([optionsColors] {
