@@ -269,12 +269,9 @@ private:
 	bool	 mLocked;
 };
 
-static bool g_isGuiImageViewerRunning = false;
-
 GuiImageViewer::GuiImageViewer(Window* window, bool linearSmooth) :
-	GuiComponent(window), mGrid(window), mPdfThreads(nullptr)
+	GuiComponent(window), mGrid(window), mPdfThreads(nullptr), mLifeToken(std::make_shared<int>(0))
 {
-	g_isGuiImageViewerRunning = true;
 
 	// A screenshot in the viewer's grid is shown as the game was (fork
 	// #243, #245); any other picture keeps its own shape and turn.
@@ -362,15 +359,19 @@ void GuiImageViewer::loadPdf(const std::string& imagePath)
 
 		for (int i = INITIALPAGES; i < pages; i += PAGESPERTHREAD)
 		{
-			mPdfThreads->queueWorkItem([this, imagePath, window, i]
+			// Each job and each callback it posts holds this viewer's token,
+			// not a global every viewer shares (#1252): a callback for a
+			// closed viewer returns, whichever viewer is open now.
+			std::weak_ptr<int> alive = mLifeToken;
+			mPdfThreads->queueWorkItem([this, alive, imagePath, window, i]
 			{
 				auto fl = ApiSystem::getInstance()->extractPdfImages(imagePath, i + 1, PAGESPERTHREAD);
-				if (fl.size() == 0 || !g_isGuiImageViewerRunning)
+				if (fl.size() == 0 || alive.expired())
 					return;
 
-				window->postToUiThread([this, i, fl]()
+				window->postToUiThread([this, alive, i, fl]()
 				{
-					if (!g_isGuiImageViewerRunning)
+					if (!alive.lock())
 						return;
 
 					for (int f = 0; f < fl.size(); f++)
@@ -389,8 +390,16 @@ void GuiImageViewer::loadPdf(const std::string& imagePath)
 		},
 			[this, window, imagePath, pages](std::vector<std::string> fileList)
 		{
+			// Nothing came out of the first pages: the viewer was never
+			// pushed, so it is deleted here -- its pool stopped and joined by
+			// the destructor -- and the player is told (#1252: it was left,
+			// neither shown nor freed, with its pool running).
 			if (fileList.size() == 0)
+			{
+				delete this;
+				window->displayNotificationMessage(_("COULDN'T OPEN THIS FILE."));
 				return;
+			}
 		
 			for (int i = 0; i < fileList.size(); i++)
 				mGrid.setImage(fileList[i], std::to_string(i + 1));			
@@ -498,15 +507,16 @@ void GuiImageViewer::loadCbz(const std::string& imagePath)
 		for (int i = INITIALPAGES; i < pages; i += PAGESPERTHREAD)
 		{
 			auto fileToExtract = files[i];
-			mPdfThreads->queueWorkItem([this, imagePath, fileToExtract, window, i]
+			std::weak_ptr<int> alive = mLifeToken;
+			mPdfThreads->queueWorkItem([this, alive, imagePath, fileToExtract, window, i]
 			{
 				auto localFile = _extractZipFile(imagePath, fileToExtract);
-				if (localFile.empty() || !g_isGuiImageViewerRunning)
+				if (localFile.empty() || alive.expired())
 					return;
 
-				window->postToUiThread([this, i, localFile]()
+				window->postToUiThread([this, alive, i, localFile]()
 				{
-					if (!g_isGuiImageViewerRunning)
+					if (!alive.lock())
 						return;
 
 					mGrid.setImage(localFile, std::to_string(i + 1));
@@ -536,7 +546,11 @@ void GuiImageViewer::loadCbz(const std::string& imagePath)
 		[this, window, imagePath, pages](std::vector<std::string> fileList)
 		{
 			if (fileList.size() == 0)
+			{
+				delete this;
+				window->displayNotificationMessage(_("COULDN'T OPEN THIS FILE."));
 				return;
+			}
 
 			for (size_t i = 0; i < fileList.size(); i++)
 				mGrid.setImage(fileList[i], std::to_string(i + 1));
@@ -549,8 +563,6 @@ void GuiImageViewer::loadCbz(const std::string& imagePath)
 
 GuiImageViewer::~GuiImageViewer()
 {
-	g_isGuiImageViewerRunning = false;
-
 	if (mPdfThreads != nullptr)
 	{
 		mPdfThreads->stop();

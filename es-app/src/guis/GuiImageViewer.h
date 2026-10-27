@@ -35,6 +35,9 @@ protected:
 	std::string mPdf;
 
 	Utils::ThreadPool* mPdfThreads;
+	// Dies with this viewer: the pool's jobs and the callbacks they post hold
+	// a std::weak_ptr of it and return when it is gone (#1252).
+	std::shared_ptr<int> mLifeToken;
 };
 
 class GuiVideoViewer : public GuiComponent
