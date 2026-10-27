@@ -18,6 +18,8 @@ public:
 
 	int getError() { return mErrorStatus; }
 	std::string getErrorString() { return mStatusString; }
+	// The error came from a media download, after the game's data (#1259).
+	bool isMediaError() { return mMediaError; }
 
 	int mThreadId;
 
@@ -39,6 +41,7 @@ private:
 	
 	int mStatus;
 	int mErrorStatus;
+	bool mMediaError = false;
 	std::string mStatusString;
 
 	ScraperSearchResult mResult;
@@ -100,6 +103,7 @@ private:
 	// The request failures by class, for the run's why (#1259).
 	int mOfflineErrors = 0;
 	int mBusyErrors = 0;
+	int mMediaErrors = 0;
 
 	void run();
 

@@ -86,6 +86,7 @@ void ScraperThread::run(const ScraperSearchParams& params)
 	mResult = ScraperSearchResult();
 	mErrorStatus = 0;
 	mStatusString = "";
+	mMediaError = false;
 	mStatus = ASYNC_IN_PROGRESS;
 	mSearch = params;
 	mMDResolveHandle.reset();
@@ -139,7 +140,10 @@ int ScraperThread::updateState()
 		if (status == ASYNC_DONE)
 			acceptResult(result);
 		else if (status == ASYNC_ERROR)
+		{
+			mMediaError = true; // the data arrived, a media did not (#1259)
 			processError(httpCode, statusString);
+		}
 	}
 
 	return mStatus;
@@ -215,6 +219,11 @@ void ThreadedScraper::run()
 					break;
 
 				case ASYNC_ERROR:
+					// A media that did not arrive or could not be saved, after the
+					// game's data did: its own why (#1259); offline and busy keep theirs.
+					if (mScraperThread->isMediaError() && mScraperThread->getError() != HttpReq::REQ_IO_ERROR && mScraperThread->getError() != HttpReq::REQ_429_TOOMANYREQUESTS)
+						mMediaErrors++;
+
 					processError(mScraperThread->getError(), mScraperThread->getErrorString());
 					break;
 
@@ -263,10 +272,15 @@ void ThreadedScraper::run()
 		// A run whose requests reached nothing ends COULDN'T FINISH with
 		// the class's why on the page's line 4; a run whose requests all
 		// answered is COMPLETED with its counts (#1259, D-UI-030).
-		if (!sProgress.failed && !sProgress.cancelled && (mOfflineErrors > 0 || mBusyErrors > 0))
+		if (!sProgress.failed && !sProgress.cancelled && (mOfflineErrors > 0 || mBusyErrors > 0 || mMediaErrors > 0))
 		{
 			sProgress.failed = true;
-			sProgress.failure = mOfflineErrors >= mBusyErrors ? _("YOU'RE NOT ONLINE.") : _("THE SCRAPER IS BUSY RIGHT NOW.");
+			if (mOfflineErrors > 0 && mOfflineErrors >= mBusyErrors)
+				sProgress.failure = _("YOU'RE NOT ONLINE.");
+			else if (mBusyErrors > 0)
+				sProgress.failure = _("THE SCRAPER IS BUSY RIGHT NOW.");
+			else
+				sProgress.failure = _("SOME IMAGES COULDN'T BE SAVED.");
 		}
 
 		sProgress.finished = true;
