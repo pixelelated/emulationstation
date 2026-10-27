@@ -50,6 +50,19 @@ namespace WifiText
 	// begin or end with a space.
 	std::string parseCurrent(const std::vector<std::string>& lines);
 
+	// What the Wi-Fi page says after a connect (T21 PL-06, #1194): wifictl
+	// exits 0 when the device has no Wi-Fi at all, so the connect's exit is
+	// not the answer. `connected` is the connect's success; `currentAnswered`
+	// whether `wifictl current` gave an answer; `current` the network it
+	// named ("" for none); `name` the one the player chose.
+	enum class ConnectOutcome
+	{
+		Joined,         // on `name`: CONNECTED, and the settings take it
+		NotAvailable,   // no network at all: WI-FI ISN'T AVAILABLE..., nothing saved
+		Failed          // the connect failed, or the device is on another network
+	};
+	ConnectOutcome connectOutcome(bool connected, bool currentAnswered, const std::string& current, const std::string& name);
+
 	// A row of the Wi-Fi picker (fork #191; the maintainer's paradigm of
 	// 2026-09-15: the WI-FI NETWORK row -- WI-FI SSID until D-UI-071 renamed
 	// it for its new value -- is the network the device is on, the

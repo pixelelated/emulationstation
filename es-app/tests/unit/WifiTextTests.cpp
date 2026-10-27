@@ -350,3 +350,20 @@ TEST_CASE("saved SSIDs preserve renamed profiles and escaped fields (#535)")
 	CHECK(rows[0].saved);
 	CHECK(rows[0].profile.empty()); // requires the explicit profile chooser
 }
+
+TEST_CASE("connectOutcome: a connect is CONNECTED only when wifictl current names the network (T21 PL-06, #1194)")
+{
+	using WifiText::ConnectOutcome;
+	// On the network asked for.
+	CHECK(WifiText::connectOutcome(true, true, "Home Wi-Fi", "Home Wi-Fi") == ConnectOutcome::Joined);
+	// wifictl exits 0 with no Wi-Fi device: current answers nothing, or none.
+	CHECK(WifiText::connectOutcome(true, false, "", "Home Wi-Fi") == ConnectOutcome::NotAvailable);
+	CHECK(WifiText::connectOutcome(true, true, "", "Home Wi-Fi") == ConnectOutcome::NotAvailable);
+	// Exit 0 and on another network: not the one asked for.
+	CHECK(WifiText::connectOutcome(true, true, "Cafe", "Home Wi-Fi") == ConnectOutcome::Failed);
+	// A name differs by case: it is another network.
+	CHECK(WifiText::connectOutcome(true, true, "home wi-fi", "Home Wi-Fi") == ConnectOutcome::Failed);
+	// The connect failed, whatever current says.
+	CHECK(WifiText::connectOutcome(false, true, "Home Wi-Fi", "Home Wi-Fi") == ConnectOutcome::Failed);
+	CHECK(WifiText::connectOutcome(false, false, "", "Home Wi-Fi") == ConnectOutcome::Failed);
+}

@@ -263,3 +263,14 @@ std::string WifiText::joinedNotice(const std::string& name, const std::string& c
 {
 	return name + " : " + connectedWord;
 }
+
+WifiText::ConnectOutcome WifiText::connectOutcome(bool connected, bool currentAnswered, const std::string& current, const std::string& name)
+{
+	if (!connected)
+		return ConnectOutcome::Failed;
+	// No answer, or joined to none: there is no Wi-Fi to be on.
+	if (!currentAnswered || current.empty())
+		return ConnectOutcome::NotAvailable;
+	// A network's name is case-sensitive: another case is another network.
+	return current == name ? ConnectOutcome::Joined : ConnectOutcome::Failed;
+}

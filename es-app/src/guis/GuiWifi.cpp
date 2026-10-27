@@ -374,15 +374,32 @@ void GuiWifi::connect(const std::string& name, const std::string& key, bool open
 	LOG(LogInfo) << "wifi picker: connecting to " << name;
 #if !WIN32
 	const std::string country = SystemConf::getInstance()->get("wifi.country");
-	auto apply = [name, key, country, openNetwork](IGuiLoadingHandler*) { return openNetwork ? ApiSystem::getInstance()->connectOpenWifi(name) : ApiSystem::getInstance()->enableWifi(name, key, country); };
+	auto connectNow = [name, key, country, openNetwork]() { return openNetwork ? ApiSystem::getInstance()->connectOpenWifi(name) : ApiSystem::getInstance()->enableWifi(name, key, country); };
 #else
-	auto apply = [name, key, openNetwork](IGuiLoadingHandler*) { return openNetwork ? ApiSystem::getInstance()->connectOpenWifi(name) : ApiSystem::getInstance()->enableWifi(name, key); };
+	auto connectNow = [name, key, openNetwork]() { return openNetwork ? ApiSystem::getInstance()->connectOpenWifi(name) : ApiSystem::getInstance()->enableWifi(name, key); };
 #endif
-	window->pushGui(new GuiLoading<bool>(window, _("CONNECTING TO WI-FI"), apply,
-		[this, window, name, key, openNetwork](bool ok)
+	// The connect's exit is not the answer: wifictl exits 0 when the device
+	// has no Wi-Fi at all. The page asks wifictl current which network the
+	// device is on, and says CONNECTED only for the one asked for (T21
+	// PL-06, #1194).
+	auto apply = [connectNow, name](IGuiLoadingHandler*)
+	{
+		const bool connected = connectNow();
+		std::string current;
+		const bool answered = connected && ApiSystem::getInstance()->getCurrentWifiSsid(current);
+		return WifiText::connectOutcome(connected, answered, current, name);
+	};
+	window->pushGui(new GuiLoading<WifiText::ConnectOutcome>(window, _("CONNECTING TO WI-FI"), apply,
+		[this, window, name, key, openNetwork](WifiText::ConnectOutcome outcome)
 		{
 			mWaitingLoad = false;
-			if (!ok)
+			if (outcome == WifiText::ConnectOutcome::NotAvailable)
+			{
+				LOG(LogWarning) << "wifi picker: connect to " << name << " exited 0 with no network joined";
+				window->pushGui(new GuiMsgBox(window, _("WI-FI ISN'T AVAILABLE ON THIS DEVICE RIGHT NOW."), _("OK")));
+				return;
+			}
+			if (outcome != WifiText::ConnectOutcome::Joined)
 			{
 				LOG(LogWarning) << "wifi picker: could not connect to " << name;
 				window->pushGui(new GuiMsgBox(window,
