@@ -3,6 +3,7 @@
 #define ES_CORE_HTTP_REQ_H
 
 #include <curl/curl.h>
+#include <atomic>
 #include <map>
 #include <sstream>
 #include <fstream>
@@ -158,7 +159,12 @@ private:
 
 	CURL* mHandle;
 
-	Status mStatus;
+	// Written by whichever thread runs status() for every request, read
+	// by each request's own thread: atomic (T21 PL-19, #1207).
+	std::atomic<Status> mStatus;
+	// The custom headers' list, which curl reads until the handle goes (T21
+	// PL-19, #1207).
+	struct curl_slist* mHeaders = nullptr;
 
 	// string steam mode
 	std::stringstream mContent;

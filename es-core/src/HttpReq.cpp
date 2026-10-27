@@ -1,4 +1,5 @@
 #include "HttpReq.h"
+#include "HttpText.h"
 #include "utils/DownloadFile.h"
 
 #include "utils/FileSystemUtil.h"
@@ -172,12 +173,17 @@ void HttpReq::performRequest(const std::string& url, HttpReqOptions* options)
 
 	if (options != nullptr && options->customHeaders.size() > 0)
 	{
-		struct curl_slist *hs = nullptr;
+		// Kept by the request and freed when it goes: curl reads the list
+		// until the handle is cleaned up, and nothing freed it (T21 PL-19,
+		// #1207).
+		if (mHeaders != nullptr)
+			curl_slist_free_all(mHeaders);
+		mHeaders = nullptr;
 
 		for (auto header : options->customHeaders)
-			hs = curl_slist_append(hs, header.c_str());
+			mHeaders = curl_slist_append(mHeaders, header.c_str());
 
-		curl_easy_setopt(mHandle, CURLOPT_HTTPHEADER, hs);
+		curl_easy_setopt(mHandle, CURLOPT_HTTPHEADER, mHeaders);
 	}
 
 	//set curl to handle redirects
@@ -386,6 +392,9 @@ HttpReq::~HttpReq()
 
 		curl_easy_cleanup(mHandle);
 	}
+
+	if (mHeaders != nullptr)
+		curl_slist_free_all(mHeaders);
 }
 
 HttpReq::Status HttpReq::status()
@@ -427,8 +436,12 @@ HttpReq::Status HttpReq::status()
 				}
 				else if (msg->data.result == CURLE_OK)
 				{
-					int http_status_code;
-					curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &http_status_code);					
+					// curl writes a long for CURLINFO_RESPONSE_CODE: an int took
+					// eight bytes into four on every completed transfer (T21
+					// PL-08, #1196).
+					long http_status_code = 0;
+					if (curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &http_status_code) != CURLE_OK)
+						http_status_code = 0;
 
 					if (http_status_code < 200 || http_status_code > 299)
 					{
@@ -549,7 +562,9 @@ std::string HttpReq::getContent()
 void HttpReq::onError(const char* msg)
 {
 	mErrorMsg = msg;
-	LOG(LogError) << "HttpReq::onError (" + std::to_string(mStatus) << ") : " + mErrorMsg;
+	// The callers read mErrorMsg as it came (RetroAchievements' sign-in
+	// among them); the log gets one bounded, masked line (T21 PL-19, #1207).
+	LOG(LogError) << "HttpReq::onError (" << (int) mStatus.load() << ") : " << HttpText::bodyForLog(mErrorMsg);
 }
 
 std::string HttpReq::getErrorMsg()
@@ -570,15 +585,11 @@ size_t HttpReq::header_callback(char *buffer, size_t size, size_t nitems, void *
 {
 	HttpReq* request = ((HttpReq*)userdata);
 
-	std::string data = Utils::String::trim(buffer);
-	if (!data.empty() && !Utils::String::startsWith(data, "HTTP/"))
-	{
-		auto splitPost = data.find(":");
-		if (splitPost != std::string::npos)
-			request->mResponseHeaders[Utils::String::trim(data.substr(0, splitPost))] = Utils::String::trim(data.substr(splitPost + 1));
-		else
-			request->mResponseHeaders[data] = "";
-	}
+	// The bytes curl gave, size * nitems, with no terminator (T21 PL-07,
+	// #1195).
+	std::string name, value;
+	if (HttpText::parseHeaderLine(buffer, size * nitems, name, value))
+		request->mResponseHeaders[name] = value;
 
 	return nitems * size;
 }

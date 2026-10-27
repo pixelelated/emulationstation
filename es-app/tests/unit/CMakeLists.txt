@@ -51,6 +51,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/TabStopsTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchCommandTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/TextRowEditTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/HttpTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/ArchiveCommandsTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
@@ -62,6 +63,7 @@ add_executable(es-unit-tests
 	${ES_ROOT}/es-app/src/CaptureRotationText.cpp
 	${ES_ROOT}/es-app/src/DisplayAspectText.cpp
 	${ES_ROOT}/es-app/src/TextRowEdit.cpp
+	${ES_ROOT}/es-core/src/HttpText.cpp
 	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
 	${ES_ROOT}/es-core/src/utils/TimeText.cpp
 	${ES_ROOT}/es-core/src/utils/OfflineProxyUrl.cpp
