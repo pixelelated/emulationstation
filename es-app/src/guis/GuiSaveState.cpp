@@ -13,6 +13,7 @@
 #include "ThreadedCloudSync.h"
 #include "Log.h"
 #include "SaveStateBookkeeper.h"
+#include "SaveStateOrder.h"
 #include "utils/AtomicFileUtil.h"
 #include <algorithm>
 
@@ -272,7 +273,7 @@ void GuiSaveState::loadGrid()
 				return file1->config->isActiveConfig(mGame);
 			
 			if (supportsIncrementalSaveStates && file1->config != nullptr ? file1->config->incremental : incrementalSaveStates)
-				return file1->creationDate >= file2->creationDate;
+				return SaveStateOrder::newestFirst(file1->creationDate, file1->slot, file2->creationDate, file2->slot);
 
 			return file1->slot < file2->slot; 
 		});
