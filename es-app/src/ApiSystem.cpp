@@ -1,4 +1,5 @@
 #include "ApiSystem.h"
+#include "LedText.h"
 #include "ScriptOutput.h"
 #include "ArchiveCommands.h"
 #include "Settings.h"
@@ -1849,21 +1850,11 @@ bool ApiSystem::getLED(int& red, int& green, int& blue)
 		}
 		else if (Utils::FileSystem::exists(LED_COLOUR_NAME)) 
 		{
-			std::string colourValue = Utils::FileSystem::readAllText(LED_COLOUR_NAME);
-			std::stringstream ss(colourValue);
-			std::string token;
-
-			// Extract red value
-			std::getline(ss, token, ' ');
-			red = std::stoi(token);
-
-			// Extract green value
-			std::getline(ss, token, ' ');
-			green = std::stoi(token);
-
-			// Extract blue value
-			std::getline(ss, token);
-			blue = std::stoi(token);
+			// The driver's file, read as led.colour is (T21 PL-15, #1203).
+			const LedText::Rgb colour = LedText::parseColour(Utils::FileSystem::readAllText(LED_COLOUR_NAME), { 255, 0, 165 });
+			red = colour.r;
+			green = colour.g;
+			blue = colour.b;
 
 			executeScript("batocera-led-handheld block_color_changes"); // temporarily prevent changes from external daemon
 			LOG(LogInfo) << "ApiSystem::getLED > LED colours are:" << red << " " << green << " " << blue;
@@ -1883,24 +1874,13 @@ bool ApiSystem::getLED(int& red, int& green, int& blue)
 
 void ApiSystem::getLEDColours(int& red, int& green, int& blue)
 {
-	std::string colourValue = SystemConf::getInstance()->get("led.colour");
-	if (colourValue.empty())
-		colourValue = "255 0 165";
-
-    std::stringstream ss(colourValue);
-    std::string token;
-
-	// Extract red value
-    std::getline(ss, token, ' ');
-    red = std::stoi(token);
-
-	// Extract green value
-    std::getline(ss, token, ' ');
-    green = std::stoi(token);
-
-	// Extract blue value
-    std::getline(ss, token);
-    blue = std::stoi(token);
+	// Three numbers 0..255, or the default: a word in led.colour threw out of
+	// the settings page's build, and "255,0,165" read as white (T21 PL-15,
+	// #1203).
+	const LedText::Rgb colour = LedText::parseColour(SystemConf::getInstance()->get("led.colour"), { 255, 0, 165 });
+	red = colour.r;
+	green = colour.g;
+	blue = colour.b;
 
 	LOG(LogInfo) << "ApiSystem::getLEDColours > LED colours are: " << red << " " << green << " " << blue;
 }
@@ -2086,21 +2066,10 @@ void ApiSystem::setLEDBrightness(int value)
     std::string colorStr = SystemConf::getInstance()->get("led.colour");
     if (colorStr.empty()) colorStr = "255 255 255"; // Default to white if not set
 
-    int rBase = 255, gBase = 255, bBase = 255;
-    
-    // Simple parser for "R G B" or "RRGGBB" formats
-    if (colorStr.find(" ") != std::string::npos) {
-        std::vector<std::string> parts = Utils::String::split(colorStr, ' ');
-        if (parts.size() >= 3) {
-            rBase = Utils::String::toInteger(parts[0]);
-            gBase = Utils::String::toInteger(parts[1]);
-            bBase = Utils::String::toInteger(parts[2]);
-        }
-    } else if (colorStr.length() == 6) {
-        rBase = std::stoul(colorStr.substr(0, 2), nullptr, 16);
-        gBase = std::stoul(colorStr.substr(2, 2), nullptr, 16);
-        bBase = std::stoul(colorStr.substr(4, 2), nullptr, 16);
-    }
+    // "R G B" or "RRGGBB", or white: std::stoul threw on six characters
+    // that were not hex (T21 PL-15, #1203).
+    const LedText::Rgb base = LedText::parseBaseColour(colorStr, { 255, 255, 255 });
+    int rBase = base.r, gBase = base.g, bBase = base.b;
 
     float factor = static_cast<float>(value) / 100.0f;
     int rOut = static_cast<int>(rBase * factor + 0.5f);
