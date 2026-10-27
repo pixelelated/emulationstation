@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <map>
+#include <vector>
 #include <string>
 
 // Whole-file writes that leave either the old file or the new one on disk,
@@ -69,6 +70,20 @@ namespace Utils
 		// private or not there. False only when a chmod that was needed
 		// failed. The stores call it at start for each of their copies.
 		bool narrowTo(const std::string& path, int mode);
+
+		// The marker a store leaves beside a file it wrote and did not record
+		// as the last known good, because the file lacked keys the record
+		// holds (T21, the coordinator's ruling on #668, 01:09 UTC): the next
+		// load reads the file and records nothing while it still lacks one
+		// of them. <path> + kUnrecordedSuffix; SystemConf and Settings both.
+		const char* const kUnrecordedSuffix = ".unrecorded";
+		// Written as the stores are (temporary and rename, kPrivateMode):
+		// a first line saying what the file is, then one key per line.
+		bool writeUnrecorded(const std::string& path, const std::vector<std::string>& keys);
+		// The keys the marker beside `path` names; none when there is none.
+		std::vector<std::string> readUnrecorded(const std::string& path);
+		// Remove the marker beside `path`.
+		void clearUnrecorded(const std::string& path);
 
 		// Whether a key=value configuration text is one worth reading and
 		// worth keeping as the last-known-good record: something in it, no

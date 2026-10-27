@@ -273,6 +273,31 @@ namespace Utils
 			return writeText(dst, text, mode);
 		}
 
+		bool writeUnrecorded(const std::string& path, const std::vector<std::string>& keys)
+		{
+			std::string text = "# " + path + " was written and not recorded as the last known good: it lacks these keys, which "
+				+ path + ".backup holds. Written by EmulationStation; removed by a save that records, or one that removes them.\n";
+			for (const auto& key : keys)
+				text += key + "\n";
+			return writeText(path + kUnrecordedSuffix, text, kPrivateMode);
+		}
+
+		std::vector<std::string> readUnrecorded(const std::string& path)
+		{
+			std::vector<std::string> keys;
+			std::istringstream in(readText(path + kUnrecordedSuffix));
+			std::string line;
+			while (std::getline(in, line))
+				if (!line.empty() && line[0] != '#')
+					keys.push_back(line);
+			return keys;
+		}
+
+		void clearUnrecorded(const std::string& path)
+		{
+			std::remove((path + kUnrecordedSuffix).c_str());
+		}
+
 		bool narrowTo(const std::string& path, int mode)
 		{
 #if defined(_WIN32)

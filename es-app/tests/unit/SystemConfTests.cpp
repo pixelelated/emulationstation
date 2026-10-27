@@ -721,3 +721,53 @@ TEST_CASE("the start narrows system.cfg and its record to 0600 (T21 PL-05, #1193
 	CHECK(modeOf(path) == 0600);
 	CHECK(modeOf(path + ".backup") == 0600);
 }
+
+// ------------------------------------------------------------ T21 S2, the marker (#668)
+//
+// The probe of 2026-10-27 (stage-e/s2-nextload-probe.txt): a save that wrote
+// a file lacking a key the record holds did not record it, and the next load
+// recorded it anyway. The save now leaves system.cfg.unrecorded, saying what
+// it is and naming the keys; the load reads the file and records nothing
+// while it lacks one of them; a recording save, or one that removes those
+// keys explicitly, deletes it (the coordinator's ruling, #668, 01:09 UTC).
+
+TEST_CASE("a written-not-recorded file is not recorded at the next load either (T21 PL-03, PL-09; #1189, #1197)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string lockPath = dir / ".system.cfg.lock";
+	const std::string whole = "a.key=1\nb.key=2\n";
+	put(path, whole);
+	SystemConf* conf = SystemConfTestAccess::fresh(path, lockPath, 300);
+	REQUIRE(get(path + ".backup") == whole);
+
+	put(path, "b.key=2\n");   // something else lost a.key
+	CHECK(conf->set("c.key", "3"));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path + ".backup") == whole);
+	const std::string marker = get(path + ".unrecorded");
+	CHECK(marker.find("# ") == 0);
+	CHECK(marker.find("\na.key\n") != std::string::npos);
+	CHECK(modeOf(path + ".unrecorded") == 0600);
+
+	// The next start: the file is read as it is, and not recorded.
+	conf = SystemConfTestAccess::fresh(path, lockPath, 300);
+	CHECK(conf->get("c.key") == "3");
+	CHECK(get(path + ".backup") == whole);
+	CHECK(get(path + ".unrecorded") == marker);
+
+	SUBCASE("a save that records deletes the marker")
+	{
+		CHECK(conf->set("a.key", "1"));
+		CHECK(conf->saveSystemConf());
+		CHECK(get(path + ".backup") == "b.key=2\nc.key=3\na.key=1\n");
+		CHECK(modeOf(path + ".unrecorded") == -1);
+	}
+	SUBCASE("a save that removes the key explicitly deletes the marker")
+	{
+		CHECK(conf->set("a.key", "default"));
+		CHECK(conf->saveSystemConf());
+		CHECK(get(path + ".backup") == "b.key=2\nc.key=3\n");
+		CHECK(modeOf(path + ".unrecorded") == -1);
+	}
+}

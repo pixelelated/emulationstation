@@ -141,10 +141,17 @@ void SystemConf::recordLastGood(const std::string& text, int recoveredMode)
 	// fix round, gpt G2-E-core-05).
 	const std::string backup = mSystemConfFile + ".backup";
 	const int mode = current.mode & (recoveredMode >= 0 ? recoveredMode : 07777) & Utils::AtomicFile::kPrivateMode;
+	// The record is this text now, so a marker of an unrecorded save has
+	// done its job (T21, #668).
 	if (Utils::AtomicFile::readText(backup) == text && Utils::AtomicFile::modeOf(backup, mode) == mode)
+	{
+		Utils::AtomicFile::clearUnrecorded(mSystemConfFile);
 		return;
+	}
 	if (!Utils::AtomicFile::writeText(backup, text, mode))
 		LOG(LogWarning) << "Unable to write the last-known-good record " << backup;
+	else
+		Utils::AtomicFile::clearUnrecorded(mSystemConfFile);
 }
 
 // Read the live file if it is usable; else an unfinished save's whole
@@ -274,15 +281,29 @@ bool SystemConf::loadFromDisk()
 	switch (chosen.source)
 	{
 	case Utils::AtomicFile::LoadedConfig::Source::Live:
+	{
 		parseSystemConf(chosen.text);
+		// A save that wrote this file and did not record it left a marker
+		// naming the keys it lacked; while it still lacks one, it is read
+		// and not recorded at this load either (T21 PL-03, PL-09; #668).
+		std::string stillLacks;
+		for (const auto& key : Utils::AtomicFile::readUnrecorded(mSystemConfFile))
+			if (mOnDisk.find(key) == mOnDisk.cend())
+			{
+				stillLacks = key;
+				break;
+			}
 		// "Usable" for the record means complete too: a file that stops part
 		// way through a line is read -- nothing better is there -- but never
 		// replaces a whole record (PL-064, PL-065).
-		if (chosen.record)
+		if (!stillLacks.empty())
+			LOG(LogWarning) << mSystemConfFile << " still lacks " << stillLacks << ", which its record holds -- read as it is, and not recorded as the last known good";
+		else if (chosen.record)
 			recordLastGood(chosen.text);
 		else
 			LOG(LogWarning) << mSystemConfFile << " does not end in a line end -- read as it is, and not recorded as the last known good";
 		return true;
+	}
 
 	case Utils::AtomicFile::LoadedConfig::Source::Temporary:
 		LOG(LogWarning) << mSystemConfFile << " is cut short or unreadable beside a whole " << mSystemConfFile
@@ -370,15 +391,12 @@ bool SystemConf::saveSystemConf()
 	// read as the base. Such a file is written (the player's change is kept)
 	// but not published as the record (T21 PL-01, #1185; S2 completes the
 	// ladder).
-	std::string lost;
+	std::vector<std::string> lost;
 	{
 		const auto written = Utils::AtomicFile::parseKeyValues(out);
 		for (const auto& kv : Utils::AtomicFile::parseKeyValues(Utils::AtomicFile::readText(mSystemConfFile + ".backup")))
 			if (written.find(kv.first) == written.cend() && changedConf.find(kv.first) == changedConf.cend())
-			{
-				lost = kv.first;
-				break;
-			}
+				lost.push_back(kv.first);
 	}
 
 	changedConf.clear();
@@ -394,7 +412,15 @@ bool SystemConf::saveSystemConf()
 	// Unless it was merged onto a file cut short: the record then keeps the
 	// keys the cut lost (audit of the fixes G-E1-04).
 	if (!lost.empty())
-		LOG(LogWarning) << "saveSystemConf: " << mSystemConfFile << " lacks " << lost << ", which the record holds and this save did not remove -- written, and not recorded as the last known good";
+	{
+		// Written, and not recorded -- at this save or at any load while the
+		// file still lacks them: the marker says so across a restart (T21,
+		// the coordinator's ruling on #668, 01:09 UTC).
+		LOG(LogWarning) << "saveSystemConf: " << mSystemConfFile << " lacks " << lost.front() << (lost.size() > 1 ? " and others" : "")
+			<< ", which the record holds and this save did not remove -- written, and not recorded as the last known good";
+		if (!Utils::AtomicFile::writeUnrecorded(mSystemConfFile, lost))
+			LOG(LogWarning) << "saveSystemConf: could not write " << mSystemConfFile << Utils::AtomicFile::kUnrecordedSuffix;
+	}
 	else if (baseWhole)
 		recordLastGood(out);
 	else
