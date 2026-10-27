@@ -307,7 +307,8 @@ public:
     std::vector<std::string> getAvailableInstallDevices();
     std::vector<std::string> getAvailableInstallArchitectures();
     std::vector<std::string> getAvailableOverclocking();
-    std::vector<BiosSystem> getBiosInformations(const std::string system = "", bool all = false);
+    // `ran` (when given) says whether the check ran to its end (T21 PL-14, #1202).
+    std::vector<BiosSystem> getBiosInformations(const std::string system = "", bool all = false, bool* ran = nullptr);
     virtual std::vector<std::string> getVideoModes(const std::string output = "");
 	std::vector<std::string> getCustomRunners();
 
@@ -472,6 +473,9 @@ protected:
 	virtual bool executeScript(const std::string command);  
 	virtual std::pair<std::string, int> executeScript(const std::string command, const std::function<void(const std::string)>& func);
 	virtual std::vector<std::string> executeEnumerationScript(const std::string command);
+	// The same, with the script's exit beside its lines (T21 PL-14, #1202):
+	// 0 only for a script that exited 0 with no line past the reader's limit.
+	std::vector<std::string> executeEnumerationScript(const std::string command, int& exitCode);
 	virtual bool downloadGitRepository(const std::string& url, const std::string& branch, const std::string& fileName, const std::string& label, const std::function<void(const std::string)>& func, int64_t defaultDownloadSize = 0);
 	virtual std::string getGitRepositoryDefaultBranch(const std::string& url);
 		

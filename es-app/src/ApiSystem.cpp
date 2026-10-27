@@ -1,4 +1,5 @@
 #include "ApiSystem.h"
+#include "ScriptOutput.h"
 #include "ArchiveCommands.h"
 #include "Settings.h"
 #include "Log.h"
@@ -233,7 +234,7 @@ std::pair<std::string, int> ApiSystem::updateSystem(const std::function<void(con
 			func(std::string(line));		
 	}
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
 
 	if (flog != NULL)
 	{
@@ -269,7 +270,7 @@ std::pair<std::string, int> ApiSystem::backupSystem(BusyComponent* ui, std::stri
 	if (flog != NULL) 
 		fclose(flog);
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
 	return std::pair<std::string, int>(std::string(line), exitCode);
 }
 
@@ -292,7 +293,7 @@ std::pair<std::string, int> ApiSystem::installSystem(BusyComponent* ui, std::str
 		ui->setText(std::string(line));
 	}
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
 
 	if (flog != NULL)
 	{
@@ -328,7 +329,7 @@ std::pair<std::string, int> ApiSystem::scrape(BusyComponent* ui)
 	if (flog != nullptr)
 		fclose(flog);
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
 	return std::pair<std::string, int>(std::string(line), exitCode);
 }
 
@@ -353,7 +354,7 @@ bool ApiSystem::torrentIsReadyForUpdate() {
   if (pipe == NULL)
     return false;
 
-  int res = WEXITSTATUS(pclose(pipe));
+  int res = ScriptOutput::exitCode(pclose(pipe));
   if (res == 0) 
     {
       LOG(LogInfo) << "Can update via torrent";
@@ -396,7 +397,7 @@ std::pair<std::string, int> ApiSystem::torrentUpdateSystem(const std::function<v
 			func(std::string(line));		
 	}
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
 
 	if (flog != NULL)
 	{
@@ -414,7 +415,7 @@ bool ApiSystem::canLocalUpdate() {
 	if (pipe == NULL)
 		return false;
 
-	int res = WEXITSTATUS(pclose(pipe));
+	int res = ScriptOutput::exitCode(pclose(pipe));
 	if (res == 0) 
 	{
 		LOG(LogInfo) << "Can media upgrade";
@@ -439,7 +440,7 @@ bool ApiSystem::canArchitectureUpdate(std::string& architecture) {
 	    architecture = std::string(line);
 	}
 
-	int res = WEXITSTATUS(pclose(pipe));
+	int res = ScriptOutput::exitCode(pclose(pipe));
 	if (res == 0) 
 	{
 		LOG(LogInfo) << "Can Architecture Update";
@@ -468,7 +469,7 @@ bool ApiSystem::canUpdate(std::vector<std::string>& output)
 		output.push_back(std::string(line));
 	}
 
-	int res = WEXITSTATUS(pclose(pipe));
+	int res = ScriptOutput::exitCode(pclose(pipe));
 	bool ForceUpdateEnabled = SystemConf::getInstance()->getBool("updates.force");
 	if (res == 0 || ForceUpdateEnabled == true)
 	{
@@ -592,7 +593,11 @@ bool ApiSystem::launchCloudSignIn(Window *window, bool phoneKeyboard)
 	// saying "Finishing up" -- so this rebuild happens behind something
 	// rather than in front of a black screen. Now that we are drawing again,
 	// the page can go.
-	system("/usr/bin/cloud_oauth close");
+	// Its result was dropped (T21 PL-14, #1202): logged now, since the page
+	// it closes is what stands between the player and the rebuilt menu.
+	const int closed = system("/usr/bin/cloud_oauth close");
+	if (closed != 0)
+		LOG(LogWarning) << "launchCloudSignIn: cloud_oauth close exited " << ScriptOutput::exitCode(closed);
 
 	return exitCode == 0;
 }
@@ -871,7 +876,7 @@ std::vector<std::string> ApiSystem::getSystemInformations()
 	return executeEnumerationScript("rocknix-info --full");
 }
 
-std::vector<BiosSystem> ApiSystem::getBiosInformations(const std::string system, bool all) 
+std::vector<BiosSystem> ApiSystem::getBiosInformations(const std::string system, bool all, bool* ran)
 {
 	std::vector<BiosSystem> res;
 	BiosSystem current;
@@ -885,7 +890,20 @@ std::vector<BiosSystem> ApiSystem::getBiosInformations(const std::string system,
 	else if (!system.empty())
 		cmd += " --filter " + system;
 
+	// A check that failed or was killed is not a clean result (T21 PL-14,
+	// #1202): what it printed is still read, and the caller is told.
+#if !WIN32
+	int exitCode = 0;
+	auto systems = executeEnumerationScript(cmd, exitCode);
+	if (exitCode != 0)
+		LOG(LogError) << "getBiosInformations: the BIOS check could not run to its end (rocknix-systems exited " << exitCode << ")";
+	if (ran != nullptr)
+		*ran = exitCode == 0;
+#else
 	auto systems = executeEnumerationScript(cmd);
+	if (ran != nullptr)
+		*ran = true;
+#endif
 	for (auto line : systems)
 	{
 		if (Utils::String::startsWith(line, "> ")) 
@@ -2230,23 +2248,40 @@ std::vector<std::string> ApiSystem::getWifiNetworks(bool scan)
 
 std::vector<std::string> ApiSystem::executeEnumerationScript(const std::string command)
 {
+	int exitCode = 0;
+	return executeEnumerationScript(command, exitCode);
+}
+
+// The lines a script printed, whole however long (to the reader's limit),
+// the last one without a line end kept, and its exit beside them: a script
+// that failed or was killed used to hand back what it had printed as an
+// answer (T21 PL-14, #1202).
+std::vector<std::string> ApiSystem::executeEnumerationScript(const std::string command, int& exitCode)
+{
 	LOG(LogDebug) << "ApiSystem::executeEnumerationScript -> " << Utils::String::maskSecrets(command);
 
 	std::vector<std::string> res;
+	exitCode = -1;
 
 	FILE *pipe = popen(command.c_str(), "r");
 
 	if (pipe == NULL)
 		return res;
 
-	char line[1024];
-	while (fgets(line, 1024, pipe))
-	{
-		strtok(line, "\n");
-		res.push_back(std::string(line));
-	}
+	ScriptOutput::LineReader reader([&res](const std::string& line) { res.push_back(line); });
+	char buffer[4096];
+	size_t n;
+	while ((n = fread(buffer, 1, sizeof(buffer), pipe)) > 0)
+		reader.feed(buffer, n);
+	reader.finish();
 
-	pclose(pipe);
+	exitCode = ScriptOutput::exitCode(pclose(pipe));
+	if (reader.overflowed())
+	{
+		LOG(LogError) << "ApiSystem::executeEnumerationScript: a line past " << ScriptOutput::kMaxLine << " bytes was refused";
+		if (exitCode == 0)
+			exitCode = -1;
+	}
 	return res;
 }
 
@@ -2271,22 +2306,26 @@ std::pair<std::string, int> ApiSystem::executeScriptLegacy(const std::string& co
 		return std::pair<std::string, int>("Error starting command : " + shown, -1);
 	}
 
-	std::stringstream output_stream;
-	char buff[1024];
-	while (fgets(buff, 1024, pipe))
+	// Whole lines, the last one kept without a line end (T21 PL-14, #1202):
+	// a 1,023-byte read was a line here, and getline(...).good() dropped
+	// the last line when no line end followed it.
+	ScriptOutput::LineReader reader([&func](const std::string& line)
 	{
-		std::stringstream output_stream(buff);
-		std::string line;
-		while (getline(output_stream, line).good()) {
-			if (line.empty()) continue;
-			std::cout << line << std::endl;
-			if (func != nullptr) {
-				func(std::string(line));
-			}
-		}
-	}
+		if (line.empty())
+			return;
+		std::cout << line << std::endl;
+		if (func != nullptr)
+			func(line);
+	});
+	char buff[4096];
+	size_t n;
+	while ((n = fread(buff, 1, sizeof(buff), pipe)) > 0)
+		reader.feed(buff, n);
+	reader.finish();
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
+	if (reader.overflowed() && exitCode == 0)
+		exitCode = -1;
 	return std::pair<std::string, int>("", exitCode);
 }
 
@@ -2302,20 +2341,26 @@ std::pair<std::string, int> ApiSystem::executeScript(const std::string command, 
 		return std::pair<std::string, int>("Error starting command : " + shown, -1);
 	}
 
-	// Zeroed: the pair's first member is built from this buffer after the
-	// loop, and a command that printed nothing -- wifictl current with no
-	// network joined -- used to hand it back uninitialised.
-	char line[1024] = "";
-	while (fgets(line, 1024, pipe))
+	// The pair's first member is the last line; empty when the command
+	// printed nothing -- wifictl current with no network joined. Whole
+	// lines, the last one kept without a line end (T21 PL-14, #1202).
+	std::string last;
+	ScriptOutput::LineReader reader([&func, &last](const std::string& line)
 	{
-		strtok(line, "\n");
-
+		last = line;
 		if (func != nullptr)
-			func(std::string(line));
-	}
+			func(line);
+	});
+	char buffer[4096];
+	size_t n;
+	while ((n = fread(buffer, 1, sizeof(buffer), pipe)) > 0)
+		reader.feed(buffer, n);
+	reader.finish();
 
-	int exitCode = WEXITSTATUS(pclose(pipe));
-	return std::pair<std::string, int>(line, exitCode);
+	int exitCode = ScriptOutput::exitCode(pclose(pipe));
+	if (reader.overflowed() && exitCode == 0)
+		exitCode = -1;
+	return std::pair<std::string, int>(last, exitCode);
 }
 
 bool ApiSystem::executeScript(const std::string command)
