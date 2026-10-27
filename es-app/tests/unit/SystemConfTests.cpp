@@ -213,7 +213,7 @@ TEST_CASE("a change is compared with the file it was made against, not with memo
 {
 	// set() took a change's base from confMap, which also holds keys the
 	// file no longer has -- a key another writer removed since the last
-	// load, a key the last save wrote away (an empty value is a removed
+	// load, a key the last save wrote away (a `default` is a removed
 	// line). A reload compared that base with the file, found the key
 	// missing where the base said it was there, and dropped the change as
 	// removed by somebody since, when nobody had touched the file.
@@ -243,7 +243,10 @@ TEST_CASE("a change is compared with the file it was made against, not with memo
 	{
 		put(path, "system.hostname=A\na=1\n");
 		SystemConf* conf = SystemConfTestAccess::fresh(path, lockPath, 300);
-		CHECK(conf->set("a", ""));
+		// `default` removes the line; an empty value is written as a= since
+		// T21 PL-01 (#1185), so the removal is asked for by its word
+		// (D-WORKFLOW-211: the fixture completed, no assertion changed).
+		CHECK(conf->set("a", "default"));
 		REQUIRE(conf->saveSystemConf());
 		REQUIRE(get(path) == "system.hostname=A\n");
 
@@ -503,4 +506,135 @@ TEST_CASE("LockBusy recovery reads its temporary without publishing over the hol
 	CHECK(get(path) == "system.hostname=A\naudio.vol");
 	CHECK(get(path + ".backup") == recorded);
 	CHECK(get(path + ".tmp") == unfinished);
+}
+
+// ------------------------------------------------------------ T21 S1 (#668)
+//
+// PL-01 (#1185): a key set to an empty value is written as `key=`, never
+// removed -- system.hostname= is the line chksysconfig's verify requires,
+// and its removal made the next boot reseed the image's defaults over the
+// file and the record. PL-10 (#1198): an empty value read back is present
+// and empty, and a reload forgets keys the file no longer has. PL-11
+// (#1199): a comment line is left alone, a value with a line end is
+// refused, the default comparison is on the key, and `default` is never
+// written as a literal.
+
+TEST_CASE("an empty value is saved as key=, in the file and the record (T21 PL-01, #1185)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "system.hostname=qa\nqa.marker=player\n");
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->set("system.hostname", ""));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path) == "system.hostname=\nqa.marker=player\n");
+	CHECK(get(path + ".backup") == "system.hostname=\nqa.marker=player\n");
+
+	// The next start reads the key as present and empty, not as the table's
+	// BATOCERA.
+	conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->get("system.hostname") == "");
+	CHECK(conf->get("qa.marker") == "player");
+}
+
+TEST_CASE("the hostname set to default or auto keeps its line, empty (T21 PL-01, #1185)")
+{
+	for (const char* word : { "default", "auto" })
+	{
+		ScratchDir dir;
+		const std::string path = dir / "system.cfg";
+		put(path, "system.hostname=qa\nqa.marker=player\n");
+		SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+		CHECK(conf->set("system.hostname", word));
+		CHECK(conf->saveSystemConf());
+		CHECK(get(path) == "system.hostname=\nqa.marker=player\n");
+	}
+}
+
+TEST_CASE("a reload forgets a key the file no longer holds, and reads key= as empty (T21 PL-10, #1198)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "system.hostname=qa\nwifi.ssid=Home\nwifi.key=secret-one\nqa.gone=1\n");
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	REQUIRE(conf->get("wifi.key") == "secret-one");
+
+	// A script joined an open network (wifi.key= written on purpose) and
+	// removed another key.
+	put(path, "system.hostname=qa\nwifi.ssid=Open\nwifi.key=\n");
+	CHECK(conf->loadSystemConf(true));
+	CHECK(conf->get("wifi.ssid") == "Open");
+	CHECK(conf->get("wifi.key") == "");
+	CHECK(conf->get("qa.gone") == "");
+}
+
+TEST_CASE("a commented key is left alone and the live key rewritten once (T21 PL-11, #1199)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "#k=1\nk=2\nz=9\n");
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->set("k", "3"));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path) == "#k=1\nk=3\nz=9\n");
+}
+
+TEST_CASE("a new key set to default writes no literal; a key at its table default is removed (T21 PL-11, #1199)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "system.hostname=qa\nglobal.retroachievements.hardcore=1\n");
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->set("qa.new", "default"));
+	CHECK(conf->set("global.retroachievements.hardcore", "0"));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path) == "system.hostname=qa\n");
+
+	// The hostname at the table's own BATOCERA is a name the player gave:
+	// kept, never removed (the line is chksysconfig's sentinel).
+	CHECK(conf->set("system.hostname", "BATOCERA"));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path) == "system.hostname=BATOCERA\n");
+}
+
+TEST_CASE("a value with a line end is refused, and nothing is written for it (T21 PL-11, #1199)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "system.hostname=qa\n");
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK_FALSE(conf->set("qa.k", "x\nroot.password=y"));
+	CHECK_FALSE(conf->set("qa.k", "x\r"));
+	CHECK_FALSE(conf->saveSystemConf());
+	CHECK(get(path) == "system.hostname=qa\n");
+}
+
+TEST_CASE("a byte-order mark before the first key does not hide it (T21 PL-11, #1199)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	put(path, "\xEF\xBB\xBFk=1\nz=2\n");
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->get("k") == "1");
+	CHECK(conf->set("k", "5"));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path) == "k=5\nz=2\n");
+}
+
+TEST_CASE("a save does not record a file that lost a key the record holds and this save did not remove (T21 PL-01, #1185)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string whole = "a.key=1\nb.key=2\n";
+	put(path, whole);
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	REQUIRE(get(path + ".backup") == whole);
+
+	// Something else rewrote the live file without a.key; the player
+	// changes c.key.
+	put(path, "b.key=2\n");
+	CHECK(conf->set("c.key", "3"));
+	CHECK(conf->saveSystemConf());
+	CHECK(get(path) == "b.key=2\nc.key=3\n");
+	CHECK(get(path + ".backup") == whole);
 }

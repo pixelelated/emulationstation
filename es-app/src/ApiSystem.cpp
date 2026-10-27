@@ -52,6 +52,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #endif
 
 /*
@@ -2917,6 +2918,14 @@ std::string ApiSystem::getHostsName()
 	auto hostName = SystemConf::getInstance()->get("system.hostname");
 	if (!hostName.empty())
 		return hostName;
+
+#if !WIN32
+	// system.hostname= is the device's own name (D-NET-009), present and
+	// empty since T21 PL-10 (#1198): the reader says what that name is.
+	char own[256] = { 0 };
+	if (gethostname(own, sizeof(own) - 1) == 0 && own[0] != '\0')
+		return own;
+#endif
 
 	return "127.0.0.1";
 }

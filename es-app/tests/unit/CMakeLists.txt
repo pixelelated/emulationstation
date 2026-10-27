@@ -50,6 +50,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/CommandLineTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/TabStopsTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchCommandTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/TextRowEditTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
 	${ES_ROOT}/es-app/src/CheevosRetry.cpp
@@ -59,6 +60,7 @@ add_executable(es-unit-tests
 	${ES_ROOT}/es-app/src/SaveStateJobQueue.cpp
 	${ES_ROOT}/es-app/src/CaptureRotationText.cpp
 	${ES_ROOT}/es-app/src/DisplayAspectText.cpp
+	${ES_ROOT}/es-app/src/TextRowEdit.cpp
 	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
 	${ES_ROOT}/es-core/src/utils/TimeText.cpp
 	${ES_ROOT}/es-core/src/utils/OfflineProxyUrl.cpp

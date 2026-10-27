@@ -856,11 +856,15 @@ TEST_CASE("a reload keeps the changes still waiting to be saved, unless the file
 TEST_CASE("parseKeyValues reads a system.cfg as SystemConf always has")
 {
 	const auto v = parseKeyValues("# comment\n;also\nsystem.hostname=RG\nempty=\n=novalue\nwifi.key=a=b\naudio.volume=70\naudio.volume=40\n");
-	CHECK(v.size() == 3);
+	CHECK(v.size() == 4);
 	CHECK(v.at("system.hostname") == "RG");
 	CHECK(v.at("wifi.key") == "a=b");      // the value is everything after the first =
 	CHECK(v.at("audio.volume") == "40");   // the last of a repeated key
-	CHECK(v.count("empty") == 0);
+	// Present and empty, distinct from absent (T21 PL-10, #1198): D-NET-009
+	// writes system.hostname= on purpose. This check said count == 0 at the
+	// pin; the ruling reverses it (D-WORKFLOW-210).
+	CHECK(v.at("empty") == "");
+	CHECK(v.count("absent") == 0);
 }
 
 // ------------------------------------------------------ G-E1-04 / G-E1-05

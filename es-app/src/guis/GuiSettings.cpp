@@ -1,4 +1,5 @@
 #include "guis/GuiSettings.h"
+#include "TextRowEdit.h"
 
 #include "views/ViewController.h"
 #include "Settings.h"
@@ -242,16 +243,28 @@ void GuiSettings::buildInputTextConfigRow(const std::string& title, const std::s
 	{
 		std::string data = localStoreInSettings ? Settings::getInstance()->getString(localSettingsID) : SystemConf::getInstance()->get(localSettingsID);
 
+		// The popup opens blank over a hidden stored value; OK with nothing
+		// typed there is no change (T21 PL-01, #1185). Everywhere else an
+		// empty entry is written: the device's own name, a sign-out.
+		bool openedBlank = false;
 #if defined(BATOCERA) || defined(ROCKNIX)
 		if (password && (SystemConf::getInstance()->get("system.security.enabled") == "1"))
+		{
+			openedBlank = !data.empty();
 			data.clear();
+		}
 #endif
+		auto onOk = [updateVal, openedBlank](const std::string& newVal)
+		{
+			if (TextRowEdit::writes(openedBlank, newVal))
+				updateVal(newVal);
+		};
 		if (customEditor != nullptr)
-			customEditor(mWindow, title, data, updateVal);
+			customEditor(mWindow, title, data, onOk);
 		else if (Settings::getInstance()->getBool("UseOSK"))
-			mWindow->pushGui(new GuiTextEditPopupKeyboard(mWindow, title, data, updateVal, false));
+			mWindow->pushGui(new GuiTextEditPopupKeyboard(mWindow, title, data, onOk, false));
 		else
-			mWindow->pushGui(new GuiTextEditPopup(mWindow, title, data, updateVal, false));
+			mWindow->pushGui(new GuiTextEditPopup(mWindow, title, data, onOk, false));
 	});
 
 	addRow(row);

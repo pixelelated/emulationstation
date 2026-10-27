@@ -35,6 +35,16 @@ static std::set<std::string> dontRemoveValue
 	{ "updates.branch" }
 };
 
+// Keys whose line is kept when they go back to their default: the reset is
+// written as `key=`, the form the shell writes (T21 PL-01, #1185).
+// system.hostname= is the line chksysconfig's verify requires; a save that
+// removed it made the next boot reseed the image's defaults over the file
+// and the record (D-NET-009).
+static std::set<std::string> keepLineWhenReset
+{
+	{ "system.hostname" }
+};
+
 static std::map<std::string, std::string> defaults =
 {
 	{ "kodi.enabled", "1" },
@@ -150,6 +160,14 @@ bool SystemConf::loadSystemConf(bool keepPending)
 	mOnDisk.clear();
 	mLoadDamaged = false;
 	const bool loaded = loadFromDisk();
+
+	// A reading of a usable file is the whole of what the file holds: a key
+	// it no longer has is gone from memory too (T21 PL-10, #1198). The parse
+	// only adds, so a joined open network's wifi.key= left the previous
+	// network's key behind. A damaged or failed reading is no evidence, and
+	// keeps what memory had (below).
+	if (loaded && !mLoadDamaged)
+		confMap = mOnDisk;
 
 	// Nothing read is no evidence about any key (audit of the fix round,
 	// gpt G2-E-core-06): the empty reading made every change to a key the
@@ -321,6 +339,22 @@ bool SystemConf::saveSystemConf()
 		break;
 	}
 
+	// A key the record holds that this save's file lacks, and that this save
+	// did not remove, was lost by something else -- a cut or reseeded file
+	// read as the base. Such a file is written (the player's change is kept)
+	// but not published as the record (T21 PL-01, #1185; S2 completes the
+	// ladder).
+	std::string lost;
+	{
+		const auto written = Utils::AtomicFile::parseKeyValues(out);
+		for (const auto& kv : Utils::AtomicFile::parseKeyValues(Utils::AtomicFile::readText(mSystemConfFile + ".backup")))
+			if (written.find(kv.first) == written.cend() && changedConf.find(kv.first) == changedConf.cend())
+			{
+				lost = kv.first;
+				break;
+			}
+	}
+
 	changedConf.clear();
 	mPendingBase.clear();
 	// The file is now what this save wrote: the base the next change is
@@ -333,7 +367,9 @@ bool SystemConf::saveSystemConf()
 	// a script may have published a newer state since this save released it.
 	// Unless it was merged onto a file cut short: the record then keeps the
 	// keys the cut lost (audit of the fixes G-E1-04).
-	if (baseWhole)
+	if (!lost.empty())
+		LOG(LogWarning) << "saveSystemConf: " << mSystemConfFile << " lacks " << lost << ", which the record holds and this save did not remove -- written, and not recorded as the last known good";
+	else if (baseWhole)
 		recordLastGood(out);
 	else
 		LOG(LogWarning) << "saveSystemConf: " << mSystemConfFile << " was cut short when this save read it -- written, and not recorded as the last known good";
@@ -355,6 +391,10 @@ std::string SystemConf::applyChanges(const std::string& current)
 	std::istringstream filein(current);
 	while (std::getline(filein, line))
 		fileLines.push_back(line);
+	// The byte-order mark parseKeyValues skips is not written back.
+	static const std::string bom = "\xEF\xBB\xBF";
+	if (!fileLines.empty() && fileLines[0].compare(0, bom.size(), bom) == 0)
+		fileLines[0] = fileLines[0].substr(bom.size());
 
 	static std::string removeID = "$^�(p$^mpv$�rpver$^vper$vper$^vper$vper$vper$^vperv^pervncvizn";
 
@@ -364,47 +404,49 @@ std::string SystemConf::applyChanges(const std::string& current)
 	for (auto& it : changedConf)
 	{
 		std::string key = it + "=";
-		char key0 = key[0];
+		const std::string val = confMap[it];
+
+		// What this key's line becomes (T21 PL-01, PL-11; #1185, #1199):
+		// - audio.device and updates.branch keep their value, whatever it is;
+		// - system.hostname reset (auto, default) is written as key=;
+		// - auto and default remove the line, as does a value equal to the
+		//   table's own default (compared on the key, not on key=);
+		// - anything else is key + value, an empty value as key=.
+		bool keep = true;
+		std::string written = key + val;
+		if (dontRemoveValue.find(it) != dontRemoveValue.cend())
+			;
+		else if (keepLineWhenReset.find(it) != keepLineWhenReset.cend())
+		{
+			if (val == "auto" || val == "default")
+				written = key;
+		}
+		else if (val == "auto" || val == "default")
+			keep = false;
+		else if (!val.empty())
+		{
+			const auto defaultValue = defaults.find(it);
+			if (defaultValue != defaults.cend() && defaultValue->second == val)
+				keep = false;
+		}
 
 		bool lineFound = false;
 
+		// Only a live line: a commented #key= or ;key= is left as it is.
 		for (auto& currentLine : fileLines)
 		{
-			if (currentLine.size() < 3)
+			if (currentLine.compare(0, key.size(), key) != 0)
 				continue;
 
-			char fc = currentLine[0];
-			if (fc != key0 && currentLine[1] != key0)
-				continue;
-
-			int idx = currentLine.find(key);
-			if (idx == std::string::npos)
-				continue;
-
-			if (idx == 0 || (idx == 1 && (fc == ';' || fc == '#')))
-			{
-				std::string val = confMap[it];
-				if ((!val.empty() && val != "auto" && val != "default") || dontRemoveValue.find(it) != dontRemoveValue.cend())
-				{
-					auto defaultValue = defaults.find(key);
-					if (defaultValue != defaults.cend() && defaultValue->second == val)
-						currentLine = removeID;
-					else
-						currentLine = key + val;
-				}
-				else 
-					currentLine = removeID;
-
-				lineFound = true;
-			}
+			currentLine = keep ? written : removeID;
+			lineFound = true;
 		}
 
-		if (!lineFound)
-		{
-			std::string val = confMap[it];
-			if (!val.empty() && val != "auto")
-				fileLines.push_back(key + val);
-		}
+		// A key the file does not have is added only with something to say:
+		// an empty value or a reset adds no line, except a key whose line is
+		// kept.
+		if (!lineFound && keep && (!val.empty() || keepLineWhenReset.find(it) != keepLineWhenReset.cend()))
+			fileLines.push_back(written);
 	}
 
 	lastTime = SDL_GetTicks() - lastTime;
@@ -440,6 +482,14 @@ bool SystemConf::set(const std::string &name, const std::string &value)
 {
 	if (mSystemConfFile.empty())
 		return Settings::getInstance()->setString(mapSettingsName(name), value == "auto" ? "" : value);
+
+	// A line end would end the line early and start another key (T21 PL-11,
+	// #1199): refused, nothing changed.
+	if (value.find_first_of("\r\n") != std::string::npos)
+	{
+		LOG(LogWarning) << "SystemConf::set: the value for " << name << " carries a line end -- refused";
+		return false;
+	}
 
 	if (confMap.count(name) == 0 || confMap[name] != value)
 	{

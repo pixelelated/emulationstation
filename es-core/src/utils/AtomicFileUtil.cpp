@@ -453,7 +453,11 @@ namespace Utils
 		std::map<std::string, std::string> parseKeyValues(const std::string& text)
 		{
 			std::map<std::string, std::string> values;
-			std::istringstream in(text);
+			// A byte-order mark before the first key is not part of it (T21
+			// PL-11, #1199): the key behind it was never found, and a save
+			// appended it a second time.
+			static const std::string bom = "\xEF\xBB\xBF";
+			std::istringstream in(text.compare(0, bom.size(), bom) == 0 ? text.substr(bom.size()) : text);
 			std::string line;
 			while (std::getline(in, line))
 			{
@@ -461,9 +465,11 @@ namespace Utils
 				if (idx == std::string::npos || line.find('#') == 0 || line.find(';') == 0)
 					continue;
 				const std::string key = line.substr(0, idx);
-				const std::string value = line.substr(idx + 1);
-				if (!key.empty() && !value.empty())
-					values[key] = value;
+				// An empty value is present and empty, not absent (T21 PL-10,
+				// #1198): D-NET-009 writes system.hostname= on purpose, and a
+				// reader that dropped it answered the table's default.
+				if (!key.empty())
+					values[key] = line.substr(idx + 1);
 			}
 			return values;
 		}
