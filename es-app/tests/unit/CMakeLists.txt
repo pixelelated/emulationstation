@@ -119,6 +119,28 @@ set_target_properties(es-file-tests PROPERTIES
 # SystemConfTests.cpp, SDL_timer.h under fakes/, which the angle-bracket
 # include finds before any system copy. A binary of its own for the same
 # reason es-file-tests is one: it touches files.
+# Utils::FileSystem::renameFile and a file-mode download's start and end
+# (T21 S4, #1191): FileSystemUtil.cpp with doubles for Paths, Settings'
+# file-cache switch, the zip CRC and DateTime's two constructors
+# (FileSystemTests.cpp).
+add_executable(es-fs-tests
+	${CMAKE_CURRENT_SOURCE_DIR}/FileSystemTests.cpp
+	${ES_ROOT}/es-core/src/utils/FileSystemUtil.cpp
+	${ES_ROOT}/es-core/src/utils/DownloadFile.cpp
+	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
+	${ES_ROOT}/es-core/src/utils/md5.cpp
+)
+target_include_directories(es-fs-tests PRIVATE
+	${ES_ROOT}/es-core/src
+	${ES_ROOT}/external
+)
+target_link_libraries(es-fs-tests PRIVATE Threads::Threads)
+set_target_properties(es-fs-tests PROPERTIES
+	CXX_STANDARD 17
+	CXX_STANDARD_REQUIRED ON
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
 add_executable(es-conf-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/SystemConfTests.cpp
 	${ES_ROOT}/es-core/src/SystemConf.cpp

@@ -1447,19 +1447,24 @@ namespace Utils
 
 		bool renameFile(const std::string& src, const std::string& dst, bool overWrite)
 		{
-			std::string path = getGenericPath(src);			
+			std::string path = getGenericPath(src);
+			// Nothing to move is a failure (T21 PL-04, #1191): it answered
+			// true, and a download whose temporary was gone was called done.
 			if (!exists(path, false))
-				return true;
-
-			if (overWrite && exists(dst, false))
-				removeFile(dst);
+				return false;
 
 			FileCache::remove(path);
 			FileCache::remove(dst);
 
-#if WIN32			
+#if WIN32
+			if (overWrite && exists(dst, false))
+				removeFile(dst);
+
 			return MoveFileW(Utils::String::convertToWideString(path).c_str(), Utils::String::convertToWideString(dst).c_str());
 #else
+			// rename(2) replaces an existing destination in one step; removing
+			// it first left a moment with neither file (T21 PL-04, #1191).
+			(void) overWrite;
 			return std::rename(src.c_str(), dst.c_str()) == 0;
 #endif
 		}

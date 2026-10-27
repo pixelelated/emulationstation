@@ -1,4 +1,5 @@
 #include "HttpReq.h"
+#include "utils/DownloadFile.h"
 
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
@@ -323,9 +324,9 @@ void HttpReq::performRequest(const std::string& url, HttpReqOptions* options)
 
 	if (!mFilePath.empty())
 	{
-		mTempStreamPath = outputFilename + ".tmp";
-		
-		Utils::FileSystem::removeFile(mTempStreamPath);
+		// A temporary of this request's own; outputFilename is left where it
+		// is until the whole download replaces it (T21 PL-04, #1191).
+		mTempStreamPath = Utils::DownloadFile::begin(outputFilename);
 
 #if defined(_WIN32)
 		mFile = _wfopen(Utils::String::convertToWideString(mTempStreamPath).c_str(), L"wb");
@@ -341,7 +342,6 @@ void HttpReq::performRequest(const std::string& url, HttpReqOptions* options)
 		}
 
 		mPosition = 0;
-		Utils::FileSystem::removeFile(outputFilename);
 	}
 
 	//add the handle to our multi
@@ -360,12 +360,10 @@ void HttpReq::performRequest(const std::string& url, HttpReqOptions* options)
 
 void HttpReq::closeStream()
 {
-	if (mFile)
-	{
-		fflush(mFile);
-		fclose(mFile);
-		mFile = nullptr;
-	}
+	// A flush or a close that failed means the file does not hold what was
+	// written: the download is not put in place (T21 PL-04, #1191).
+	if (mFile && !Utils::DownloadFile::close(mFile))
+		mStreamFailed = true;
 }
 
 HttpReq::~HttpReq()
@@ -476,7 +474,7 @@ HttpReq::Status HttpReq::status()
 					{
 						if (!req->mFilePath.empty())
 						{
-							bool renamed = Utils::FileSystem::renameFile(req->mTempStreamPath.c_str(), req->mFilePath.c_str());
+							bool renamed = Utils::DownloadFile::finish(req->mTempStreamPath, req->mFilePath, !req->mStreamFailed);
 #if WIN32
 							if (renamed)
 							{
@@ -494,14 +492,6 @@ HttpReq::Status HttpReq::status()
 								}
 							}
 #endif
-							if (!renamed)
-							{
-								// Strange behaviour on Windows : sometimes std::rename fails if it's done too early after closing stream
-								// Copy file instead & try to delete it
-								if (Utils::FileSystem::copyFile(req->mTempStreamPath, req->mFilePath))
-									renamed = true;
-							}
-
 							if (renamed)
 								req->mStatus = REQ_SUCCESS;
 							else

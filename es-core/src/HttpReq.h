@@ -167,6 +167,8 @@ private:
 	std::string   mFilePath;
 	std::string   mTempStreamPath;	
 	FILE*		  mFile;	
+	// The stream's flush or close failed (T21 PL-04, #1191).
+	bool		  mStreamFailed = false;
 
 	std::string mErrorMsg;
 	std::string mUrl;

@@ -124,6 +124,7 @@ set(CORE_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/StringUtil.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/StringListLock.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/TimeUtil.h
+	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/DownloadFile.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/TimeText.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/OfflineProxyUrl.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/ThreadPool.h
@@ -259,6 +260,7 @@ set(CORE_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/StringUtil.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/StringListLock.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/TimeUtil.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/DownloadFile.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/TimeText.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/OfflineProxyUrl.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/utils/ThreadPool.cpp	
