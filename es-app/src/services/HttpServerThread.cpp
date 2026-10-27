@@ -24,6 +24,9 @@
 #include "scrapers/ThreadedScraper.h"
 #include "guis/GuiUpdate.h"
 #include "ContentInstaller.h"
+#include "ThreadedCloudSync.h"
+#include "ProxyCards.h"
+#include "utils/AtomicFileUtil.h"
 
 /* 
 
@@ -122,6 +125,24 @@ std::string HttpServerThread::getMimeType(const std::string &path)
 		return it->second;
 	
 	return "text/plain";
+}
+
+// What /isIdle promises: nothing the fork's harness would race is running --
+// a game, the scraper, an install, the hasher, the updater, a cloud sync (in
+// ES, or a script holding its lock: a lock that cannot be read counts as
+// held, the safe side) and the RetroAchievements proxy's send or top-up
+// (#1268). Each source reads without the interface thread's state.
+static bool isIdleNow()
+{
+	return HttpApi::getRunnningGameInfo().empty() &&
+		!ThreadedScraper::isRunning() &&
+		!ContentInstaller::isRunning() &&
+		!ThreadedHasher::isRunning() &&
+		GuiUpdate::state != GuiUpdateState::UPDATER_RUNNING &&
+		!ThreadedCloudSync::isRunning() &&
+		!Utils::AtomicFile::isFlockHeld("/var/run/cloud_sync.lock") &&
+		!ProxyCards::sendRunning() &&
+		!ProxyCards::topUpRunning();
 }
 
 static bool isAllowed(const httplib::Request& req, httplib::Response& res)
@@ -301,12 +322,7 @@ void HttpServerThread::run()
 		if (!isAllowed(req, res))
 			return;
 
-		bool idle = 
-			HttpApi::getRunnningGameInfo().empty() && 
-			!ThreadedScraper::isRunning() && 
-			!ContentInstaller::isRunning() &&
-			!ThreadedHasher::isRunning() && 
-			GuiUpdate::state != GuiUpdateState::UPDATER_RUNNING;
+		bool idle = isIdleNow();
 
 		if (idle)
 		{
@@ -610,23 +626,28 @@ void HttpServerThread::run()
 
 		auto path = Utils::FileSystem::getAbsolutePath(req.body);
 
-		for (auto system : SystemData::sSystemVector)
+		// One launch per request, the file found by its path on the interface
+		// thread when the work runs: a FileData* taken here could be freed by
+		// a reload before then, and a game listed twice launched twice (#1269).
+		Window* w = mWindow;
+		mWindow->postToUiThread([w, path]()
 		{
-			if (system->isCollection() || !system->isGameSystem())
-				continue;
-
-			for (auto file : system->getRootFolder()->getFilesRecursive(GAME))
+			for (auto system : SystemData::sSystemVector)
 			{
-				if (file->getFullPath() == path || file->getPath() == path)
+				if (system->isCollection() || !system->isGameSystem())
+					continue;
+
+				for (auto file : system->getRootFolder()->getFilesRecursive(GAME))
 				{
-					Window* w = mWindow;
-					mWindow->postToUiThread([w, file]() {
+					if (file->getFullPath() == path || file->getPath() == path)
+					{
 						w->cancelScreenSaver();
 						ViewController::get()->launch(file);
-					});
+						return;
+					}
 				}
 			}
-		}
+		});
 	});
 
 	mHttpServer->Post(R"(/addgames/(/?.*))", [this](const httplib::Request& req, httplib::Response& res)
