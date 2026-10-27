@@ -6511,8 +6511,8 @@ msgstr "VÉRIFICATION DE CE QUE VOTRE CLOUD A POUR CET APPAREIL…"
 msgid "MANUAL UPDATES"
 msgstr "MISES À JOUR MANUELLES"
 
-msgid "This version uses manual updates. Open github.com/pixelelated/distribution/releases on a computer, choose the update for your device, and follow the instructions."
-msgstr "Cette version utilise des mises à jour manuelles. Sur un ordinateur, ouvrez github.com/pixelelated/distribution/releases, choisissez la mise à jour pour votre appareil, puis suivez les instructions."
+msgid "THIS VERSION USES MANUAL UPDATES. OPEN github.com/pixelelated/distribution/releases ON A COMPUTER, CHOOSE THE UPDATE FOR YOUR DEVICE, AND FOLLOW THE INSTRUCTIONS."
+msgstr "CETTE VERSION UTILISE DES MISES À JOUR MANUELLES. SUR UN ORDINATEUR, OUVREZ github.com/pixelelated/distribution/releases, CHOISISSEZ LA MISE À JOUR POUR VOTRE APPAREIL, PUIS SUIVEZ LES INSTRUCTIONS."
 
 msgid "YOUR CLOUD FOLDER COULDN'T BE READ"
 msgstr "IMPOSSIBLE DE LIRE VOTRE DOSSIER CLOUD"
@@ -7061,3 +7061,12 @@ msgstr "PARTAGE WINDOWS (SMB)"
 
 msgid "AMAZON S3 AND COMPATIBLE"
 msgstr "AMAZON S3 ET COMPATIBLES"
+
+msgid "WI-FI IS ON."
+msgstr "LE WI-FI EST ACTIVÉ."
+
+msgid "WI-FI IS OFF."
+msgstr "LE WI-FI EST DÉSACTIVÉ."
+
+msgid "COULDN'T FINISH - THIS DEVICE COULDN'T SAVE THAT SETUP IS DONE. TRY AGAIN."
+msgstr "IMPOSSIBLE DE TERMINER - CET APPAREIL N’A PAS PU ENREGISTRER LA FIN DE LA CONFIGURATION. RÉESSAYEZ."

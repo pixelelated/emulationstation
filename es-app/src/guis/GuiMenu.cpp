@@ -1521,7 +1521,7 @@ void GuiMenu::openUpdatesSettings(bool selectTorrentService)
         updateGui->addEntry(_("MANUAL UPDATES"), true, [this]
         {
             mWindow->pushGui(new GuiMsgBox(mWindow,
-                _("This version uses manual updates. Open github.com/pixelelated/distribution/releases on a computer, choose the update for your device, and follow the instructions."), _("OK")));
+                _("THIS VERSION USES MANUAL UPDATES. OPEN github.com/pixelelated/distribution/releases ON A COMPUTER, CHOOSE THE UPDATE FOR YOUR DEVICE, AND FOLLOW THE INSTRUCTIONS."), _("OK")));
         });
     }
     else if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::UPGRADE))
@@ -8551,6 +8551,20 @@ void GuiMenu::openCloudSetup(Window* window)
 static void networkApplyWifi(Window* window, const std::string& title,
 	const std::function<bool()>& apply, const std::function<void(bool)>& onDone);
 
+// The one verdict a Wi-Fi change says, wherever it was made (T26 PL-16,
+// #1229): the switch says what it did; a join says CONNECTED, the picker's
+// own toast (GuiWifi::joined); a page close says nothing more on success
+// (D-UI-107: no word twice). A failure keeps the picker's sentence.
+static void wifiSwitchNotice(Window* window, bool on)
+{
+	window->displayNotificationMessage(_U("\uF058 ") + (on ? _("WI-FI IS ON.") : _("WI-FI IS OFF.")));
+}
+
+static void wifiJoinedNotice(Window* window, const std::string& ssid)
+{
+	window->displayNotificationMessage(_U("\uF058 ") + WifiText::joinedNotice(ssid, _("CONNECTED")));
+}
+
 // A shell's `echo $?`, as an exit status: digits only, else -1 (a failure).
 static int cloudExitStatus(const std::string& text)
 {
@@ -8626,11 +8640,13 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 				[window, reopen, ssid](bool ok)
 				{
 					reopen();
+					if (ok)
+						wifiJoinedNotice(window, ssid);
 					// The picker's words for the same failure (GuiWifi::connect):
 					// WI-FI CONFIGURATION ERROR was upstream's, in a register
 					// a player does not speak (D-UI-031; audit of the fixes, E2
 					// claude G-E2-08).
-					if (!ok)
+					else
 						window->pushGui(new GuiMsgBox(window,
 							Utils::String::format(_("COULDN'T CONNECT TO %s.").c_str(), ssid.c_str()) + "\n\n" + _("CHECK THE KEY AND TRY AGAIN.")));
 				});
@@ -8781,12 +8797,22 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 	// lose the flow.
 	s->getMenu().clearButtons();
 	s->getMenu().addButton(_("LATER"), _("later"), [s] { s->close(); });
-	s->getMenu().addButton(_("FINISH"), _("finish"), [s, restoreMarker, consumeMarker]
+	s->getMenu().addButton(_("FINISH"), _("finish"), [s, window, restoreMarker, consumeMarker]
 	{
 		if (consumeMarker)
 		{
 			LOG(LogInfo) << "restore relink: complete, clearing marker";
 			std::remove(restoreMarker.c_str());
+			// The marker stays when it could not be removed, and the page
+			// with it, for FINISH again: the safe direction, but no longer a
+			// silent one (T26 PL-28, #1232).
+			if (Utils::FileSystem::exists(restoreMarker, false))
+			{
+				LOG(LogError) << "restore relink: the marker could not be removed";
+				window->pushGui(new GuiMsgBox(window,
+					_("COULDN'T FINISH - THIS DEVICE COULDN'T SAVE THAT SETUP IS DONE. TRY AGAIN."), _("OK")));
+				return;
+			}
 		}
 		s->close();
 	});
@@ -10411,10 +10437,12 @@ void GuiMenu::openNetworkSettings(bool selectWifiEnable, bool selectAdhocEnable)
 				// verdict appear over whatever the page returns to.
 				networkApplyWifi(window, _("CONNECTING TO WI-FI"), apply, [window, newSSID](bool ok)
 				{
-					// The picker's words for a failure (G-E2-08), not upstream's
-					// WI-FI CONFIGURATION ERROR.
-					window->pushGui(new GuiMsgBox(window, ok ? _("WI-FI ENABLED")
-						: Utils::String::format(_("COULDN'T CONNECT TO %s.").c_str(), newSSID.c_str()) + "\n\n" + _("CHECK THE KEY AND TRY AGAIN.")));
+					// Nothing more on success: the switch has said its state
+					// (wifiSwitchNotice). The picker's words for a failure
+					// (G-E2-08), not upstream's WI-FI CONFIGURATION ERROR.
+					if (!ok)
+						window->pushGui(new GuiMsgBox(window,
+							Utils::String::format(_("COULDN'T CONNECT TO %s.").c_str(), newSSID.c_str()) + "\n\n" + _("CHECK THE KEY AND TRY AGAIN.")));
 				});
 			}
 		}
@@ -10450,10 +10478,12 @@ void GuiMenu::openNetworkSettings(bool selectWifiEnable, bool selectAdhocEnable)
 			// the state it produced. The spinner shields the page meanwhile,
 			// so s is still here when the result arrives.
 			networkApplyWifi(window, wifienabled ? _("CONNECTING TO WI-FI") : _("TURNING WI-FI OFF"), apply,
-				[this, s](bool)
+				[this, s, window, wifienabled](bool ok)
 				{
 					delete s;
 					openNetworkSettings(true);
+					if (ok)
+						wifiSwitchNotice(window, wifienabled);
 				});
 		}
 	});

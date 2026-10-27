@@ -95,6 +95,8 @@ struct GuiMsgBox { GuiMsgBox(Window*, const std::string&) {} };
 struct ApiSystem { static ApiSystem* getInstance() { static ApiSystem a; return &a; }
     bool enableWifi(const std::string&, const std::string&, const std::string&) { return true; } };
 static void networkApplyWifi(Window*, const std::string&, const std::function<bool()>&, const std::function<void(bool)>&) { gAssociations++; }
+// The join's toast (T26 S11); its words are tests/player-words.py's.
+static void wifiJoinedNotice(Window*, const std::string&) {}
 namespace Utils { namespace String { std::string format(const char* f, const char*) { return f; } }
     namespace Platform {
         std::string GetShOutput(const std::string& cmd) { return cmd.find("timezones") != std::string::npos ? "Europe/Paris,America/New_York" : "Europe/Paris"; }
