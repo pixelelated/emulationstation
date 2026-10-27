@@ -87,6 +87,7 @@
 #include <fstream>
 
 #if !WIN32
+#include <sys/stat.h>
 #include <vector>
 #include <string>
 #include <utility>
@@ -4134,8 +4135,21 @@ static std::string cloudSetSystemsCommand(const std::vector<std::string>& names)
 static bool cloudSelectionRead(const std::string& path, std::vector<std::string>& names)
 {
 	names.clear();
+	// Uncached: the scan and the picker write these files while ES runs, and
+	// the file cache remembers a miss, so a file written after the first look
+	// read as absent until a restart (T26 PL-08, #1222). exists(path, false)
+	// stats afresh; the regular-file test is a stat of its own, since the
+	// cache's answer is only "neither a directory nor a link".
+	if (!Utils::FileSystem::exists(path, false))
+		return false;
+#if !WIN32
+	struct stat info;
+	if (stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode))
+		return false;
+#else
 	if (!Utils::FileSystem::isRegularFile(path))
 		return false;
+#endif
 	std::ifstream in(path);
 	if (!in.is_open())
 		return false;
@@ -7936,9 +7950,14 @@ static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
 		// The phone is a keyboard, not the place the sign-in happens. Saying
 		// "sign in on your phone" sent people looking for a provider page
 		// there; the page is on the handheld either way.
-		const std::string qrPath = "/tmp/cloud-oauth-qr.png";
+		// A path per code: the texture cache keys on the path, so a page
+		// built while the previous sign-in page still lived (TRY AGAIN) drew
+		// that page's code. Earlier codes are removed first. The file is
+		// looked for uncached below (T26 PL-07, #1221).
+		static unsigned int qrSerial = 0;
+		const std::string qrPath = "/tmp/cloud-oauth-qr-" + std::to_string(++qrSerial) + ".png";
 		Utils::Platform::runSystemCommand(
-			"rm -f " + qrPath + "; /usr/bin/qrencode -o " + qrPath
+			"rm -f /tmp/cloud-oauth-qr*.png; /usr/bin/qrencode -o " + qrPath
 			+ " -s 8 -m 4 --background=FFFFFF --foreground=000000 -l M "
 			+ cloudShellQuote(url), "", nullptr);
 
@@ -7961,7 +7980,9 @@ static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
 			lines.push_back(std::make_pair(_("IT KEEPS OTHERS OFF THIS PAGE"), false));
 		}
 
-		if (Utils::FileSystem::exists(qrPath))
+		// Uncached: a miss is remembered, and one failed attempt left every
+		// later sign-in text-only until a restart.
+		if (Utils::FileSystem::exists(qrPath, false))
 			cloudSetupAddQrRow(s, window, qrPath, lines);
 		else
 			for (auto& line : lines)
@@ -10531,7 +10552,9 @@ void GuiMenu::openNetworkSettings(bool selectWifiEnable, bool selectAdhocEnable)
 	s->addGroup(_("VPN SERVICES"));
 
 	const std::string wireguardConfigFile = "/storage/.config/wireguard/wg0.conf";
-	if (Utils::FileSystem::exists(wireguardConfigFile)) {
+	// Uncached: wg0.conf is written by whoever sets the VPN up, while ES runs
+	// (T26 PL-08, #1222).
+	if (Utils::FileSystem::exists(wireguardConfigFile, false)) {
 		auto wireguard = std::make_shared<SwitchComponent>(mWindow);
 		bool wgUp = SystemConf::getInstance()->get("wireguard.up") == "1";
 		wireguard->setState(wgUp);

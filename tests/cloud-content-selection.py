@@ -146,9 +146,16 @@ if pieces is not None:
 #include <utility>
 #include <vector>
 
-// The one file-system call the reader makes (gpt G3-E-03: a directory at
-// the path is a failed read, never an empty selection), as the device's does.
+// The file-system calls the reader makes (gpt G3-E-03: a directory at the
+// path is a failed read, never an empty selection), as the device's do: an
+// uncached exists since T26 S6 (#1222), and the regular-file test it made
+// before. tests/stale-file-reads.py covers the cache itself.
 namespace Utils { namespace FileSystem {
+    static bool exists(const std::string& path, bool = true)
+    {
+        struct stat st;
+        return ::stat(path.c_str(), &st) == 0;
+    }
     static bool isRegularFile(const std::string& path)
     {
         struct stat st;
