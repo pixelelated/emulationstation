@@ -36,13 +36,27 @@ const std::vector<std::pair<std::string, std::string>>& recommendedProviders()
 	return recommended;
 }
 
+// The two labels in the table above that are phrases rather than names,
+// translated where they are shown: each inside _("") so xgettext carries it
+// (only _ is a keyword), and called after the locale is loaded. The rest --
+// and rclone's own labels on a provider's form -- are names and stay as they
+// are (T26 PL-10, #1224; ruled 10:55 UTC).
+static std::string translatedProviderLabel(const std::string& label)
+{
+	if (label == "WINDOWS SHARE (SMB)")
+		return _("WINDOWS SHARE (SMB)");
+	if (label == "AMAZON S3 AND COMPATIBLE")
+		return _("AMAZON S3 AND COMPATIBLE");
+	return label;
+}
+
 std::string providerLabel(const std::string& type)
 {
 	if (type.empty())
 		return "";
 	for (auto& p : recommendedProviders())
 		if (p.first == type)
-			return p.second;
+			return translatedProviderLabel(p.second);
 	return Utils::String::toUpper(type);
 }
 
@@ -463,6 +477,9 @@ std::vector<std::pair<std::string, std::string>> whySentences()
 		{ "THERE'S NOTHING TO BACK UP YET", _("THERE'S NOTHING TO BACK UP YET") },
 		{ "A SIGN-IN WAS FOUND IN THE BACKUP", _("A SIGN-IN WAS FOUND IN THE BACKUP") },
 		{ "YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY", _("YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY") },
+		// backuptool's why before its fuller sentence, which the table
+		// lacked (T26 PL-09, #1223).
+		{ "THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK", _("THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK") },
 	};
 }
 
@@ -480,6 +497,153 @@ bool isKnownWhy(const std::string& why)
 		if (sentence.first == why)
 			return true;
 	return false;
+}
+
+std::vector<std::pair<std::string, std::string>> scriptLines()
+{
+	// As whySentences: each line as the script prints it, to match, and its
+	// English for the screen inside _(""), so the French reaches the dialog.
+	// Built on each call, after the language is chosen. The emitter list in
+	// es-app/tests/unit/CloudTextTests.cpp fails on a line a script prints
+	// that is not here; a script that changes a line changes its pair.
+	return {
+		// backuptool's fail() sentences, at distribution aa0114a619 (projects/ROCKNIX/packages/rocknix/sources/scripts/backuptool).
+		{ "THIS DEVICE CAN'T RESTORE SETTINGS. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD.", _("THIS DEVICE CAN'T RESTORE SETTINGS. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD.") },
+		{ "A SETTINGS BACKUP OR RESTORE IS ALREADY RUNNING. WAIT FOR IT TO FINISH, THEN TRY AGAIN.", _("A SETTINGS BACKUP OR RESTORE IS ALREADY RUNNING. WAIT FOR IT TO FINISH, THEN TRY AGAIN.") },
+		{ "THERE'S NO SETTINGS BACKUP ON THIS DEVICE YET. NOTHING WAS CHANGED. BACK UP SETTINGS FIRST, OR RESTORE THEM FROM THE CLOUD.", _("THERE'S NO SETTINGS BACKUP ON THIS DEVICE YET. NOTHING WAS CHANGED. BACK UP SETTINGS FIRST, OR RESTORE THEM FROM THE CLOUD.") },
+		{ "THIS DEVICE'S SETTINGS BACKUP IS DAMAGED. NOTHING WAS CHANGED. RESTORE SETTINGS FROM THE CLOUD AGAIN, OR BACK UP SETTINGS TO REPLACE IT.", _("THIS DEVICE'S SETTINGS BACKUP IS DAMAGED. NOTHING WAS CHANGED. RESTORE SETTINGS FROM THE CLOUD AGAIN, OR BACK UP SETTINGS TO REPLACE IT.") },
+		{ "COULDN'T KEEP A COPY OF YOUR CURRENT SETTINGS, SO NOTHING WAS CHANGED. TRY AGAIN.", _("COULDN'T KEEP A COPY OF YOUR CURRENT SETTINGS, SO NOTHING WAS CHANGED. TRY AGAIN.") },
+		{ "THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK, SO NOTHING WAS CHANGED. RESTORE SETTINGS FROM THE CLOUD AGAIN, OR BACK UP SETTINGS TO REPLACE IT.", _("THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK, SO NOTHING WAS CHANGED. RESTORE SETTINGS FROM THE CLOUD AGAIN, OR BACK UP SETTINGS TO REPLACE IT.") },
+		{ "THE RESTORE COULDN'T FINISH. DON'T WORRY - YOUR SETTINGS ARE UNCHANGED. TRY AGAIN.", _("THE RESTORE COULDN'T FINISH. DON'T WORRY - YOUR SETTINGS ARE UNCHANGED. TRY AGAIN.") },
+		{ "THE RESTORE COULDN'T FINISH, AND SOME OF YOUR SETTINGS COULDN'T BE PUT BACK. TRY THE RESTORE AGAIN.", _("THE RESTORE COULDN'T FINISH, AND SOME OF YOUR SETTINGS COULDN'T BE PUT BACK. TRY THE RESTORE AGAIN.") },
+		{ "THIS DEVICE CAN'T MAKE A SETTINGS BACKUP. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD.", _("THIS DEVICE CAN'T MAKE A SETTINGS BACKUP. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD.") },
+		{ "THE BACKUP COULDN'T FINISH. NOTHING WAS WRITTEN, AND YOUR LAST BACKUP IS UNCHANGED. TRY AGAIN.", _("THE BACKUP COULDN'T FINISH. NOTHING WAS WRITTEN, AND YOUR LAST BACKUP IS UNCHANGED. TRY AGAIN.") },
+		{ "THERE'S NOTHING TO BACK UP YET. YOUR LAST BACKUP IS UNCHANGED.", _("THERE'S NOTHING TO BACK UP YET. YOUR LAST BACKUP IS UNCHANGED.") },
+		{ "THE BACKUP COULDN'T FINISH WHILE GATHERING YOUR SETTINGS. NOTHING WAS WRITTEN, AND YOUR LAST BACKUP IS UNCHANGED. TRY AGAIN.", _("THE BACKUP COULDN'T FINISH WHILE GATHERING YOUR SETTINGS. NOTHING WAS WRITTEN, AND YOUR LAST BACKUP IS UNCHANGED. TRY AGAIN.") },
+		{ "A SIGN-IN WAS FOUND IN THE BACKUP, SO IT WASN'T KEPT. YOUR LAST BACKUP IS UNCHANGED.", _("A SIGN-IN WAS FOUND IN THE BACKUP, SO IT WASN'T KEPT. YOUR LAST BACKUP IS UNCHANGED.") },
+		{ "YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY, SO NOTHING WAS WRITTEN. YOUR LAST BACKUP IS UNCHANGED.", _("YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY, SO NOTHING WAS WRITTEN. YOUR LAST BACKUP IS UNCHANGED.") },
+		// factoryreset's fail() sentences, at the same commit.
+		{ "THIS BUILD DOESN'T HAVE THE DEFAULT SETTINGS TO PUT BACK, SO NOTHING WAS CHANGED.", _("THIS BUILD DOESN'T HAVE THE DEFAULT SETTINGS TO PUT BACK, SO NOTHING WAS CHANGED.") },
+		{ "THE DEFAULT SETTINGS COULDN'T BE PUT BACK.", _("THE DEFAULT SETTINGS COULDN'T BE PUT BACK.") },
+		{ "THE MEDNAFEN SETTINGS COULDN'T BE RESET. NOTHING ELSE WAS CHANGED.", _("THE MEDNAFEN SETTINGS COULDN'T BE RESET. NOTHING ELSE WAS CHANGED.") },
+		{ "THIS BUILD DOESN'T HAVE ANY STANDALONE EMULATOR SETTINGS TO PUT BACK, SO NOTHING WAS CHANGED.", _("THIS BUILD DOESN'T HAVE ANY STANDALONE EMULATOR SETTINGS TO PUT BACK, SO NOTHING WAS CHANGED.") },
+		{ "THIS BUILD DOESN'T HAVE A COPY OF PORTMASTER TO PUT BACK, SO NOTHING WAS CHANGED.", _("THIS BUILD DOESN'T HAVE A COPY OF PORTMASTER TO PUT BACK, SO NOTHING WAS CHANGED.") },
+		{ "PORTMASTER COULDN'T BE PUT BACK, AND IT'S NO LONGER IN YOUR PORTS. TRY AGAIN.", _("PORTMASTER COULDN'T BE PUT BACK, AND IT'S NO LONGER IN YOUR PORTS. TRY AGAIN.") },
+		{ "PORTMASTER WAS PUT BACK BUT CAN'T BE STARTED YET. TRY AGAIN.", _("PORTMASTER WAS PUT BACK BUT CAN'T BE STARTED YET. TRY AGAIN.") },
+		{ "THERE ARE NO CUSTOM FILES ON THIS DEVICE TO RESET, SO NOTHING WAS CHANGED.", _("THERE ARE NO CUSTOM FILES ON THIS DEVICE TO RESET, SO NOTHING WAS CHANGED.") },
+		{ "SOME OF YOUR CUSTOM FILES COULDN'T BE REMOVED.", _("SOME OF YOUR CUSTOM FILES COULDN'T BE REMOVED.") },
+		{ "THE AUDIO SETTINGS COULDN'T BE CLEARED.", _("THE AUDIO SETTINGS COULDN'T BE CLEARED.") },
+		{ "THE RESET COULDN'T FINISH, AND SOME OF YOUR FILES ARE STILL ON THIS DEVICE.", _("THE RESET COULDN'T FINISH, AND SOME OF YOUR FILES ARE STILL ON THIS DEVICE.") },
+		// cloud_content_restore --match, the preview's refusals, at the same commit (projects/ROCKNIX/packages/network/rclone/sources/).
+		{ "Your cloud storage isn't set up yet. Set it up under GAME SETTINGS > MANAGE CLOUD STORAGE first.", _("YOUR CLOUD STORAGE ISN'T SET UP YET. SET IT UP UNDER GAME SETTINGS > MANAGE CLOUD STORAGE FIRST.") },
+		{ "Your cloud sync settings couldn't be read. Set up cloud storage again under GAME SETTINGS > MANAGE CLOUD STORAGE.", _("YOUR CLOUD SYNC SETTINGS COULDN'T BE READ. SET UP CLOUD STORAGE AGAIN UNDER GAME SETTINGS > MANAGE CLOUD STORAGE.") },
+		{ "Choose or add a connection under GAME SETTINGS > MANAGE CLOUD STORAGE > CLOUD CONNECTIONS, then try again.", _("CHOOSE OR ADD A CONNECTION UNDER GAME SETTINGS > MANAGE CLOUD STORAGE > CLOUD CONNECTIONS, THEN TRY AGAIN.") },
+		{ "Refusing: the rules that keep your saves safe aren't loaded.", _("REFUSING: THE RULES THAT KEEP YOUR SAVES SAFE AREN'T LOADED.") },
+		{ "Refusing to change anything: your cloud's ROMs and BIOS folder looks empty.\nThat looks the same whether it really is empty, you're offline, or the\nfolder was renamed - so nothing is removed.", _("REFUSING TO CHANGE ANYTHING: YOUR CLOUD'S ROMS AND BIOS FOLDER LOOKS EMPTY. THAT LOOKS THE SAME WHETHER IT REALLY IS EMPTY, YOU'RE OFFLINE, OR THE FOLDER WAS RENAMED - SO NOTHING IS REMOVED.") },
+		{ "You haven't picked any systems for this device yet.", _("YOU HAVEN'T PICKED ANY SYSTEMS FOR THIS DEVICE YET.") },
+		{ "Couldn't check %s against your cloud. Try again.", _("COULDN'T CHECK %s AGAINST YOUR CLOUD. TRY AGAIN.") },
+		{ "Couldn't keep track of what would change, so nothing can be removed yet. Try again.", _("COULDN'T KEEP TRACK OF WHAT WOULD CHANGE, SO NOTHING CAN BE REMOVED YET. TRY AGAIN.") },
+	};
+}
+
+// The name a "%s" line carries, when line is one: the text between the
+// pattern's two halves, or nothing.
+static bool scriptLineName(const std::string& pattern, const std::string& line, std::string& name)
+{
+	const size_t at = pattern.find("%s");
+	if (at == std::string::npos)
+		return false;
+	const std::string head = pattern.substr(0, at), tail = pattern.substr(at + 2);
+	if (line.size() <= head.size() + tail.size() || line.compare(0, head.size(), head) != 0
+		|| line.compare(line.size() - tail.size(), tail.size(), tail) != 0)
+		return false;
+	name = line.substr(head.size(), line.size() - head.size() - tail.size());
+	return true;
+}
+
+// One line's translation, or false.
+static bool scriptLineText(const std::string& line, std::string& text)
+{
+	for (auto& entry : scriptLines())
+	{
+		if (entry.first.find('\n') != std::string::npos)
+			continue;
+		if (entry.first == line)
+		{
+			text = entry.second;
+			return true;
+		}
+		std::string name;
+		if (scriptLineName(entry.first, line, name))
+		{
+			text = entry.second;
+			text.replace(text.find("%s"), 2, Utils::String::toUpper(name));
+			return true;
+		}
+	}
+	return false;
+}
+
+bool isKnownScriptLine(const std::string& line)
+{
+	std::string text;
+	return scriptLineText(line, text);
+}
+
+std::string maintenanceFailText(const std::string& said, const std::string& why)
+{
+	std::string text;
+	if (scriptLineText(said, text))
+		return text;
+	if (!why.empty() && isKnownWhy(why))
+		return localizedWhy(why);
+	return Utils::String::toUpper(said);
+}
+
+std::string matchRefusalText(const std::vector<std::string>& lines)
+{
+	std::vector<std::string> body;
+	for (auto& raw : lines)
+	{
+		const std::string line = Utils::String::trim(raw);
+		if (line.empty() || line.find('|') != std::string::npos || line.compare(0, 4, ">>> ") == 0)
+			continue;
+		body.push_back(line);
+	}
+	const auto table = scriptLines();
+	std::string said;
+	for (size_t i = 0; i < body.size(); )
+	{
+		std::string text;
+		size_t used = 0;
+		// A sentence printed across several lines first, line by line.
+		for (auto& entry : table)
+		{
+			if (entry.first.find('\n') == std::string::npos)
+				continue;
+			const auto parts = Utils::String::split(entry.first, '\n');
+			if (i + parts.size() > body.size())
+				continue;
+			size_t k = 0;
+			while (k < parts.size() && body[i + k] == parts[k])
+				k++;
+			if (k == parts.size())
+			{
+				text = entry.second;
+				used = k;
+				break;
+			}
+		}
+		if (used == 0)
+		{
+			if (!scriptLineText(body[i], text))
+				text = Utils::String::toUpper(body[i]);
+			used = 1;
+		}
+		said += (said.empty() ? "" : "\n") + text;
+		i += used;
+	}
+	return said;
 }
 
 std::string cleanLine(const std::string& raw)

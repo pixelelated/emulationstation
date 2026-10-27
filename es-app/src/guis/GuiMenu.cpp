@@ -376,7 +376,10 @@ static void runMaintenanceCommand(Window* window, const std::string& cmd, const 
 
 			if (rc == 0)
 				return std::pair<int, std::string>(0, "");
-			return std::pair<int, std::string>(rc, maintenanceWhy(last, why));
+			// In the player's language where CloudText lists the sentence or
+			// its why (T26 PL-09, #1223); upper-cased as it came otherwise.
+			const std::string said = maintenanceWhy(last, why);
+			return std::pair<int, std::string>(rc, said.empty() ? said : CloudText::maintenanceFailText(said, why));
 		},
 		[window, doneText, failText, onCompleted](std::pair<int, std::string> result)
 		{
@@ -387,7 +390,7 @@ static void runMaintenanceCommand(Window* window, const std::string& cmd, const 
 				return;
 			}
 
-			const std::string why = result.second.empty() ? failText : Utils::String::toUpper(result.second);
+			const std::string why = result.second.empty() ? failText : result.second;
 			window->pushGui(new GuiMsgBox(window, _("COULDN'T FINISH") + " - " + why, _("OK"), nullptr, GuiMsgBoxIcon::ICON_ERROR));
 		}));
 }
@@ -5324,16 +5327,14 @@ static void cloudOpenMatch(Window* window)
 				return;
 			}
 			bool refusal = false;
-			std::string said;
 			for (auto& raw : result.lines)
-			{
-				const std::string line = Utils::String::trim(raw);
-				if (line.empty() || line.find('|') != std::string::npos)
-					continue;   // a plan line, read below
-				if (Utils::String::startsWith(line, "Refusing"))
+				if (Utils::String::startsWith(Utils::String::trim(raw), "Refusing"))
 					refusal = true;
-				said += (said.empty() ? "" : "\n") + Utils::String::toUpper(line);
-			}
+			// The script's words in the player's language where CloudText
+			// lists them, its protocol and plan lines left out (T26 PL-09,
+			// #1223: they reached the dialog as upper-cased English, a
+			// ">>> why" line among them).
+			std::string said = CloudText::matchRefusalText(result.lines);
 			if (result.rc != 0 || refusal)
 			{
 				if (said.empty())
@@ -8346,7 +8347,9 @@ static void cloudShowAddRemote(Window* window, const std::vector<CloudBackend>& 
 			// The list is handed over as the page this replaces, so the flow
 			// closes back to network settings rather than depositing somebody
 			// who has just connected onto the list of things to connect.
-			s->addEntry(_(want.second.c_str()), true, [window, backend, s]
+			// providerLabel: the two phrases translated, the names as they are
+			// (a runtime _() here had no literal xgettext could carry; T26 PL-10).
+			s->addEntry(CloudText::providerLabel(want.first), true, [window, backend, s]
 			{
 				if (backend.tier == "oauth")
 					cloudOAuthAdd(window, backend, s);

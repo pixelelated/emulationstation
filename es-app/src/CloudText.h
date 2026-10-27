@@ -49,7 +49,9 @@ namespace CloudText
 	// it by ("GOOGLE DRIVE"). A provider set up outside the list above
 	// falls back to rclone's own word, uppercased, which is at least the
 	// name on the tin. Empty in, empty out -- the caller decides what to
-	// say when nothing is connected.
+	// say when nothing is connected. Two labels are phrases rather than
+	// names (WINDOWS SHARE (SMB), AMAZON S3 AND COMPATIBLE) and come back
+	// translated; the rest are names and stay as they are (T26 PL-10, #1224).
 	std::string providerLabel(const std::string& type);
 
 	// rclone's name for a provider option ("bearer_token") in the words a
@@ -187,6 +189,26 @@ namespace CloudText
 	std::vector<std::pair<std::string, std::string>> whySentences();
 	std::string localizedWhy(const std::string& why);
 	bool isKnownWhy(const std::string& why);
+
+	// Whole lines a script prints for a player, where the dialog shows the
+	// line itself rather than a why: backuptool's and factoryreset's fail()
+	// sentences after a failed maintenance run, and cloud_content_restore
+	// --match's refusals (T26 PL-09, #1223). Paired, as whySentences pairs
+	// the whys, with their translation; a "%s" in a line stands for one
+	// system folder's name, carried over upper-cased, and a line holding a
+	// "\n" is a sentence the script prints across several lines, matched
+	// line by line and said as one.
+	std::vector<std::pair<std::string, std::string>> scriptLines();
+	bool isKnownScriptLine(const std::string& line);
+	// What a failed maintenance run's dialog says after COULDN'T FINISH:
+	// the line it chose (the script's fuller sentence, or its why) in the
+	// player's language; else its why's translation; else the line
+	// upper-cased, as it came.
+	std::string maintenanceFailText(const std::string& said, const std::string& why);
+	// The match's refusal, from the lines the preview printed: protocol
+	// (">>> ") and plan ("|") lines dropped, every other line in the
+	// player's language where it is listed, upper-cased where not.
+	std::string matchRefusalText(const std::vector<std::string>& lines);
 
 	// One line of a cloud script's output as the card reads it: ANSI escape
 	// sequences and C0 controls and DEL dropped, every other byte kept --

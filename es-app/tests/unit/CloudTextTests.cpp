@@ -1782,3 +1782,74 @@ TEST_CASE("cloud folder refusal carries only recognized bounded reasons (#524 PL
 	CHECK(folderPathRefusalMessage(R::Unknown, 75) ==
 		"WAIT FOR THE CURRENT CLOUD TASK TO FINISH, THEN TRY AGAIN.");
 }
+
+TEST_CASE("every sentence a maintenance dialog or the match's refusal shows is known")
+{
+	// The fail() sentences of backuptool and factoryreset and the --match
+	// preview's refusals, as printed at distribution aa0114a619
+	// (projects/ROCKNIX/packages/rocknix/sources/scripts/ and
+	// projects/ROCKNIX/packages/network/rclone/sources/); T26 PL-09, #1223.
+	// A line a script prints that CloudText does not list reaches the
+	// player in English.
+	struct Line { const char* text; const char* from; };
+	static const Line lines[] = {
+		{ "THIS DEVICE CAN'T RESTORE SETTINGS. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD.", "backuptool:1416" },
+		{ "A SETTINGS BACKUP OR RESTORE IS ALREADY RUNNING. WAIT FOR IT TO FINISH, THEN TRY AGAIN.", "backuptool:1421" },
+		{ "THERE'S NO SETTINGS BACKUP ON THIS DEVICE YET. NOTHING WAS CHANGED. BACK UP SETTINGS FIRST, OR RESTORE THEM FROM THE CLOUD.", "backuptool:1428" },
+		{ "THIS DEVICE'S SETTINGS BACKUP IS DAMAGED. NOTHING WAS CHANGED. RESTORE SETTINGS FROM THE CLOUD AGAIN, OR BACK UP SETTINGS TO REPLACE IT.", "backuptool:1455" },
+		{ "COULDN'T KEEP A COPY OF YOUR CURRENT SETTINGS, SO NOTHING WAS CHANGED. TRY AGAIN.", "backuptool:1481" },
+		{ "THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK, SO NOTHING WAS CHANGED. RESTORE SETTINGS FROM THE CLOUD AGAIN, OR BACK UP SETTINGS TO REPLACE IT.", "backuptool:1496" },
+		{ "THE RESTORE COULDN'T FINISH. DON'T WORRY - YOUR SETTINGS ARE UNCHANGED. TRY AGAIN.", "backuptool:1526" },
+		{ "THE RESTORE COULDN'T FINISH, AND SOME OF YOUR SETTINGS COULDN'T BE PUT BACK. TRY THE RESTORE AGAIN.", "backuptool:1736" },
+		{ "THIS DEVICE CAN'T MAKE A SETTINGS BACKUP. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD.", "backuptool:1775" },
+		{ "THE BACKUP COULDN'T FINISH. NOTHING WAS WRITTEN, AND YOUR LAST BACKUP IS UNCHANGED. TRY AGAIN.", "backuptool:1826" },
+		{ "THERE'S NOTHING TO BACK UP YET. YOUR LAST BACKUP IS UNCHANGED.", "backuptool:1855" },
+		{ "THE BACKUP COULDN'T FINISH WHILE GATHERING YOUR SETTINGS. NOTHING WAS WRITTEN, AND YOUR LAST BACKUP IS UNCHANGED. TRY AGAIN.", "backuptool:1857" },
+		{ "A SIGN-IN WAS FOUND IN THE BACKUP, SO IT WASN'T KEPT. YOUR LAST BACKUP IS UNCHANGED.", "backuptool:1859" },
+		{ "YOUR OWN BACKUP LIST NAMES A FOLDER A BACKUP CAN'T CARRY, SO NOTHING WAS WRITTEN. YOUR LAST BACKUP IS UNCHANGED.", "backuptool:1861" },
+		{ "THIS BUILD DOESN'T HAVE THE DEFAULT SETTINGS TO PUT BACK, SO NOTHING WAS CHANGED.", "factoryreset:62" },
+		{ "THE DEFAULT SETTINGS COULDN'T BE PUT BACK.", "factoryreset:68" },
+		{ "THE MEDNAFEN SETTINGS COULDN'T BE RESET. NOTHING ELSE WAS CHANGED.", "factoryreset:95" },
+		{ "THIS BUILD DOESN'T HAVE ANY STANDALONE EMULATOR SETTINGS TO PUT BACK, SO NOTHING WAS CHANGED.", "factoryreset:125" },
+		{ "THIS BUILD DOESN'T HAVE A COPY OF PORTMASTER TO PUT BACK, SO NOTHING WAS CHANGED.", "factoryreset:138" },
+		{ "PORTMASTER COULDN'T BE PUT BACK, AND IT'S NO LONGER IN YOUR PORTS. TRY AGAIN.", "factoryreset:156" },
+		{ "PORTMASTER WAS PUT BACK BUT CAN'T BE STARTED YET. TRY AGAIN.", "factoryreset:161" },
+		{ "THERE ARE NO CUSTOM FILES ON THIS DEVICE TO RESET, SO NOTHING WAS CHANGED.", "factoryreset:175" },
+		{ "SOME OF YOUR CUSTOM FILES COULDN'T BE REMOVED.", "factoryreset:185" },
+		{ "THE AUDIO SETTINGS COULDN'T BE CLEARED.", "factoryreset:207" },
+		{ "THE RESET COULDN'T FINISH, AND SOME OF YOUR FILES ARE STILL ON THIS DEVICE.", "factoryreset:255" },
+		{ "Your cloud storage isn't set up yet. Set it up under GAME SETTINGS > MANAGE CLOUD STORAGE first.", "cloud_content_restore:145" },
+		{ "Your cloud sync settings couldn't be read. Set up cloud storage again under GAME SETTINGS > MANAGE CLOUD STORAGE.", "cloud_content_restore:230,242" },
+		{ "Choose or add a connection under GAME SETTINGS > MANAGE CLOUD STORAGE > CLOUD CONNECTIONS, then try again.", "cloud_content_restore:250" },
+		{ "Refusing: the rules that keep your saves safe aren't loaded.", "cloud_content_restore:867" },
+		{ "You haven't picked any systems for this device yet.", "cloud_content_restore:932" },
+		{ "Couldn't keep track of what would change, so nothing can be removed yet. Try again.", "cloud_content_restore:1097" },
+	};
+	for (const auto& l : lines)
+	{
+		INFO(l.from);
+		CHECK(isKnownScriptLine(l.text));
+	}
+	// One naming a system, and the empty-folder refusal printed across
+	// three lines (cloud_content_restore's match_run).
+	CHECK(isKnownScriptLine("Couldn't check snes against your cloud. Try again."));
+	CHECK(matchRefusalText({ "Refusing to change anything: your cloud's ROMs and BIOS folder looks empty.",
+		"That looks the same whether it really is empty, you're offline, or the",
+		"folder was renamed - so nothing is removed." }) ==
+		"REFUSING TO CHANGE ANYTHING: YOUR CLOUD'S ROMS AND BIOS FOLDER LOOKS EMPTY. THAT LOOKS THE SAME WHETHER IT REALLY IS EMPTY, YOU'RE OFFLINE, OR THE FOLDER WAS RENAMED - SO NOTHING IS REMOVED.");
+	// Protocol and plan lines never reach the dialog; an unknown line is
+	// shown as it came, upper-cased.
+	CHECK(matchRefusalText({ ">>> why YOUR CLOUD STORAGE ISN'T SET UP YET", "nes|1|2|3", "A line from a newer script." }) ==
+		"A LINE FROM A NEWER SCRIPT.");
+	CHECK(matchRefusalText({ "Couldn't check snes against your cloud. Try again." }) ==
+		"COULDN'T CHECK SNES AGAINST YOUR CLOUD. TRY AGAIN.");
+	// A maintenance run: the fuller sentence; a tool's line after a known
+	// why, the why; neither, the line upper-cased.
+	CHECK(maintenanceFailText("THE AUDIO SETTINGS COULDN'T BE CLEARED.", "") == "THE AUDIO SETTINGS COULDN'T BE CLEARED.");
+	CHECK(maintenanceFailText("tar: short read", "THE RESTORE COULDN'T FINISH") == "THE RESTORE COULDN'T FINISH");
+	CHECK(maintenanceFailText("tar: short read", "") == "TAR: SHORT READ");
+	CHECK(isKnownWhy("THIS BACKUP HOLDS FILES A RESTORE CAN'T PUT BACK"));
+	// The two provider phrases come through providerLabel; names as they are.
+	CHECK(providerLabel("smb") == "WINDOWS SHARE (SMB)");
+	CHECK(providerLabel("dropbox") == "DROPBOX");
+}
