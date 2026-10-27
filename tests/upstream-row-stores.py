@@ -59,6 +59,11 @@ save = source.index("addSaveFunc(", label)
 written = set(re.findall(r'SystemConf::getInstance\(\)->set\("([^"]+)"', calls(statement(save))))
 if written != {READER_KEY}:
     failures.append("VIDEO FILTER writes %s; setsettings.sh reads %s" % (sorted(written) or "nothing it can name", READER_KEY))
+# ... and the keys its load reads: the new one, and the old one devices carry.
+load = source.rfind("std::string currentVideofilter =", 0, label)
+read = set(re.findall(r'SystemConf::getInstance\(\)->get\("([^"]+)"', calls(statement(load)))) if load >= 0 else set()
+if not {READER_KEY, "global.videofilters"} <= read:
+    failures.append("VIDEO FILTER loads %s; it must read %s and the old global.videofilters" % (sorted(read) or "nothing it can name", READER_KEY))
 
 # GAME MEDIAS DURING FAST SCROLLING: the store its save writes, against IList's.
 ilist = ilist_path.read_text()
@@ -74,6 +79,12 @@ else:
     save = source.index("addSaveFunc(", row)
     if 'Settings::getInstance()->setBool("ScrollLoadMedias"' not in calls(statement(save)):
         failures.append("GAME MEDIAS DURING FAST SCROLLING's save does not write Settings ScrollLoadMedias")
+    # ... and the switch's state loads from both stores.
+    var = re.search(r'_\("GAME MEDIAS DURING FAST SCROLLING"\),\s*(\w+)\)', row_stmt)
+    state = source.rfind("%s->setState(" % var.group(1), 0, row) if var else -1
+    loaded = calls(statement(state)) if state >= 0 else ""
+    if 'Settings::getInstance()->getBool("ScrollLoadMedias")' not in loaded or 'SystemConf::getInstance()->get("ScrollLoadMedias")' not in loaded:
+        failures.append("GAME MEDIAS DURING FAST SCROLLING's switch does not load from es_settings.cfg and the old system.cfg key")
 
 # The device-state fixtures, over the helpers as written.
 names = ["globalVideoFilter", "setGlobalVideoFilter", "scrollLoadMedias", "setScrollLoadMedias"]
