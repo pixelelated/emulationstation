@@ -18,6 +18,20 @@ namespace HttpText
 	// A response body as it may reach the log (T21 PL-19, #1207): one line,
 	// at most `limit` bytes before the ellipsis, through maskSecrets.
 	std::string bodyForLog(const std::string& body, size_t limit = 512);
+
+	// HttpReq::Status's values for the outcomes that are not HTTP codes, here
+	// so pure code can name them without curl (HttpReq.h asserts they match).
+	const int kStatusInProgress = 0;
+	const int kStatusIoError = 3;
+	const int kStatusFileStreamError = 4;
+	const int kStatusServerUnavailable = 5;   // 501 to 504, or redirects exhausted
+	const int kStatusCertificate = 6;         // the server's certificate did not verify
+	const int kStatusSuccess = 200;
+
+	// A completed transfer's HTTP code as HttpReq::Status (T21 PL-18, #1206).
+	int statusForHttpCode(long code);
+	// A transfer curl ended with an error, by its CURLcode, as HttpReq::Status.
+	int statusForTransferFailure(int curlCode);
 }
 
 #endif // ES_CORE_HTTP_TEXT_H

@@ -88,6 +88,7 @@ struct SystemConfTestAccess
 		SystemConf::sSeedPath = seedPath;
 		SystemConf::sInstance = nullptr;
 		SystemConf::sRecovered = false;
+		SystemConf::sOutcome = RecoveryOutcome::None;
 		SystemConf::sLockPath = lockPath;
 		SystemConf::sLockBudgetMs = budgetMs;
 		Paths::getSystemConfFilePath() = path;
@@ -825,4 +826,54 @@ TEST_CASE("the start and every save sweep a gone writer's temporaries, and keep 
 	CHECK(conf->set("qa.k", "1"));
 	CHECK(conf->saveSystemConf());
 	CHECK(modeOf(path + ".tmp." + dead + ".2") == -1);
+}
+
+// ------------------------------------------------------------ T21 S12 (#668)
+//
+// PL-18 (#1206): the start told the player RESTORED for every recovery,
+// including the one whose write-back failed or waited on the lock.
+
+TEST_CASE("the recovery says which one it was: damaged, missing, or in use with the write-back owed (T21 PL-18, #1206)")
+{
+	const std::string record = "system.hostname=qa\nqa.marker=player\n";
+	SUBCASE("damaged, written back")
+	{
+		ScratchDir dir;
+		const std::string path = dir / "system.cfg";
+		put(path, "garbage without a key\n");
+		put(path + ".backup", record);
+		SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+		CHECK(SystemConf::recoveryOutcome() == RecoveryOutcome::Restored);
+		CHECK(get(path) == record);
+	}
+	SUBCASE("missing, written back")
+	{
+		ScratchDir dir;
+		const std::string path = dir / "system.cfg";
+		put(path + ".backup", record);
+		SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+		CHECK(SystemConf::recoveryOutcome() == RecoveryOutcome::Missing);
+		CHECK(get(path) == record);
+	}
+	SUBCASE("damaged, the lock busy: in use, the write-back owed")
+	{
+		ScratchDir dir;
+		const std::string path = dir / "system.cfg";
+		const std::string lockPath = dir / ".system.cfg.lock";
+		put(path, "garbage without a key\n");
+		put(path + ".backup", record);
+		PidLock script(lockPath);
+		REQUIRE(script.acquire(1000));
+		SystemConfTestAccess::fresh(path, lockPath, 20);
+		CHECK(SystemConf::recoveryOutcome() == RecoveryOutcome::RestoredInMemory);
+		CHECK(get(path) == "garbage without a key\n");
+	}
+	SUBCASE("nothing to recover")
+	{
+		ScratchDir dir;
+		const std::string path = dir / "system.cfg";
+		put(path, record);
+		SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+		CHECK(SystemConf::recoveryOutcome() == RecoveryOutcome::None);
+	}
 }

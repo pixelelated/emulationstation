@@ -26,6 +26,7 @@ static std::string mapSettingsName(const std::string& name)
 
 SystemConf *SystemConf::sInstance = NULL;
 bool SystemConf::sRecovered = false;
+RecoveryOutcome SystemConf::sOutcome = RecoveryOutcome::None;
 std::string SystemConf::sLockPath = "/tmp/.system.cfg.lock";
 std::string SystemConf::sSeedPath = "/usr/config/system/configs/system.cfg";
 int SystemConf::sLockBudgetMs = 5000;
@@ -272,6 +273,9 @@ bool SystemConf::loadFromDisk()
 	// it, and a script's write that landed between the choice and the write
 	// was lost under it.
 	Utils::AtomicFile::RecoveryWrite wrote = Utils::AtomicFile::RecoveryWrite::None;
+	// Whether there was a file at all, for the words the player is told
+	// (T21 PL-18, #1206).
+	const bool liveWasThere = Utils::AtomicFile::modeOf(mSystemConfFile, -1) >= 0;
 	const Utils::AtomicFile::LoadedConfig chosen = Utils::AtomicFile::loadUnderLock(mSystemConfFile, sLockPath, sLockBudgetMs, &wrote);
 	// No less private than any copy it came from (G-E1-05).
 	const int mode = chosen.mode;
@@ -319,6 +323,7 @@ bool SystemConf::loadFromDisk()
 		if (wrote != Utils::AtomicFile::RecoveryWrite::LockBusy)
 			recordLastGood(chosen.text, mode);
 		sRecovered = true;
+		sOutcome = wrote == Utils::AtomicFile::RecoveryWrite::Written ? RecoveryOutcome::Restored : RecoveryOutcome::RestoredInMemory;
 		return true;
 
 	case Utils::AtomicFile::LoadedConfig::Source::Backup:
@@ -333,6 +338,13 @@ bool SystemConf::loadFromDisk()
 		if (wrote != Utils::AtomicFile::RecoveryWrite::LockBusy)
 			recordLastGood(chosen.text, mode);
 		sRecovered = true;
+		// Restored only when written back: a write that failed or waited on
+		// the lock leaves the record in use and the write owed to the next
+		// save, and the player used to be told RESTORED either way.
+		if (wrote != Utils::AtomicFile::RecoveryWrite::Written)
+			sOutcome = RecoveryOutcome::RestoredInMemory;
+		else
+			sOutcome = liveWasThere ? RecoveryOutcome::Restored : RecoveryOutcome::Missing;
 		return true;
 
 	case Utils::AtomicFile::LoadedConfig::Source::Damaged:

@@ -2,6 +2,7 @@
 #define EMULATIONSTATION_ALL_SYSTEMCONF_H
 
 
+#include "RecoveryOutcome.h"
 #include <string>
 #include <map>
 #include <set>
@@ -32,6 +33,8 @@ public:
 	// writing that back as the live file. main() tells the player once, after
 	// the interface is up (D-CLOUD-079).
 	static bool wasRecovered() { return sRecovered; }
+	// Which recovery this start made (T21 PL-18, #1206).
+	static RecoveryOutcome recoveryOutcome() { return sOutcome; }
 
     std::string get(const std::string &name);
     bool set(const std::string &name, const std::string &value);
@@ -43,6 +46,7 @@ private:
 	SystemConf();
 	static SystemConf* sInstance;
 	static bool sRecovered;
+	static RecoveryOutcome sOutcome;
 
 	// The shell's settings lock (wait_lock in profile.d/001-functions) and
 	// how long the interface waits for it. Members rather than literals so

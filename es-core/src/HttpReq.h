@@ -100,7 +100,12 @@ public:
 	{
 		REQ_IN_PROGRESS = 0,
 		REQ_IO_ERROR	= 3,				
-		REQ_FILESTREAM_ERROR = 4,		
+		REQ_FILESTREAM_ERROR = 4,
+		// T21 PL-18 (#1206): a server not answering (501 to 504, redirects
+		// exhausted) and a certificate that did not verify, apart from
+		// REQ_IO_ERROR's no connection. HttpText's kStatus* name them.
+		REQ_SERVER_UNAVAILABLE = 5,
+		REQ_CERTIFICATE_ERROR = 6,		
 
 		REQ_SUCCESS = 200,
 		REQ_400_BADREQUEST = 400,

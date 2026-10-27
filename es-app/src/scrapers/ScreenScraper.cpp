@@ -1,4 +1,5 @@
 #include "utils/Uri.h"
+#include "StatusText.h"
 #include "scrapers/ScreenScraper.h"
 
 #include "utils/TimeUtil.h"
@@ -986,8 +987,11 @@ static std::string screenScraperFailureMessage(HttpReq& req, const ScreenScraper
 	// out as SCREENSCRAPER ANSWERED WITH AN ERROR). Say the player is
 	// offline and stop; no credential is named, none was looked at
 	// (#151 PL-07).
-	if (status == HttpReq::REQ_IO_ERROR || status == HttpReq::REQ_IN_PROGRESS)
-		return _("YOU'RE NOT ONLINE. TRY AGAIN WHEN YOU ARE.");
+	// T21 PL-18 (#1206): a server not answering and a certificate that did
+	// not verify are said apart from offline (StatusText).
+	const std::string transport = StatusText::scraperTransportSentence(status);
+	if (!transport.empty())
+		return transport;
 
 	// The status is the one thing the API says in a form a program can
 	// read; HttpReq names every code it documents. Only 403 covers both

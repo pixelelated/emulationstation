@@ -54,6 +54,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/HttpTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/ScriptOutputTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LedTextTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/StatusTextTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/ArchiveCommandsTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
@@ -67,6 +68,7 @@ add_executable(es-unit-tests
 	${ES_ROOT}/es-app/src/TextRowEdit.cpp
 	${ES_ROOT}/es-app/src/ScriptOutput.cpp
 	${ES_ROOT}/es-app/src/LedText.cpp
+	${ES_ROOT}/es-app/src/StatusText.cpp
 	${ES_ROOT}/es-core/src/HttpText.cpp
 	${ES_ROOT}/es-core/src/utils/StringUtil.cpp
 	${ES_ROOT}/es-core/src/utils/TimeText.cpp

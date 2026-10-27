@@ -14,6 +14,7 @@
 
 Settings* Settings::sInstance = NULL;
 bool Settings::sRecovered = false;
+RecoveryOutcome Settings::sOutcome = RecoveryOutcome::None;
 std::string Settings::sLockPath = "/tmp/.system.cfg.lock";
 int Settings::sLockBudgetMs = 5000;
 static std::string mEmptyString = "";
@@ -686,8 +687,15 @@ void Settings::loadFile()
 	if (fromBackup)
 	{
 		// The stores' mode, not the record's (T21 PL-05, #1193).
+		// The words for it (T21 PL-18, #1206): restored, restored from a
+		// missing file, or in use with the write-back owed.
 		if (!Utils::AtomicFile::copy(backup, path, Utils::AtomicFile::modeOf(backup, Utils::AtomicFile::kPrivateMode) & Utils::AtomicFile::kPrivateMode))
+		{
 			LOG(LogError) << "Could not write " << path << " back from its last-known-good record";
+			sOutcome = RecoveryOutcome::RestoredInMemory;
+		}
+		else
+			sOutcome = liveExists ? RecoveryOutcome::Restored : RecoveryOutcome::Missing;
 		sRecovered = true;
 	}
 	else

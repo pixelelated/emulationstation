@@ -369,7 +369,10 @@ void ScraperHttpRequest::update()
 	}
 
 	// Ignored errors
-	if (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR)
+	// A server not answering and a certificate that did not verify were
+	// REQ_IO_ERROR until T21 PL-18 (#1206), and are skipped as it is.
+	if (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR
+		|| status == HttpReq::REQ_SERVER_UNAVAILABLE || status == HttpReq::REQ_CERTIFICATE_ERROR)
 	{
 		setStatus(ASYNC_DONE);
 		return;
@@ -628,7 +631,10 @@ void ImageDownloadHandle::update()
 	}
 
 	// Ignored errors
-	if (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR)
+	// A server not answering and a certificate that did not verify were
+	// REQ_IO_ERROR until T21 PL-18 (#1206), and are skipped as it is.
+	if (status == HttpReq::REQ_404_NOTFOUND || status == HttpReq::REQ_IO_ERROR
+		|| status == HttpReq::REQ_SERVER_UNAVAILABLE || status == HttpReq::REQ_CERTIFICATE_ERROR)
 	{
 		setStatus(ASYNC_DONE);
 		return;

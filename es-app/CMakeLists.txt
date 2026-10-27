@@ -60,6 +60,7 @@ set(ES_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/src/TextRowEdit.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/ScriptOutput.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/LedText.h
+	${CMAKE_CURRENT_SOURCE_DIR}/src/StatusText.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/OfflineAchievements.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/OfflineAchievementsText.h
 	${CMAKE_CURRENT_SOURCE_DIR}/src/ProxyCards.h
@@ -196,6 +197,7 @@ set(ES_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/TextRowEdit.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/ScriptOutput.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/LedText.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/StatusText.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/OfflineAchievements.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/OfflineAchievementsText.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/ProxyCards.cpp

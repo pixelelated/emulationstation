@@ -397,6 +397,11 @@ HttpReq::~HttpReq()
 		curl_slist_free_all(mHeaders);
 }
 
+static_assert(HttpReq::REQ_IN_PROGRESS == HttpText::kStatusInProgress && HttpReq::REQ_IO_ERROR == HttpText::kStatusIoError
+	&& HttpReq::REQ_FILESTREAM_ERROR == HttpText::kStatusFileStreamError && HttpReq::REQ_SERVER_UNAVAILABLE == HttpText::kStatusServerUnavailable
+	&& HttpReq::REQ_CERTIFICATE_ERROR == HttpText::kStatusCertificate && HttpReq::REQ_SUCCESS == HttpText::kStatusSuccess,
+	"HttpText's status names match HttpReq::Status");
+
 HttpReq::Status HttpReq::status()
 {
 	if (mStatus == REQ_IN_PROGRESS)
@@ -469,14 +474,11 @@ HttpReq::Status HttpReq::status()
 								else
 									err = content;
 							}
+						}
 
-							if (http_status_code > 500)
-								req->mStatus = REQ_IO_ERROR;
-							else
-								req->mStatus = (Status)http_status_code;
-						}						
-						else
-							req->mStatus = REQ_IO_ERROR;
+						// HttpText's table (T21 PL-18, #1206): 501 to 504 are a
+						// server not answering, not REQ_IO_ERROR.
+						req->mStatus = (Status) HttpText::statusForHttpCode(http_status_code);
 
 						if (err.empty())
 							err = "HTTP status " + std::to_string(http_status_code);
@@ -519,7 +521,9 @@ HttpReq::Status HttpReq::status()
 				}
 				else
 				{
-					req->mStatus = REQ_IO_ERROR;
+					// Redirects exhausted and a certificate that did not
+					// verify have their own classes (T21 PL-18, #1206).
+					req->mStatus = (Status) HttpText::statusForTransferFailure((int) msg->data.result);
 					req->onError(curl_easy_strerror(msg->data.result));
 				}
 			}

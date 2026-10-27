@@ -2,6 +2,7 @@
 //http://www.aloshi.com
 
 #include "services/HttpServerThread.h"
+#include "StatusText.h"
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiMenu.h"
 #include "guis/GuiWifi.h"
@@ -1038,8 +1039,11 @@ int main(int argc, char* argv[])
 	// was the RG SP's morning -- every setting back at its default and no
 	// word why (fork #102). Pushed before the one-shot prompts above so it
 	// sits under them and is read after they are dealt with.
-	if (Settings::wasRecovered() || SystemConf::wasRecovered())
-		window.pushGui(new GuiMsgBox(&window, _("YOUR SETTINGS FILE WAS DAMAGED. THE LAST GOOD COPY WAS RESTORED."), _("OK")));
+	// In the words true of what happened: restored, restored from a missing
+	// file, or in use with the write-back owed (T21 PL-18, #1206).
+	const RecoveryOutcome recovered = StatusText::worst(Settings::recoveryOutcome(), SystemConf::recoveryOutcome());
+	if (recovered != RecoveryOutcome::None)
+		window.pushGui(new GuiMsgBox(&window, StatusText::ladderSentence(recovered), _("OK")));
 
 	// A settings restore that was cut off -- the power gone while the archive
 	// was being written over the live tree -- was undone at this boot by

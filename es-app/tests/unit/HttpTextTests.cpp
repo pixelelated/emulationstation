@@ -51,3 +51,29 @@ TEST_CASE("bodyForLog: a 10 kB body reaches the log as one bounded, masked line 
 	// A short body is kept whole, on one line.
 	CHECK(HttpText::bodyForLog("not found\n", 512) == "not found");
 }
+
+TEST_CASE("statusForHttpCode: 501 to 504 are their own class, not offline (T21 PL-18, #1206)")
+{
+	CHECK(HttpText::statusForHttpCode(200) == HttpText::kStatusSuccess);
+	CHECK(HttpText::statusForHttpCode(204) == HttpText::kStatusSuccess);
+	CHECK(HttpText::statusForHttpCode(404) == 404);
+	CHECK(HttpText::statusForHttpCode(429) == 429);
+	CHECK(HttpText::statusForHttpCode(500) == 500);
+	for (long code : { 501L, 502L, 503L, 504L })
+	{
+		CAPTURE(code);
+		CHECK(HttpText::statusForHttpCode(code) == HttpText::kStatusServerUnavailable);
+	}
+	CHECK(HttpText::statusForHttpCode(0) == HttpText::kStatusIoError);
+	CHECK(HttpText::statusForHttpCode(302) == HttpText::kStatusIoError);
+}
+
+TEST_CASE("statusForTransferFailure: redirects exhausted and a certificate that did not verify are their own classes (T21 PL-18, #1206)")
+{
+	CHECK(HttpText::statusForTransferFailure(47) == HttpText::kStatusServerUnavailable);   // CURLE_TOO_MANY_REDIRECTS
+	CHECK(HttpText::statusForTransferFailure(60) == HttpText::kStatusCertificate);         // CURLE_PEER_FAILED_VERIFICATION
+	CHECK(HttpText::statusForTransferFailure(77) == HttpText::kStatusCertificate);         // CURLE_SSL_CACERT_BADFILE
+	CHECK(HttpText::statusForTransferFailure(6) == HttpText::kStatusIoError);              // CURLE_COULDNT_RESOLVE_HOST
+	CHECK(HttpText::statusForTransferFailure(7) == HttpText::kStatusIoError);              // CURLE_COULDNT_CONNECT
+	CHECK(HttpText::statusForTransferFailure(28) == HttpText::kStatusIoError);             // CURLE_OPERATION_TIMEDOUT
+}

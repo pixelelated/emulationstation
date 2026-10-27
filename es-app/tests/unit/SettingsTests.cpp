@@ -86,6 +86,7 @@ struct SettingsTestAccess
 		delete Settings::sInstance;
 		Settings::sInstance = nullptr;
 		Settings::sRecovered = false;
+		Settings::sOutcome = RecoveryOutcome::None;
 		Settings::sLockPath = dir + "/.system.cfg.lock";
 		Settings::sLockBudgetMs = budgetMs;
 		Paths::getUserEmulationStationPath() = dir;
@@ -245,4 +246,37 @@ TEST_CASE("Settings' start and save sweep a gone writer's temporaries (T21 PL-13
 	CHECK(settings->setString("Language", "de_DE"));
 	CHECK(settings->saveFile());
 	CHECK(::access((dir / ("es_settings.cfg.tmp." + dead + ".5")).c_str(), F_OK) != 0);
+}
+
+// ------------------------------------------------------------ the outcome (T21 PL-18, #1206)
+
+TEST_CASE("Settings' recovery says which one it was: damaged, missing, or in use with the write-back owed (T21 PL-18, #1206)")
+{
+	SUBCASE("damaged, written back")
+	{
+		ScratchDir dir;
+		put(dir / "es_settings.cfg", "<?xml version=\"1.0\"?>\n<config><string name=");
+		put(dir / "es_settings.cfg.backup", kRecord);
+		SettingsTestAccess::fresh(dir.path);
+		CHECK(Settings::recoveryOutcome() == RecoveryOutcome::Restored);
+	}
+	SUBCASE("missing, written back")
+	{
+		ScratchDir dir;
+		put(dir / "es_settings.cfg.backup", kRecord);
+		SettingsTestAccess::fresh(dir.path);
+		CHECK(Settings::recoveryOutcome() == RecoveryOutcome::Missing);
+		CHECK(get(dir / "es_settings.cfg") == kRecord);
+	}
+	SUBCASE("damaged, and the file cannot be written back: in use, owed")
+	{
+		ScratchDir dir;
+		put(dir / "es_settings.cfg", "<?xml version=\"1.0\"?>\n<config><string name=");
+		put(dir / "es_settings.cfg.backup", kRecord);
+		REQUIRE(::chmod(dir.path.c_str(), 0500) == 0);
+		Settings* settings = SettingsTestAccess::fresh(dir.path);
+		REQUIRE(::chmod(dir.path.c_str(), 0700) == 0);
+		CHECK(Settings::recoveryOutcome() == RecoveryOutcome::RestoredInMemory);
+		CHECK(settings->getString("Language") == "fr_FR");
+	}
 }

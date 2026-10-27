@@ -8,6 +8,7 @@
 #include <set>
 #include <mutex>
 #include "utils/Delegate.h"
+#include "RecoveryOutcome.h"
 
 // Non-cached settings macros
 #define DEFINE_BOOL_SETTING(XX) static bool XX() { return Settings::getInstance()->getBool(#XX); }; static bool set##XX(bool val) { return Settings::getInstance()->setBool(#XX, val); };
@@ -67,6 +68,8 @@ public:
 	// place, writing that back as the live file. main() tells the player once,
 	// after the interface is up (D-CLOUD-079).
 	static bool wasRecovered() { return sRecovered; }
+	// Which recovery this start made (T21 PL-18, #1206).
+	static RecoveryOutcome recoveryOutcome() { return sOutcome; }
 
 	SettingType getSettingType(const std::string& name);
 	std::vector<std::string> getSettingsNames();
@@ -139,6 +142,7 @@ public:
 private:
 	static Settings* sInstance;
 	static bool sRecovered;
+	static RecoveryOutcome sOutcome;
 	// The settings lock both stores take around a save (D-CLOUD-186,
 	// SystemConf's sLockPath) and the budget for it. Members so the unit
 	// tests can point them at a scratch directory; nothing else sets them.
