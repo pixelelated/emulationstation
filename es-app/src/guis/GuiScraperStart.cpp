@@ -163,9 +163,13 @@ void GuiScraperStart::loadScrapPage()
 	// one"). Opened from the main menu, it restores the set used last time, and
 	// falls back to today's default -- every system with a platform id -- when
 	// nothing was remembered or the remembered names match no listed system.
+	// "none" is a remembered empty set (#1254): an empty string was read as
+	// nothing remembered, so clearing every system came back as the default.
+	const std::string rememberedSetting = Settings::getInstance()->getString("ScraperSystems");
+	const bool rememberedNone = rememberedSetting == "none";
 	std::set<std::string> remembered;
-	for (auto& name : Utils::String::split(Settings::getInstance()->getString("ScraperSystems"), ','))
-		if (!name.empty())
+	for (auto& name : Utils::String::split(rememberedSetting, ','))
+		if (!name.empty() && name != "none")
 			remembered.insert(name);
 
 	std::vector<SystemData*> listed;
@@ -178,7 +182,7 @@ void GuiScraperStart::loadScrapPage()
 				anyRemembered = true;
 		}
 
-	bool useRemembered = currentSystem.empty() && anyRemembered;
+	bool useRemembered = currentSystem.empty() && (anyRemembered || rememberedNone);
 
 	mSystems = std::make_shared<OptionListComponent<SystemData*>>(mWindow, _("SYSTEMS INCLUDED"), true);
 
@@ -198,21 +202,46 @@ void GuiScraperStart::loadScrapPage()
 	addWithLabel(_("SYSTEMS INCLUDED"), mSystems);
 
 	// A game list's pre-selection is contextual; only a set chosen from the main
-	// menu is worth remembering.
-	if (currentSystem.empty())
-		addSaveFunc([this]
-		{
-			std::string names;
-			for (auto system : mSystems->getSelectedObjects())
-				names += (names.empty() ? "" : ",") + system->getName();
+	// menu is worth remembering -- and only once it has moved (#1254): a first
+	// visit that changed nothing wrote the default set, and a system added to
+	// the device later was then left out of it. An empty set is kept as "none".
+	auto selectedNames = [this]
+	{
+		std::string names;
+		for (auto system : mSystems->getSelectedObjects())
+			names += (names.empty() ? "" : ",") + system->getName();
+		return names.empty() ? std::string("none") : names;
+	};
 
-			Settings::getInstance()->setString("ScraperSystems", names);
+	if (currentSystem.empty())
+	{
+		const std::string atBuild = selectedNames();
+		addSaveFunc([this, selectedNames, atBuild]
+		{
+			const std::string names = selectedNames();
+			if (names != atBuild)
+				Settings::getInstance()->setString("ScraperSystems", names);
 		});
+	}
 
 	mMenu.clearButtons();
 	mMenu.addButton(_("SCRAPE NOW"), _("START"), std::bind(&GuiScraperStart::pressedStart, this));
 
-	scraper_list->setSelectedChangedCallback([this, scraperName, scraper_list](std::string value) { Settings::getInstance()->setString("Scraper", value); });
+	// A new SCRAPE FROM rebuilds this tab, so the filters are the new
+	// scraper's (#1254: they kept the scraper the tab was built with). Posted,
+	// never inline: the rebuild destroys this option list, inside whose
+	// callback this runs (es-code-traps.md). loadActivePage saves the other
+	// rows first, so their choices survive.
+	scraper_list->setSelectedChangedCallback([this](std::string value)
+	{
+		Settings::getInstance()->setString("Scraper", value);
+		std::weak_ptr<void> alive = lifeToken();
+		mWindow->postToUiThread([this, alive]
+		{
+			if (alive.lock())
+				loadActivePage();
+		});
+	});
 }
 
 void GuiScraperStart::loadSettingsPage() 
