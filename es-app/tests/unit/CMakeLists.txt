@@ -31,7 +31,8 @@ get_filename_component(ES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
 # fork #178), and the header-only option swap the save state manager makes
 # in a launch command (es-core/src/utils/CommandLineUtil.h, #308 F-CS-33), and
 # where a tabbed text's columns start (es-core/src/resources/TabStops.h,
-# header-only, #308 F-ES-11). Anything that needs a window, a font or a file does not belong
+# header-only, #308 F-ES-11), and the scrapers' checked reads of a response
+# (es-app/src/scrapers/ScraperJson.h, header-only, #1260). Anything that needs a window, a font or a file does not belong
 # in this binary -- see README.md.
 add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/CloudTextTests.cpp
@@ -50,6 +51,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/CommandLineTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/TabStopsTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchCommandTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ScraperJsonTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
 	${ES_ROOT}/es-app/src/CheevosRetry.cpp

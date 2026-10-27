@@ -75,7 +75,7 @@ namespace
 
 std::string getStringOrThrow(const Value& v, const std::string& key)
 {
-	if (!v.HasMember(key.c_str()) || !v[key.c_str()].IsString())
+	if (!v.IsObject() || !v.HasMember(key.c_str()) || !v[key.c_str()].IsString()) // #1260: the container first
 	{
 		throw std::runtime_error("rapidjson internal assertion failure: missing or non string key:" + key);
 	}
@@ -84,7 +84,7 @@ std::string getStringOrThrow(const Value& v, const std::string& key)
 
 int getIntOrThrow(const Value& v, const std::string& key)
 {
-	if (!v.HasMember(key.c_str()) || !v[key.c_str()].IsInt())
+	if (!v.IsObject() || !v.HasMember(key.c_str()) || !v[key.c_str()].IsInt()) // #1260: the container first
 	{
 		throw std::runtime_error("rapidjson internal assertion failure: missing or non int key:" + key);
 	}
@@ -120,6 +120,9 @@ std::vector<std::string> getMediaTagNames(std::string imageSource)
 
 std::string findMedia(const Value& v, std::string scrapeSource)
 {
+	if (!v.IsObject()) // #1260
+		return "";
+
 	for (std::string key : getMediaTagNames(scrapeSource))
 		if (v.HasMember(key.c_str()) && v[key.c_str()].IsString())
 			return v[key.c_str()].GetString();

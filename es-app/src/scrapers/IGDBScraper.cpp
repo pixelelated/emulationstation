@@ -1,4 +1,5 @@
 #include "scrapers/IGDBScraper.h"
+#include "scrapers/ScraperJson.h"
 #include <exception>
 #include <map>
 #include "FileData.h"
@@ -158,9 +159,10 @@ bool IGDBScraper::ensureToken()
 		auto json = request.getContent();
 		doc.Parse(json.c_str());
 
-		if (!doc.HasParseError() && doc.HasMember("access_token"))
+		auto token = ScraperJson::string(doc, "access_token"); // #1260: an object with a string, or nothing
+		if (!doc.HasParseError() && token != nullptr)
 		{
-			mToken = doc["access_token"].GetString();
+			mToken = token;
 			return true;
 		}
 	}

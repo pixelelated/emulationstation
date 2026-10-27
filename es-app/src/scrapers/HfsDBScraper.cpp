@@ -1,6 +1,7 @@
 #ifdef HFS_DEV_LOGIN
 
 #include "scrapers/HfsDBScraper.h"
+#include "scrapers/ScraperJson.h"
 #include <exception>
 #include <map>
 #include "FileData.h"
@@ -203,9 +204,10 @@ bool HfsDBScraper::ensureToken()
 		auto json = request.getContent();
 		doc.Parse(json.c_str());
 
-		if (!doc.HasParseError() && doc.HasMember("token"))
+		auto token = ScraperJson::string(doc, "token"); // #1260: an object with a string, or nothing
+		if (!doc.HasParseError() && token != nullptr)
 		{
-			mToken = doc["token"].GetString();
+			mToken = token;
 			return true;
 		}
 	}
@@ -347,7 +349,7 @@ static std::vector<std::string> getMediaTagNames(std::string imageSource)
 
 static std::string findMedia(const Value& v, std::string scrapeSource)
 {
-	if (!v.HasMember("medias") || !v["medias"].IsArray())
+	if (!v.IsObject() || !v.HasMember("medias") || !v["medias"].IsArray()) // #1260
 		return "";	
 
 	std::set<std::string> tags;
@@ -412,10 +414,13 @@ static std::string findMedia(const Value& v, std::string scrapeSource)
 static void processGame(const Value& game, std::vector<ScraperSearchResult>& results, bool arcadeGame)
 {
 	// Special post-processing filtering for ARCADE systems
+	if (!game.IsObject()) // #1260: each container's shape before its members
+		return;
+
 	if (arcadeGame && game.HasMember("system"))
 	{
 		const Value& system = game["system"];
-		if (system.HasMember("id") && system["id"].IsInt())
+		if (system.IsObject() && system.HasMember("id") && system["id"].IsInt())
 		{
 			int systemId = system["id"].GetInt();
 				
@@ -468,7 +473,7 @@ static void processGame(const Value& game, std::vector<ScraperSearchResult>& res
 		{
 			auto& metadata = metadatas[i];
 						
-			if (!metadata.HasMember("name") || !metadata["name"].IsString())
+			if (!metadata.IsObject() || !metadata.HasMember("name") || !metadata["name"].IsString()) // #1260
 				continue;
 
 			if (!metadata.HasMember("value") || !metadata["value"].IsString())

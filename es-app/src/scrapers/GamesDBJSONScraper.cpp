@@ -2,6 +2,7 @@
 #include <map>
 
 #include "scrapers/GamesDBJSONScraper.h"
+#include "scrapers/ScraperJson.h"
 #include "scrapers/GamesDBJSONScraperResources.h"
 
 #ifdef GAMESDB_APIKEY
@@ -265,7 +266,7 @@ namespace
 
 	std::string getStringOrThrow(const Value& v, const std::string& key)
 	{
-		if (!v.HasMember(key.c_str()) || !v[key.c_str()].IsString())
+		if (!v.IsObject() || !v.HasMember(key.c_str()) || !v[key.c_str()].IsString()) // #1260: the container first
 		{
 			throw std::runtime_error("rapidjson internal assertion failure: missing or non string key:" + key);
 		}
@@ -274,7 +275,7 @@ namespace
 
 	int getIntOrThrow(const Value& v, const std::string& key)
 	{
-		if (!v.HasMember(key.c_str()) || !v[key.c_str()].IsInt())
+		if (!v.IsObject() || !v.HasMember(key.c_str()) || !v[key.c_str()].IsInt()) // #1260: the container first
 		{
 			throw std::runtime_error("rapidjson internal assertion failure: missing or non int key:" + key);
 		}
@@ -464,17 +465,22 @@ namespace
 			std::string pathMedium;
 			std::string pathLarge;
 
-			if (imageDoc.HasMember("data"))
+			// Each container's shape before its members (#1260).
+			auto imageData = ScraperJson::object(imageDoc, "data");
+			if (imageData != nullptr)
 			{
-				if (imageDoc["data"].HasMember("base_url") && imageDoc["data"]["base_url"].HasMember("medium"))
-					pathMedium = imageDoc["data"]["base_url"]["medium"].GetString();
+				auto baseUrl = ScraperJson::object(*imageData, "base_url");
+				if (baseUrl != nullptr && ScraperJson::string(*baseUrl, "medium") != nullptr)
+					pathMedium = ScraperJson::string(*baseUrl, "medium");
 
-				if (imageDoc["data"].HasMember("base_url") && imageDoc["data"]["base_url"].HasMember("large"))
-					pathLarge = imageDoc["data"]["base_url"]["large"].GetString();
+				if (baseUrl != nullptr && ScraperJson::string(*baseUrl, "large") != nullptr)
+					pathLarge = ScraperJson::string(*baseUrl, "large");
 
-				if (imageDoc["data"].HasMember("images") && imageDoc["data"]["images"].HasMember(id.c_str()) && imageDoc["data"]["images"][id.c_str()].IsArray())
+				auto imagesById = ScraperJson::object(*imageData, "images");
+				auto imagesOfGame = imagesById != nullptr ? ScraperJson::array(*imagesById, id.c_str()) : nullptr;
+				if (imagesOfGame != nullptr)
 				{
-					const Value& images = imageDoc["data"]["images"][id.c_str()];
+					const Value& images = *imagesOfGame;
 
 					for (int i = 0; i < (int)images.Size(); ++i)
 					{
@@ -484,14 +490,14 @@ namespace
 						std::string fileName;
 						std::string side;
 
-						if (v.HasMember("type"))
-							type = v["type"].GetString();
+						if (ScraperJson::string(v, "type") != nullptr)
+							type = ScraperJson::string(v, "type");
 
-						if (v.HasMember("filename"))
-							fileName = v["filename"].GetString();
+						if (ScraperJson::string(v, "filename") != nullptr)
+							fileName = ScraperJson::string(v, "filename");
 
-						if (v.HasMember("side") && v["side"].IsString())
-							side = v["side"].GetString();
+						if (ScraperJson::string(v, "side") != nullptr)
+							side = ScraperJson::string(v, "side");
 
 						if (type == "boxart" && side == "back")
 							type = "box-2D-back";
@@ -555,7 +561,8 @@ void TheGamesDBJSONRequest::preProcess(const std::string& response)
 	Document doc;
 	doc.Parse(response.c_str());
 	
-	if (doc.HasParseError() || !doc.HasMember("data") || !doc["data"].HasMember("games") || !doc["data"]["games"].IsArray())
+	auto data = ScraperJson::object(doc, "data"); // #1260
+	if (doc.HasParseError() || data == nullptr || ScraperJson::array(*data, "games") == nullptr)
 		return;
 
 	const Value& games = doc["data"]["games"];
@@ -587,7 +594,8 @@ bool TheGamesDBJSONRequest::process(const std::string& response, std::vector<Scr
 		return true;
 	}
 
-	if (!doc.HasMember("data") || !doc["data"].HasMember("games") || !doc["data"]["games"].IsArray())
+	auto data = ScraperJson::object(doc, "data"); // #1260: each container's shape before its members
+	if (data == nullptr || ScraperJson::array(*data, "games") == nullptr)
 	{
 		std::string warn = "TheGamesDBJSONRequest - Response had no game data.\n";
 		LOG(LogWarning) << warn;
@@ -595,7 +603,8 @@ bool TheGamesDBJSONRequest::process(const std::string& response, std::vector<Scr
 	}
 	const Value& games = doc["data"]["games"];
 
-	if (!doc.HasMember("include") || !doc["include"].HasMember("boxart"))
+	auto include = ScraperJson::object(doc, "include");
+	if (include == nullptr || ScraperJson::member(*include, "boxart") == nullptr)
 	{
 		std::string warn = "TheGamesDBJSONRequest - Response had no include boxart data.\n";
 		LOG(LogWarning) << warn;
@@ -604,7 +613,7 @@ bool TheGamesDBJSONRequest::process(const std::string& response, std::vector<Scr
 
 	const Value& boxart = doc["include"]["boxart"];
 
-	if (!boxart.HasMember("base_url") || !boxart.HasMember("data") || !boxart.IsObject())
+	if (!boxart.IsObject() || ScraperJson::object(boxart, "base_url") == nullptr || !boxart.HasMember("data"))
 	{
 		std::string warn = "TheGamesDBJSONRequest - Response include had no usable boxart data.\n";
 		LOG(LogWarning) << warn;

@@ -4,6 +4,7 @@
 #include <thread>
 #include "scrapers/GamesDBJSONScraperResources.h"
 #include "scrapers/Scraper.h"
+#include "scrapers/ScraperJson.h"
 #include "utils/FileSystemUtil.h"
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -180,8 +181,8 @@ int TheGamesDBJSONRequestResources::loadResource(
 		return 1;
 	}
 
-	if (!doc.HasMember("data") || !doc["data"].HasMember(resource_name.c_str()) ||
-		!doc["data"][resource_name.c_str()].IsObject())
+	auto dataObj = ScraperJson::object(doc, "data"); // #1260: the container first
+	if (dataObj == nullptr || ScraperJson::object(*dataObj, resource_name.c_str()) == nullptr)
 	{
 		std::string err = "TheGamesDBJSONRequest - Response had no resource data.\n";
 		LOG(LogError) << err;
