@@ -1867,12 +1867,17 @@ void GuiMenu::openSystemSettings()
 		tzChoices->add(tz, tz, currentTZ == tz);
 	}
 	s->addWithLabel(_("TIMEZONE"), tzChoices);
-	s->addSaveFunc([tzChoices] {
+	// Stored when it changed, as the link already was, or while the store is
+	// still empty -- es_settings sets the device's timezone from it at every
+	// start; every close of SYSTEM SETTINGS wrote it (T26 PL-18, #1230).
+	const bool timezoneUnset = SystemConf::getInstance()->get("system.timezone").empty();
+	s->addSaveFunc([tzChoices, timezoneUnset] {
 		if (tzChoices->changed()) {
 			std::string selectedTimezone = tzChoices->getSelected();
 			Utils::Platform::runSystemCommand("ln -sf /usr/share/zoneinfo/" + selectedTimezone + " $(readlink /etc/localtime)", "", nullptr);
 		}
-		SystemConf::getInstance()->set("system.timezone", tzChoices->getSelected());
+		if (tzChoices->changed() || timezoneUnset)
+			SystemConf::getInstance()->set("system.timezone", tzChoices->getSelected());
 	});
 #else
 	if (ApiSystem::getInstance()->isScriptingSupported(ApiSystem::ScriptId::TIMEZONES))
@@ -8586,6 +8591,9 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 		online, [window, s, reopen]
 	{
 		auto wifi = new GuiSettings(window, _("WI-FI PASSWORD"));
+		// The key as the page opened, so a close that changed nothing starts
+		// no association (T26 PL-12, #1226: back alone reconnected).
+		const std::string keyAtEntry = SystemConf::getInstance()->get("wifi.key");
 		wifi->addInputTextConfigRow(_("WI-FI PASSWORD"), "wifi.key", true);
 		// The association behind the spinner every other Wi-Fi apply in this
 		// file uses (networkApplyWifi): it ran from a save function on the
@@ -8596,14 +8604,14 @@ void GuiMenu::openRestoreRelink(Window* window, bool consumeMarker)
 		// The key row writes SystemConf in memory only, and the page has no
 		// save function to write the file (GuiSettings::save returns early
 		// without one): written here, before the association reads it.
-		wifi->onFinalize([window, s, reopen]
+		wifi->onFinalize([window, s, reopen, keyAtEntry]
 		{
 			SystemConf::getInstance()->saveSystemConf();
 			s->close();
 			const std::string ssid = SystemConf::getInstance()->get("wifi.ssid");
 			const std::string key = SystemConf::getInstance()->get("wifi.key");
 			const std::string country = SystemConf::getInstance()->get("wifi.country");
-			if (!SystemConf::getInstance()->getBool("wifi.enabled") || ssid.empty() || key.empty())
+			if (key == keyAtEntry || !SystemConf::getInstance()->getBool("wifi.enabled") || ssid.empty() || key.empty())
 			{
 				reopen();
 				return;
@@ -9917,23 +9925,25 @@ void GuiMenu::openSoundSettings()
         auto favorites = FavoriteMusicManager::loadFavoriteSongs(favoritesFile);
         hasFavorites = !favorites.empty();
     }
+    // Read, not written, as the page opens (T26 PL-18, #1230): a stored ON
+    // with no favorites shows OFF, and AudioManager::playRandomMusic resets
+    // the stored value itself when it finds the list empty.
     bool shouldUseFavorites = Settings::getInstance()->getBool("audio.useFavoriteMusic") && hasFavorites;
-    if (Settings::getInstance()->getBool("audio.useFavoriteMusic") && !hasFavorites)
-    {
-        Settings::getInstance()->setBool("audio.useFavoriteMusic", false);
-        Settings::getInstance()->saveFile();
-    }
     favoriteSwitch->setState(shouldUseFavorites);
     s->addWithDescription(_("PLAY ONLY SONGS FROM YOUR FAVORITES PLAYLIST"), "", favoriteSwitch, nullptr);
-    s->addSaveFunc([favoriteSwitch, hasFavorites]() 
+    s->addSaveFunc([favoriteSwitch, hasFavorites, shouldUseFavorites]() 
     {
         bool useFavorite = favoriteSwitch->getState();
         if (useFavorite && !hasFavorites)
         {
             useFavorite = false;
         }
-        Settings::getInstance()->setBool("audio.useFavoriteMusic", useFavorite);
-        Settings::getInstance()->saveFile();
+        // Written only when the player changed what the page showed.
+        if (useFavorite != shouldUseFavorites)
+        {
+            Settings::getInstance()->setBool("audio.useFavoriteMusic", useFavorite);
+            Settings::getInstance()->saveFile();
+        }
         AudioManager::getInstance()->playRandomMusic(useFavorite);
     });
 
@@ -9962,14 +9972,17 @@ void GuiMenu::openSoundSettings()
 	});
 
 	auto batteryWarningThreshold = std::make_shared<SliderComponent>(mWindow, 0.f, 50.f, 1.f, "%");
-	if (SystemConf::getInstance()->get("system.battery.warning_threshold").length() == 0) {
-		SystemConf::getInstance()->set("system.battery.warning_threshold", "25");
-	}
-	float batteryWarningThresholdValue = (float)atoi(SystemConf::getInstance()->get("system.battery.warning_threshold").c_str());
-	batteryWarningThreshold->setValue(batteryWarningThresholdValue);
+	// The default is read, not written, as the page opens (T26 PL-18, #1230):
+	// powerstate.sh takes an empty value as 25 as well. Written on close only
+	// when the slider moved from what the page showed.
+	const std::string storedThreshold = SystemConf::getInstance()->get("system.battery.warning_threshold");
+	const int shownThreshold = storedThreshold.empty() ? 25 : atoi(storedThreshold.c_str());
+	batteryWarningThreshold->setValue((float)shownThreshold);
 	s->addWithLabel(_("BATTERY WARNING THRESHOLD"), batteryWarningThreshold);
-	s->addSaveFunc([batteryWarningThreshold] {
-		SystemConf::getInstance()->set("system.battery.warning_threshold", std::to_string((int)round(batteryWarningThreshold->getValue())));
+	s->addSaveFunc([batteryWarningThreshold, shownThreshold] {
+		const int chosen = (int)round(batteryWarningThreshold->getValue());
+		if (chosen != shownThreshold)
+			SystemConf::getInstance()->set("system.battery.warning_threshold", std::to_string(chosen));
 	});
 
 	s->addSwitch(_("ENABLE VIDEO PREVIEW AUDIO"), "VideoAudio", true);
