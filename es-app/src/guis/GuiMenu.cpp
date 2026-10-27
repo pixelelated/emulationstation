@@ -4220,6 +4220,16 @@ static void cloudCheckChanged(Window* window)
 	window->pushGui(new GuiMsgBox(window,
 		_("THE CLOUD CHECK IS NO LONGER CURRENT. CHECK YOUR FOLDERS AGAIN."), _("OK")));
 }
+
+// Every image ships cloud_scan; an image without it cannot check the cloud,
+// and says so in the words backuptool uses for a missing tool. The pages
+// fell back to the transfer options or to the stale-check sentence, which
+// was not true: no check had run (T26 PL-29, #1233).
+static void cloudCheckToolMissing(Window* window)
+{
+	window->pushGui(new GuiMsgBox(window,
+		_("THIS DEVICE CAN'T CHECK YOUR CLOUD. SOMETHING IT NEEDS IS MISSING FROM THIS BUILD."), _("OK")));
+}
 // The picker's selection, saved and then read back before anything moves on
 // it (audit of the fix round PL-019). --set-systems exits 0 over a rename
 // that failed -- a full card, a folder gone read-only -- and the file then
@@ -5240,13 +5250,13 @@ static void cloudOpenTransferOptions(Window* window, bool backup)
 // cloud's systems in the classes ticked, and the systems page is built
 // from its files. A scan that did not complete stays on its page with its
 // why and TRY AGAIN beside CLOSE; one that did goes straight on, since the
-// systems page is its outcome (GuiCloudTransfer::setAutoContinue). Scripts
-// older than cloud_scan run the listing in the picker as they always did.
+// systems page is its outcome (GuiCloudTransfer::setAutoContinue). Without
+// cloud_scan nothing is checked: the page says so and stops.
 static void cloudScanContent(Window* window, bool backup, bool content, bool media, const std::function<void()>& then)
 {
 	if (!Utils::FileSystem::exists("/usr/bin/cloud_scan"))
 	{
-		cloudCheckChanged(window);
+		cloudCheckToolMissing(window);
 		return;
 	}
 	const std::string run = cloudNewCheckId();
@@ -5278,7 +5288,7 @@ static void cloudOpenTransfer(Window* window, bool backup)
 	}
 	if (!Utils::FileSystem::exists("/usr/bin/cloud_scan"))
 	{
-		cloudOpenTransferOptions(window, backup);
+		cloudCheckToolMissing(window);
 		return;
 	}
 	const std::string run = cloudNewCheckId();
