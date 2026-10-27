@@ -21,10 +21,18 @@ public:
 		bool tabbedUI = false);
 	GuiSettings(Window* window, const std::string& title, bool tabbedUI);
 
-	virtual ~GuiSettings(); // just calls save();
+	virtual ~GuiSettings();
 
 	void save();
 	void close();
+
+	// Closes every page above the view, from the top: a GuiSettings page through
+	// close() -- its save functions, the stores, onFinalize -- and any other page
+	// deleted as before. Stops when a close leaves the stack other than one page
+	// shorter, which is an onFinalize that pushed a page. START, the bar's CLOSE
+	// and a click outside the menu all close this way, so a page closed from the
+	// top saves what BACK would have saved (#1236).
+	static void closeAllFromTop(Window* window);
 
 	inline void setUpdateType(ComponentListFlags::UpdateType updateType) 
 	{ 		

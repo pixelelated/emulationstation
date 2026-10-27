@@ -80,6 +80,27 @@ void GuiSettings::close()
 	delete this;
 }
 
+void GuiSettings::closeAllFromTop(Window* window)
+{
+	while (window->peekGui() && window->peekGui() != ViewController::get())
+	{
+		GuiComponent* top = window->peekGui();
+		GuiSettings* settings = dynamic_cast<GuiSettings*>(top);
+		if (settings == nullptr)
+		{
+			delete top;
+			continue;
+		}
+
+		// close() deletes the page; anything else the stack holds afterwards was
+		// pushed by its onFinalize (a question, a notice), and is left on top.
+		const int before = window->getGuiStackSize();
+		settings->close();
+		if (window->getGuiStackSize() != before - 1)
+			break;
+	}
+}
+
 void GuiSettings::save()
 {
 	if (!mDoSave)
@@ -105,10 +126,8 @@ bool GuiSettings::input(InputConfig* config, Input input)
 
 	if(config->isMappedTo(mCloseButton, input) && input.value != 0)
 	{
-		// close everything
-		Window* window = mWindow;
-		while(window->peekGui() && window->peekGui() != ViewController::get())
-			delete window->peekGui();
+		// close everything, each settings page saving as BACK would (#1236)
+		closeAllFromTop(mWindow);
 		return true;
 	}
 	
@@ -132,10 +151,8 @@ std::vector<HelpPrompt> GuiSettings::getHelpPrompts()
 	prompts.push_back(HelpPrompt(BUTTON_BACK, _("BACK"), [&] { close(); }));
 	prompts.push_back(HelpPrompt(mCloseButton, _("CLOSE"), [&] 
 	{ 
-		// close everything
-		Window* window = mWindow;
-		while (window->peekGui() && window->peekGui() != ViewController::get())
-			delete window->peekGui(); 
+		// close everything, each settings page saving as BACK would (#1236)
+		closeAllFromTop(mWindow);
 	}));
 
 	return prompts;
@@ -457,7 +474,7 @@ bool GuiSettings::onMouseClick(int button, bool pressed, int x, int y)
 {
 	if (pressed && button == 1 && !mMenu.isMouseOver())
 	{
-		delete this;
+		close(); // saves as BACK would (#1236)
 		return true;
 	}
 

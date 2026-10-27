@@ -541,10 +541,9 @@ bool GuiScraperStart::input(InputConfig* config, Input input)
 
 	if (config->isMappedTo("start", input) && input.value != 0)
 	{
-		// close everything
-		Window* window = mWindow;
-		while (window->peekGui() && window->peekGui() != ViewController::get())
-			delete window->peekGui();
+		// close everything, each settings page saving as BACK would (#1236)
+		GuiSettings::closeAllFromTop(mWindow);
+		return true;
 	}
 
 	return false;
