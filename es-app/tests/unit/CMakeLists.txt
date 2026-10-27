@@ -51,6 +51,7 @@ add_executable(es-unit-tests
 	${CMAKE_CURRENT_SOURCE_DIR}/TabStopsTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/LaunchCommandTests.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/TextRowEditTests.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ArchiveCommandsTests.cpp
 	${ES_ROOT}/es-app/src/CloudText.cpp
 	${ES_ROOT}/es-app/src/CloudFolderValidation.cpp
 	${ES_ROOT}/es-app/src/CheevosRetry.cpp

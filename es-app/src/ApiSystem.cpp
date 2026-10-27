@@ -1,4 +1,5 @@
 #include "ApiSystem.h"
+#include "ArchiveCommands.h"
 #include "Settings.h"
 #include "Log.h"
 #include "HttpReq.h"
@@ -1525,10 +1526,11 @@ std::string ApiSystem::getMD5(const std::string fileName, bool fromZipContents)
 #if !WIN32
 	if (fromZipContents && ext == ".7z")
 	{
-		auto cmd = getSevenZipCommand() + " x -so \"" + fileName + "\" | md5sum";
-		auto ret = executeEnumerationScript(cmd);
-		if (ret.size() == 1 && ret.cbegin()->length() >= 32)
-			return ret.cbegin()->substr(0, 32);
+		auto ret = executeEnumerationScript(ArchiveCommands::md5Pipeline(getSevenZipCommand(), fileName));
+		// the digest of empty input is a failed extraction, not a hash (#1205)
+		auto md5 = ArchiveCommands::md5FromPipelineLines(ret);
+		if (!md5.empty())
+			return md5;
 	}
 #endif
 
@@ -1576,16 +1578,11 @@ std::string ApiSystem::getCRC32(std::string fileName, bool fromZipContents)
 		LOG(LogDebug) << "getCRC32 is using 7z";
 
 		std::string fn = Utils::FileSystem::getFileName(fileName);
-		auto cmd = getSevenZipCommand() + " l -slt \"" + fileName + "\"";
-		auto lines = executeEnumerationScript(cmd);
-		for (std::string all : lines)
-		{
-			int idx = all.find("CRC = ");
-			if (idx != std::string::npos)
-				return all.substr(idx + 6);
-			else if (all.find(fn) == (all.size() - fn.size()) && all.length() > 8 && all[9] == ' ')
-				return all.substr(0, 8);
-		}
+		auto lines = executeEnumerationScript(ArchiveCommands::listCommand(getSevenZipCommand(), fileName));
+		// an empty `CRC = ` entry is no CRC (#1205); the file-buffer CRC below stands in
+		auto crc = ArchiveCommands::crcFromListingLines(lines, fn);
+		if (!crc.empty())
+			return crc;
 	}
 	else if (ext == ".zip" && fromZipContents)
 	{
@@ -1657,7 +1654,7 @@ bool ApiSystem::unzipFile(const std::string fileName, const std::string destFold
 	
 	LOG(LogDebug) << "unzipFile is using 7z";
 
-	std::string cmd = getSevenZipCommand() + " x \"" + Utils::FileSystem::getPreferredPath(fileName) + "\" -y -o\"" + Utils::FileSystem::getPreferredPath(destFolder) + "\"";
+	std::string cmd = ArchiveCommands::extractCommand(getSevenZipCommand(), Utils::FileSystem::getPreferredPath(fileName), Utils::FileSystem::getPreferredPath(destFolder));
 	bool ret = executeScript(cmd);
 	LOG(LogDebug) << "unzipFile <<";
 	return ret;
@@ -2507,7 +2504,7 @@ int ApiSystem::formatDisk(const std::string disk, const std::string format, cons
 
 int ApiSystem::getPdfPageCount(const std::string& fileName)
 {
-	auto lines = executeEnumerationScript("pdfinfo \"" + fileName + "\"");
+	auto lines = executeEnumerationScript(ArchiveCommands::pdfInfoCommand(fileName));
 	for (auto line : lines)
 	{
 		auto splits = Utils::String::split(line, ':', true);
@@ -2591,7 +2588,7 @@ std::vector<std::string> ApiSystem::extractPdfImages(const std::string& fileName
 #if WIN32
 	executeEnumerationScript("pdftoppm -r "+ squality + page +" \"" + fileName + "\" \""+ pdfFolder +"/" + prefix +"\"");
 #else
-	executeEnumerationScript("pdftoppm -jpeg -r "+ squality +" -cropbox" + page + " \"" + fileName + "\" \"" + pdfFolder + "/" + prefix + "\"");
+	executeEnumerationScript(ArchiveCommands::pdfToPpmCommand(squality, page, fileName, pdfFolder + "/" + prefix));
 #endif
 
 	int time = SDL_GetTicks() - lastTime;
