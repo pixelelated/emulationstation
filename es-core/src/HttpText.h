@@ -28,6 +28,20 @@ namespace HttpText
 	const int kStatusCertificate = 6;         // the server's certificate did not verify
 	const int kStatusSuccess = 200;
 
+	// How a request checks the server it talks to (D-NET-017, #1154): the
+	// peer verified by default, with VERIFYHOST's 2; only a request that
+	// sets allowUnverifiedPeer -- the scrapers' media downloads -- skips it,
+	// and a request with a client certificate keeps it whatever it sets.
+	struct TlsChoice
+	{
+		bool verifyPeer;
+		long verifyHost;
+	};
+	TlsChoice tlsChoice(bool allowUnverifiedPeer, bool clientCertificate);
+
+	// The image's CA bundle (T21 G1: present on the image).
+	const char* const kCaBundle = "/etc/ssl/certs/ca-certificates.crt";
+
 	// A completed transfer's HTTP code as HttpReq::Status (T21 PL-18, #1206).
 	int statusForHttpCode(long code);
 	// A transfer curl ended with an error, by its CURLcode, as HttpReq::Status.

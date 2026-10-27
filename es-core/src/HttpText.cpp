@@ -25,6 +25,15 @@ namespace HttpText
 		return true;
 	}
 
+	TlsChoice tlsChoice(bool allowUnverifiedPeer, bool clientCertificate)
+	{
+		// Verification was off for every request since 2021 (#1154); a
+		// client certificate dropped the host check too (D-NET-017).
+		if (allowUnverifiedPeer && !clientCertificate)
+			return { false, 0L };
+		return { true, 2L };
+	}
+
 	int statusForHttpCode(long code)
 	{
 		if (code >= 200 && code <= 299)

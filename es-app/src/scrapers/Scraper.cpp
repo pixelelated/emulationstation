@@ -544,6 +544,10 @@ ImageDownloadHandle::ImageDownloadHandle(const std::string& url, const std::stri
 
 	HttpReqOptions options;
 	options.outputFilename = path;
+	// A media download is the one request that may talk to a server it
+	// cannot verify (D-NET-017, #1154): the art comes from mirrors and CDNs
+	// whose certificates the image's bundle may not cover.
+	options.allowUnverifiedPeer = true;
 
 	if (url.find("screenscraper") != std::string::npos && url.find("/medias/") != std::string::npos)
 	{
@@ -567,10 +571,13 @@ ImageDownloadHandle::ImageDownloadHandle(const std::string& url, const std::stri
 			uri.arguments.set("maxheight", std::to_string(maxHeight));
 		}
 
-		mRequest = new HttpReq(uri.toString(), &options);
+		mRequestUrl = uri.toString();
 	}
 	else
-		mRequest = new HttpReq(url, &options);
+		mRequestUrl = url;
+
+	mOptions = options;
+	mRequest = new HttpReq(mRequestUrl, &mOptions);
 }
 
 ImageDownloadHandle::~ImageDownloadHandle()
@@ -597,9 +604,11 @@ void ImageDownloadHandle::update()
 
 			LOG(LogDebug) << "REQ_429_TOOMANYREQUESTS : Retrying";
 
-			std::string url = mRequest->getUrl();
 			delete mRequest;
-			mRequest = new HttpReq(url, mSavePath);
+			// The request as it was made, its options with it (D-NET-017,
+			// #1154): the bare URL and path dropped the size arguments, the
+			// Referer and the media download's opt-out.
+			mRequest = new HttpReq(mRequestUrl, &mOptions);
 		}
 
 		return;

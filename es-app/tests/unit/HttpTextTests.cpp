@@ -77,3 +77,22 @@ TEST_CASE("statusForTransferFailure: redirects exhausted and a certificate that 
 	CHECK(HttpText::statusForTransferFailure(7) == HttpText::kStatusIoError);              // CURLE_COULDNT_CONNECT
 	CHECK(HttpText::statusForTransferFailure(28) == HttpText::kStatusIoError);             // CURLE_OPERATION_TIMEDOUT
 }
+
+TEST_CASE("tlsChoice: the peer is verified unless a media download opts out, and a client certificate keeps it (D-NET-017, #1154)")
+{
+	const auto plain = HttpText::tlsChoice(false, false);
+	CHECK(plain.verifyPeer);
+	CHECK(plain.verifyHost == 2);
+
+	const auto media = HttpText::tlsChoice(true, false);
+	CHECK_FALSE(media.verifyPeer);
+	CHECK(media.verifyHost == 0);
+
+	const auto certificate = HttpText::tlsChoice(false, true);
+	CHECK(certificate.verifyPeer);
+	CHECK(certificate.verifyHost == 2);
+
+	const auto both = HttpText::tlsChoice(true, true);
+	CHECK(both.verifyPeer);
+	CHECK(both.verifyHost == 2);
+}

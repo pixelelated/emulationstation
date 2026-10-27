@@ -195,16 +195,24 @@ void HttpReq::performRequest(const std::string& url, HttpReqOptions* options)
 		return;
 	}
 
-	// Ignore expired SSL certificates
-	curl_easy_setopt(mHandle, CURLOPT_SSL_VERIFYPEER, 0L);
+	// The server is verified unless the request opts out (D-NET-017, #1154):
+	// verification was off for every request, and the client-certificate
+	// path turned the host check off as well.
+	const bool clientCertificate = options != nullptr && !options->clientCert.empty() && !options->clientKey.empty();
+	const HttpText::TlsChoice tls = HttpText::tlsChoice(options != nullptr && options->allowUnverifiedPeer, clientCertificate);
+	curl_easy_setopt(mHandle, CURLOPT_SSL_VERIFYPEER, tls.verifyPeer ? 1L : 0L);
+	curl_easy_setopt(mHandle, CURLOPT_SSL_VERIFYHOST, tls.verifyHost);
+#if !defined(WIN32)
+	if (tls.verifyPeer && Utils::FileSystem::exists(HttpText::kCaBundle))
+		curl_easy_setopt(mHandle, CURLOPT_CAINFO, HttpText::kCaBundle);
+#endif
 
 	// Add client cert support
-	if (options != nullptr && !options->clientCert.empty() && !options->clientKey.empty()) {
+	if (clientCertificate) {
 		// curl_easy_setopt(mHandle, CURLOPT_VERBOSE, 1L);
 		curl_easy_setopt(mHandle, CURLOPT_SSLCERT, options->clientCert.c_str());
 		curl_easy_setopt(mHandle, CURLOPT_SSLCERTTYPE, "PEM");
 		curl_easy_setopt(mHandle, CURLOPT_SSLKEY, options->clientKey.c_str());
-		curl_easy_setopt(mHandle, CURLOPT_SSL_VERIFYHOST, 0L);
 	}
 
 	//set curl to connection timeout

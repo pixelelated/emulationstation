@@ -156,6 +156,11 @@ private:
 	int mOverQuotaRetryCount;
 
 	std::string mSavePath;
+	// The request as it was made -- its URL with the size arguments, and
+	// its options -- which the 429 retry makes again (D-NET-017, #1154): it
+	// rebuilt from the bare URL and the path, dropping both.
+	std::string mRequestUrl;
+	HttpReqOptions mOptions;
 	int mMaxWidth;
 	int mMaxHeight;
 };

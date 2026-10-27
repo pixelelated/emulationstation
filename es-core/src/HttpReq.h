@@ -86,6 +86,10 @@ public:
 	// a slow but moving download.
 	long stallTimeout;
 	bool useCookieManager;
+	// The one opt-out from verifying the server (D-NET-017, #1154): only the
+	// scrapers' media downloads set it, and their 429 retry keeps it. False
+	// by default; a request with a client certificate verifies regardless.
+	bool allowUnverifiedPeer = false;
 };
 
 class HttpReq
