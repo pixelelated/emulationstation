@@ -6990,3 +6990,19 @@ msgstr "SCREENSCRAPER A REFUSÉ L’ACCÈS DE CE SYSTÈME.\nCHERCHEZ UNE MISE À
 #: es-app/src/guis/GuiImageViewer.cpp
 msgid "COULDN'T OPEN THIS FILE."
 msgstr "IMPOSSIBLE D’OUVRIR CE FICHIER."
+
+#: es-app/src/guis/GuiScraperRun.cpp
+msgid "NO MATCH, OR NO ANSWER IN TIME, FOR THE ONES IT COULDN'T SCRAPE."
+msgstr "AUCUNE CORRESPONDANCE, OU PAS DE RÉPONSE À TEMPS, POUR CEUX QU’IL N’A PAS PU SCRAPER."
+
+#: es-app/src/guis/GuiScraperRun.cpp
+msgid "NO MATCH, OR NO ANSWER IN TIME."
+msgstr "AUCUNE CORRESPONDANCE, OU PAS DE RÉPONSE À TEMPS."
+
+#: es-app/src/guis/GuiScraperRun.cpp
+msgid "TRY AGAIN LATER, OR SCRAPE A GAME FROM ITS OWN MENU."
+msgstr "RÉESSAYEZ PLUS TARD, OU SCRAPEZ UN JEU DEPUIS SON PROPRE MENU."
+
+#: es-app/src/guis/GuiScraperRun.cpp
+msgid "TRY AGAIN LATER."
+msgstr "RÉESSAYEZ PLUS TARD."

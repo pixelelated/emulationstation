@@ -84,9 +84,12 @@ GuiScraperRun::GuiScraperRun(Window* window)
 // While the scrape runs, back asks whether to cancel it (D-UI-078: the page is
 // sat in, and CANCEL is the one way out); every other press is refused,
 // since there is nothing to choose and a stray press should not dismiss a
-// page somebody is waiting on. Once it has finished, any button dismisses
-// it: the SCRAPER page it came from is right behind, and a new scrape
-// starts there.
+// page somebody is waiting on. Once it has finished and the outcome has
+// been drawn, a button dismisses it -- not a stick or a d-pad drifting past
+// its deadzone, and not a press that arrived before the outcome was on the
+// screen (#1247). SCRAPER was closed when the run started
+// (GuiScraperStart::start), so the page goes back to wherever the player
+// opened SCRAPER from.
 bool GuiScraperRun::input(InputConfig* config, Input input)
 {
 	if (!input.value)
@@ -98,6 +101,8 @@ bool GuiScraperRun::input(InputConfig* config, Input input)
 			askCancel();
 		return true;
 	}
+	if (input.type == TYPE_AXIS || input.type == TYPE_HAT || !mShownFinished)
+		return true;
 	delete this;
 	return true;
 }
@@ -222,15 +227,33 @@ void GuiScraperRun::update(int deltaTime)
 		mStatus  ->setText(fitOneLine(mTextFont, outcomeWord(p), mLineWidth));
 		mCounter ->setText(fitOneLine(mSmallFont, countsLine(p), mLineWidth));
 		mActivity->setText("");
-		mDetail  ->setText(p.failed ? fitOneLine(mSmallFont, p.failure, mLineWidth) : "");
-		// Each result is saved as it comes in; the lists show it once they
-		// are rebuilt (the sentence upstream's toast ended on). The longest
-		// form that fits the line (D-UI-035): the French of the full
-		// sentence ran off a 640x480 panel and was cut mid-word.
+		// Line 4: the scraper's own why when it refused the run; for games
+		// it could not do, what that usually means (#1247: the line was
+		// empty, and the counts line already carries the number).
 		std::shared_ptr<Font> small = mSmallFont;
-		mNote    ->setText(p.done - p.errors > 0 ? CloudText::chooseThatFits(
-			{ _("UPDATE GAMELISTS TO APPLY CHANGES."), _("UPDATE GAMELISTS TO APPLY IT.") },
-			mLineWidth, [small](const std::string& t) { return small ? small->sizeText(t).x() : 0.0f; }) : "");
+		auto measure = [small](const std::string& t) { return small ? small->sizeText(t).x() : 0.0f; };
+		if (p.failed)
+			mDetail->setText(fitOneLine(mSmallFont, p.failure, mLineWidth));
+		else if (p.errors > 0)
+			mDetail->setText(CloudText::chooseThatFits(
+				{ _("NO MATCH, OR NO ANSWER IN TIME, FOR THE ONES IT COULDN'T SCRAPE."), _("NO MATCH, OR NO ANSWER IN TIME.") },
+				mLineWidth, measure));
+		else
+			mDetail->setText("");
+		// Line 5. Each result is saved as it comes in; the lists show it
+		// once they are rebuilt (the sentence upstream's toast ended on).
+		// When nothing was scraped because games failed or the scraper
+		// refused, what to do next instead. The longest form that fits the
+		// line (D-UI-035): the French of the full sentence ran off a 640x480
+		// panel and was cut mid-word.
+		if (p.done - p.errors > 0)
+			mNote->setText(CloudText::chooseThatFits(
+				{ _("UPDATE GAMELISTS TO APPLY CHANGES."), _("UPDATE GAMELISTS TO APPLY IT.") }, mLineWidth, measure));
+		else if (p.errors > 0 || p.failed)
+			mNote->setText(CloudText::chooseThatFits(
+				{ _("TRY AGAIN LATER, OR SCRAPE A GAME FROM ITS OWN MENU."), _("TRY AGAIN LATER.") }, mLineWidth, measure));
+		else
+			mNote->setText("");
 		mElapsed ->setText(std::string(_("ELAPSED")) + " " + elapsed);
 		mFooter  ->setText(_("PRESS ANY BUTTON TO CLOSE"));
 	}
