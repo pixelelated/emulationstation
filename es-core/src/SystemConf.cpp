@@ -27,6 +27,7 @@ static std::string mapSettingsName(const std::string& name)
 SystemConf *SystemConf::sInstance = NULL;
 bool SystemConf::sRecovered = false;
 std::string SystemConf::sLockPath = "/tmp/.system.cfg.lock";
+std::string SystemConf::sSeedPath = "/usr/config/system/configs/system.cfg";
 int SystemConf::sLockBudgetMs = 5000;
 
 static std::set<std::string> dontRemoveValue
@@ -69,6 +70,8 @@ SystemConf::SystemConf()
 	if (mSystemConfFile.empty())
 		return;
 
+	Utils::AtomicFile::setSeedPath(mSystemConfFile, sSeedPath);
+
 	loadSystemConf();	
 }
 
@@ -105,6 +108,21 @@ void SystemConf::recordLastGood(const std::string& text, int recoveredMode)
 	if (current.text != text ||
 		(!current.record && current.source != Utils::AtomicFile::LoadedConfig::Source::Backup))
 		return;
+
+	// Never the image's seed over a record that differs from it (T21 PL-03,
+	// #1189): chooseConfig names the record in that case, and this is the
+	// second line of the same rule for any path that reaches here.
+	if (!sSeedPath.empty())
+	{
+		bool seedOk = false, recordOk = false;
+		const std::string seed = Utils::AtomicFile::readText(sSeedPath, &seedOk);
+		const std::string record = Utils::AtomicFile::readText(mSystemConfFile + ".backup", &recordOk);
+		if (seedOk && recordOk && !seed.empty() && text == seed && record != seed)
+		{
+			LOG(LogWarning) << "recordLastGood: " << mSystemConfFile << " is the image's seed beside a record that differs -- not recorded";
+			return;
+		}
+	}
 
 	// No less private than the live file it copies (#308 F-ES-08): a record
 	// an earlier build made 0644 beside a 0600 file is rewritten for its mode

@@ -30,6 +30,8 @@
 #include <thread>
 #include <vector>
 
+#include <ctime>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -79,9 +81,10 @@ struct SystemConfTestAccess
 {
 	// A new SystemConf, reading `path` as the constructor does, with the
 	// settings lock at `lockPath` and a budget of `budgetMs`.
-	static SystemConf* fresh(const std::string& path, const std::string& lockPath, int budgetMs)
+	static SystemConf* fresh(const std::string& path, const std::string& lockPath, int budgetMs, const std::string& seedPath = "")
 	{
 		delete SystemConf::sInstance;
+		SystemConf::sSeedPath = seedPath;
 		SystemConf::sInstance = nullptr;
 		SystemConf::sRecovered = false;
 		SystemConf::sLockPath = lockPath;
@@ -637,4 +640,62 @@ TEST_CASE("a save does not record a file that lost a key the record holds and th
 	CHECK(conf->saveSystemConf());
 	CHECK(get(path) == "b.key=2\nc.key=3\n");
 	CHECK(get(path + ".backup") == whole);
+}
+
+// ------------------------------------------------------------ T21 S2 (#668)
+//
+// PL-09 (#1197): a live file cut part way through a line, the start of its
+// whole record, is a recovery whatever its mtime -- it was merged onto and
+// saved whole, and the next load recorded it over the record, the keys after
+// the cut gone. PL-03 (#1189), the recorder's half: a live file that is the
+// image's seed, byte for byte, beside a record with other keys is the seed
+// copied over the player's file; the record is chosen and nothing is
+// recorded over it.
+
+namespace
+{
+	void touchAt(const std::string& path, time_t when)
+	{
+		struct timespec times[2];
+		times[0].tv_sec = when; times[0].tv_nsec = 0;
+		times[1].tv_sec = when; times[1].tv_nsec = 0;
+		REQUIRE(utimensat(AT_FDCWD, path.c_str(), times, 0) == 0);
+	}
+}
+
+TEST_CASE("a cut live file newer than its record is still a recovery, and the record keeps its keys (T21 PL-09, #1197)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string whole = "system.hostname=qa\nqa.marker=player\nqa.tail=kept\n";
+	put(path + ".backup", whole);
+	put(path, "system.hostname=qa\nqa.mark");
+	const time_t now = time(nullptr);
+	touchAt(path + ".backup", now - 100);
+	touchAt(path, now + 100);
+
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300);
+	CHECK(conf->set("qa.new", "4"));
+	CHECK(conf->saveSystemConf());
+	CHECK(conf->loadSystemConf());
+	CHECK(conf->get("qa.marker") == "player");
+	CHECK(conf->get("qa.tail") == "kept");
+	CHECK(get(path + ".backup").find("qa.tail=kept\n") != std::string::npos);
+	CHECK(get(path).find("qa.tail=kept\n") != std::string::npos);
+}
+
+TEST_CASE("a live file equal to the image's seed beside a differing record loads the record and records nothing over it (T21 PL-03, #1189)")
+{
+	ScratchDir dir;
+	const std::string path = dir / "system.cfg";
+	const std::string seed = "system.hostname=\nqa.seed=1\n";
+	const std::string record = "system.hostname=qa\nqa.marker=player\n";
+	put(dir / "seed.cfg", seed);
+	put(path, seed);
+	put(path + ".backup", record);
+
+	SystemConf* conf = SystemConfTestAccess::fresh(path, dir / ".system.cfg.lock", 300, dir / "seed.cfg");
+	CHECK(conf->get("qa.marker") == "player");
+	CHECK(get(path + ".backup") == record);
+	CHECK(get(path) == record);
 }

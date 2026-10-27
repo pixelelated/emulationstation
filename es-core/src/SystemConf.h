@@ -49,6 +49,8 @@ private:
 	// the unit tests can point them at a scratch directory and a short
 	// budget; nothing else sets them.
 	static std::string sLockPath;
+	// The image's shipped system.cfg (T21 PL-03, #1189).
+	static std::string sSeedPath;
 	static int sLockBudgetMs;
 	// es-app/tests/unit/SystemConfTests.cpp: a fresh instance per case,
 	// against real files in a scratch directory (the audit of the fix round).

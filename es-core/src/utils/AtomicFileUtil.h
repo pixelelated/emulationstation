@@ -86,6 +86,11 @@ namespace Utils
 		// The choice, from what is on disk now. Reads; writes nothing.
 		LoadedConfig chooseConfig(const std::string& path);
 
+		// The image's shipped copy of `path` (T21 PL-03, #1189): a live file
+		// equal to it beside a differing whole record is a recovery. An empty
+		// seedPath forgets it. Process-wide; SystemConf sets it.
+		void setSeedPath(const std::string& path, const std::string& seedPath);
+
 		// What the load's write-back of a recovery came to.
 		enum class RecoveryWrite
 		{

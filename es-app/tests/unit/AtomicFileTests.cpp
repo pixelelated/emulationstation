@@ -900,12 +900,15 @@ TEST_CASE("a live file cut short of its own record loads the record (G-E1-04)")
 	CHECK(c.source == LoadedConfig::Source::Backup);
 	CHECK(c.text == whole);
 
-	// A live file edited after the record -- a hand edit that left off the
-	// last line end and dropped the last lines -- is the owner's, and stays.
+	// Newer than the record, it is still the record's start cut part way
+	// through a line: a recovery whatever its mtime (T21 PL-09, #1197). This
+	// checked Live at the pin; the ruling reverses it (D-WORKFLOW-210) -- a
+	// newer cut file was merged onto, saved whole and then recorded over the
+	// record, the keys after the cut gone.
 	setMtime(path, now);
 	c = chooseConfig(path);
-	CHECK(c.source == LoadedConfig::Source::Live);
-	CHECK_FALSE(c.record);
+	CHECK(c.source == LoadedConfig::Source::Backup);
+	CHECK(c.text == whole);
 }
 
 TEST_CASE("a save merged onto a cut file is written and not recorded (G-E1-04)")

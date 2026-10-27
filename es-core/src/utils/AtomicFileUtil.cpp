@@ -288,6 +288,20 @@ namespace Utils
 			return !text.empty() && text.back() == '\n';
 		}
 
+		static std::map<std::string, std::string>& seedPaths()
+		{
+			static std::map<std::string, std::string> paths;
+			return paths;
+		}
+
+		void setSeedPath(const std::string& path, const std::string& seedPath)
+		{
+			if (seedPath.empty())
+				seedPaths().erase(path);
+			else
+				seedPaths()[path] = seedPath;
+		}
+
 		LoadedConfig chooseConfig(const std::string& path)
 		{
 			// PL-064. The start used to delete `path`.tmp unread and take the
@@ -331,25 +345,31 @@ namespace Utils
 				&& live.size() < tmp.size() && tmp.compare(0, live.size(), live) == 0;
 
 			// Or the live file stops part way through a line and is the start
-			// of the whole record beside it, written no earlier than the live
-			// file was (G-E1-04): the file was cut after the record was made
-			// from it, and the record is the file. A live file changed after
-			// the record -- a hand edit that left off the last line end -- is
-			// the owner's, and is read as it is.
-			bool cutOfRecord = false;
-#if defined(_WIN32)
-			(void) backupWhole;   // the mtime test below is POSIX's
-#else
-			if (liveOk && backupWhole && !isComplete(live) && live.size() < backup.size()
-				&& backup.compare(0, live.size(), live) == 0)
-			{
-				struct stat ls, bs;
-				cutOfRecord = ::stat(path.c_str(), &ls) == 0 && ::stat((path + ".backup").c_str(), &bs) == 0
-					&& ls.st_mtime <= bs.st_mtime + 1;
-			}
-#endif
+			// of the whole record beside it (G-E1-04): the file was cut, and
+			// the record is the file -- whatever the two mtimes say (T21
+			// PL-09, #1197). A newer cut file used to be read as the owner's;
+			// a save merged onto it wrote it whole, and the next load recorded
+			// it over the record, the keys after the cut gone.
+			const bool cutOfRecord = liveOk && backupWhole && !isComplete(live) && live.size() < backup.size()
+				&& backup.compare(0, live.size(), live) == 0;
 
-			if (liveOk && isUsableKeyValues(live) && !liveCut && !cutOfRecord)
+			// Or the live file is the image's seed, byte for byte, beside a
+			// whole record that differs from it: the seed was copied over the
+			// player's file (set_setting's copy before its lock, T21 PL-03,
+			// #1189), and the record is the file. A device that never left
+			// the seed has no differing record.
+			bool seedOverRecord = false;
+			{
+				const auto seed = seedPaths().find(path);
+				if (seed != seedPaths().cend() && liveOk && backupWhole && backup != live)
+				{
+					bool seedOk = false;
+					const std::string seedText = readText(seed->second, &seedOk);
+					seedOverRecord = seedOk && !seedText.empty() && seedText == live;
+				}
+			}
+
+			if (liveOk && isUsableKeyValues(live) && !liveCut && !cutOfRecord && !seedOverRecord)
 			{
 				// A temporary beside a whole file is a save that never reached
 				// its rename, or the shell's own write in flight; neither is the
@@ -525,10 +545,12 @@ namespace Utils
 			// alone, and they became the record over a whole one. A missing
 			// file is still refused above, so a factory reset's empty
 			// /storage is not refilled from memory.
+			// A whole file is asked about too since T21 S2 (#668, #1189): the
+			// image's seed copied over the player's file is whole and usable,
+			// and is a recovery beside a record that differs from it.
 			std::string base = current;
 			bool whole = isComplete(current);
 			int mode = -1;
-			if (!whole || !isUsableKeyValues(current))
 			{
 				const LoadedConfig chosen = chooseConfig(path);
 				if (isRecovery(chosen))
