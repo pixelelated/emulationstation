@@ -99,6 +99,15 @@ static void cloudSetupSetButtons(GuiSettings*, std::nullptr_t) {}
 # The sign-in session's owner (#308 8a gpt F-ES-17): extracted when the
 # source has it; a source from before it gets a stand-in that owns nothing,
 # so this script can show what the older code did.
+# Since T26 S5 (#1220) the session's cancel runs under a spinner
+# (cloudOAuthCancelThen: a GuiLoading that deletes itself, then calls on), and
+# the owner takes the window to show it; here the cancel is counted and the
+# continuation runs at once, in the same order.
+owner_takes_window = 'static void cloudOAuthOwnSession(Window* window, GuiSettings* s)' in source
+if 'static void cloudOAuthCancelThen(' in source:
+    harness += '''
+static void cloudOAuthCancelThen(Window*, const std::function<void()>& then) { gCancels++; if (then) then(); }
+'''
 if 'static void cloudOAuthOwnSession(' in source:
     harness += '\nstatic std::set<GuiSettings*> sOAuthSessionPages;\n'
     harness += definition('cloudOAuthOwnSession') + '\n'
@@ -111,7 +120,7 @@ static void cloudOAuthShowSignIn(Window* window, const CloudBackend&,
 {
     lastPhone = phone;
     auto page = new GuiSettings(window, "Sign in");
-    cloudOAuthOwnSession(page);   // as the shipped sign-in page does
+    cloudOAuthOwnSession(''' + ('window, ' if owner_takes_window else '') + r'''page);   // as the shipped sign-in page does
     cloudSetupPresent(window, page, prev);
 }
 '''

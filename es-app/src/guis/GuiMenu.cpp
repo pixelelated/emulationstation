@@ -61,6 +61,7 @@
 #include "guis/GuiUpdate.h"
 #include "guis/GuiInstallStart.h"
 #include "guis/GuiTextEditPopupKeyboard.h"
+#include "guis/WifiScanProcess.h"
 #include "guis/GuiBackupStart.h"
 #include "guis/GuiTextEditPopup.h"
 #include "guis/GuiWifi.h"
@@ -5569,34 +5570,116 @@ static void cloudAddTransferRow(GuiSettings* s, Window* window, bool configured,
 // meant knowing which half of the split you wanted before you could start.
 // Direction first, then what moves -- the split the system actually keeps is
 // the one the player is shown.
+// Every cloud helper the cloud pages read runs by argv -- no shell, so a
+// backend or connection name is one argument whatever it holds -- with a
+// 5 s deadline (D-CLOUD-109's spirit). A timeout, a failure to start or a
+// non-zero exit gives no lines, which each page already reads as the
+// failure it has a sentence for; cloud_remote and cloud_setup print what
+// the pages read only on exit 0. These run off the interface thread: a
+// page fetches what it shows under cloudFetchThen's spinner first, so a
+// slow helper is seen and holds no frame (T26 PL-06, #1220).
+static const std::chrono::seconds CLOUD_HELPER_DEADLINE(5);
+
+static std::vector<std::string> cloudHelperLines(const std::vector<std::string>& argv, bool* ok = nullptr)
+{
+	const auto answer = WifiScanProcess::read(argv, CLOUD_HELPER_DEADLINE);
+	if (ok != nullptr)
+		*ok = answer.code == 0;
+	if (answer.code != 0)
+		LOG(LogWarning) << "cloud helper " << argv.front() << (argv.size() > 1 ? " " + argv[1] : std::string())
+			<< (answer.code < 0 ? std::string(": no answer within the deadline, or it could not run") : ": exit " + std::to_string(answer.code));
+	std::vector<std::string> lines;
+	for (auto& line : answer.lines)
+		if (!Utils::String::trim(line).empty())
+			lines.push_back(line);
+	return lines;
+}
+
+// Run work off the interface thread under a spinner, then hand its result
+// to then on the interface thread. GuiLoading takes every press while it
+// is up and deletes itself before then runs, so the page beneath cannot
+// move, and anything ordered after the work -- a sign-in after its cancel
+// -- runs after it.
+template <typename T>
+static void cloudFetchThen(Window* window, const std::function<T()>& work, const std::function<void(T)>& then)
+{
+	window->pushGui(new GuiLoading<T>(window, _("PLEASE WAIT"), [work](IGuiLoadingHandler*) { return work(); }, then));
+}
+
+// cloud_oauth cancel waits for the session to stop (its own wait, the
+// script's); under the spinner that wait holds no frame, and then runs
+// after it, so a new sign-in never starts before the old one is stopped.
+static void cloudOAuthCancelThen(Window* window, const std::function<void()>& then)
+{
+	cloudFetchThen<bool>(window, [] { cloudHelperLines({ "/usr/bin/cloud_oauth", "cancel" }); return true; },
+		[then](bool) { if (then) then(); });
+}
+
+// cloud_remote list as one comparable string.
+static std::string cloudJoinLines(const std::vector<std::string>& lines)
+{
+	std::string joined;
+	for (const auto& line : lines)
+		joined += line + "\n";
+	return joined;
+}
+
 // A connection can change on a child page. Refresh its parent on return,
 // after the input callback has unwound; never rebuild a live button bar.
+// The list is read off the interface thread, and a read that failed
+// changes nothing on the page.
 class CloudConnectionsPage : public GuiSettings
 {
 public:
+	// CLOUD CONNECTIONS: built from the list it was given.
+	CloudConnectionsPage(Window* window, const std::string& title, const std::function<void()>& refresh, const std::string& snapshot)
+		: GuiSettings(window, title), mRefresh(refresh), mAlive(std::make_shared<bool>(true)), mSnapshot(snapshot), mHaveSnapshot(true) { }
+	// The CLOUD hub shows nothing from the list, so it does not wait for
+	// one: the snapshot is read as the page opens, and a return before it
+	// arrives compares nothing.
 	CloudConnectionsPage(Window* window, const std::string& title, const std::function<void()>& refresh)
-		: GuiSettings(window, title), mRefresh(refresh), mAlive(std::make_shared<bool>(true)),
-		  mSnapshot(Utils::Platform::GetShOutput("/usr/bin/cloud_remote list")) { }
+		: GuiSettings(window, title), mRefresh(refresh), mAlive(std::make_shared<bool>(true)), mHaveSnapshot(false)
+	{
+		auto alive = mAlive;
+		readList([this, alive](bool ok, const std::string& current)
+		{
+			if (!*alive || !ok || mHaveSnapshot) return;
+			mSnapshot = current;
+			mHaveSnapshot = true;
+		});
+	}
 	~CloudConnectionsPage() override { *mAlive = false; }
 	void topWindow(bool isTop) override
 	{
 		GuiSettings::topWindow(isTop);
 		if (!isTop) return;
 		auto alive = mAlive;
-		mWindow->postToUiThread([this, alive]
+		readList([this, alive](bool ok, const std::string& current)
 		{
-			if (!*alive || mWindow->peekGui() != this) return;
-			const auto current = Utils::Platform::GetShOutput("/usr/bin/cloud_remote list");
-			if (current == mSnapshot) return;
+			if (!*alive || !ok || !mHaveSnapshot || mWindow->peekGui() != this || current == mSnapshot) return;
 			mSnapshot = current;
 			mRefresh();
 			close();
 		});
 	}
 private:
+	// cloud_remote list on a worker; then, on the interface thread, with
+	// whether it answered. then checks the page is alive before touching it.
+	void readList(const std::function<void(bool, const std::string&)>& then)
+	{
+		Window* window = mWindow;
+		std::thread([window, then]
+		{
+			bool ok = false;
+			const auto current = cloudJoinLines(cloudHelperLines({ "/usr/bin/cloud_remote", "list" }, &ok));
+			window->postToUiThread([then, ok, current] { then(ok, current); });
+		}).detach();
+	}
+
 	std::function<void()> mRefresh;
 	std::shared_ptr<bool> mAlive;
 	std::string mSnapshot;
+	bool mHaveSnapshot;
 };
 
 void GuiMenu::openCloud(Window* window, bool onFolderRow)
@@ -6480,15 +6563,15 @@ static void cloudSetupAddFact(GuiSettings* s, Window* window, const std::string&
 // thread only, like the pages.
 static std::set<GuiSettings*> sOAuthSessionPages;
 
-static void cloudOAuthOwnSession(GuiSettings* s)
+static void cloudOAuthOwnSession(Window* window, GuiSettings* s)
 {
 	sOAuthSessionPages.insert(s);
-	s->onFinalize([s]
+	s->onFinalize([window, s]
 	{
 		if (sOAuthSessionPages.erase(s) == 0)
 			return;   // handed on: the next page owns the session
 		LOG(LogInfo) << "cloud_oauth: the sign-in was left; cancelling its session";
-		Utils::Platform::runSystemCommand("/usr/bin/cloud_oauth cancel", "", nullptr);
+		cloudOAuthCancelThen(window, nullptr);
 	});
 }
 
@@ -6771,17 +6854,24 @@ static void cloudSetupShowConnectStep(Window* window, CloudSetupMode mode, const
 
 	cloudSetupSetButtons(s, [window, s, mode, remote, preexisting]
 	{
-		bool connected = Utils::String::trim(Utils::Platform::GetShOutput("/usr/bin/cloud_setup --connected")) == "CONNECTED";
-		LOG(LogInfo) << "cloud_setup wizard: --connected=" << connected;
-		if (connected)
+		cloudFetchThen<bool>(window, []
 		{
-			cloudSetupShowConfigureStep(window, mode, remote, preexisting, s);
-			return;
-		}
-		window->pushGui(new GuiMsgBox(window,
-			_("THERE IS NO ACTIVE SSH CONNECTION TO THE DEVICE.\n\nTRY CONNECTING FROM YOUR COMPUTER AGAIN, LEAVE THE TERMINAL OPEN, AND THEN SELECT 'CONTINUE'."),
-			_("OK"), nullptr,
-			_("EXIT"), [s] { s->close(); }));
+			const auto lines = cloudHelperLines({ "/usr/bin/cloud_setup", "--connected" });
+			return !lines.empty() && Utils::String::trim(lines.front()) == "CONNECTED";
+		},
+		[window, s, mode, remote, preexisting](bool connected)
+		{
+			LOG(LogInfo) << "cloud_setup wizard: --connected=" << connected;
+			if (connected)
+			{
+				cloudSetupShowConfigureStep(window, mode, remote, preexisting, s);
+				return;
+			}
+			window->pushGui(new GuiMsgBox(window,
+				_("THERE IS NO ACTIVE SSH CONNECTION TO THE DEVICE.\n\nTRY CONNECTING FROM YOUR COMPUTER AGAIN, LEAVE THE TERMINAL OPEN, AND THEN SELECT 'CONTINUE'."),
+				_("OK"), nullptr,
+				_("EXIT"), [s] { s->close(); }));
+		});
 	});
 
 	cloudSetupPresent(window, s, prev);
@@ -7080,9 +7170,20 @@ static void cloudShowFolderSelection(Window* window, GuiSettings* prev, const st
 	s->getMenu().addButton(_("FINISH"), _("finish"), [s] { s->close(); });
 	cloudSetupPresent(window, s, prev);
 }
+static void cloudSetupShowDoneStepWith(Window* window, const std::string& remote, GuiSettings* prev, const std::string& active);
+
 static void cloudSetupShowDoneStep(Window* window, const std::string& remote, GuiSettings* prev)
 {
-	const auto active = Utils::String::trim(Utils::Platform::GetShOutput("/usr/bin/cloud_remote active"));
+	cloudFetchThen<std::string>(window, []
+	{
+		const auto lines = cloudHelperLines({ "/usr/bin/cloud_remote", "active" });
+		return lines.empty() ? std::string() : Utils::String::trim(lines.front());
+	},
+	[window, remote, prev](std::string active) { cloudSetupShowDoneStepWith(window, remote, prev, active); });
+}
+
+static void cloudSetupShowDoneStepWith(Window* window, const std::string& remote, GuiSettings* prev, const std::string& active)
+{
 	if (!remote.empty() && remote + (remote.back() == ':' ? "" : ":") != active)
 	{
 		auto s = new GuiSettings(window, _("CONNECTION SAVED"));
@@ -7147,18 +7248,15 @@ struct CloudBackendField
 // at the point of use, since _() at static-init time would run before the
 // locale is loaded.
 
-static std::vector<std::string> cloudRemoteLines(const std::string& args)
+// Lines, not one string: GetShOutput, which this first used, dropped the
+// last character of every chunk it read, so multi-line output arrived as
+// one record -- the provider list rendered empty with nothing logged. Off
+// the interface thread only (cloudHelperLines).
+static std::vector<std::string> cloudRemoteLines(const std::vector<std::string>& args)
 {
-	// GetShOutputLines, not GetShOutput: the latter drops the last character
-	// of every chunk it reads, so multi-line output arrives as one
-	// concatenated string. Parsing that yields a single nonsense record
-	// rather than an error, which is how this first shipped -- the provider
-	// list rendered empty with nothing logged.
-	std::vector<std::string> lines;
-	for (auto& line : Utils::Platform::GetShOutputLines("/usr/bin/cloud_remote " + args))
-		if (!Utils::String::trim(line).empty())
-			lines.push_back(line);
-	return lines;
+	std::vector<std::string> argv { "/usr/bin/cloud_remote" };
+	argv.insert(argv.end(), args.begin(), args.end());
+	return cloudHelperLines(argv);
 }
 
 static std::string cloudConnectionError(const std::string& output)
@@ -7192,7 +7290,7 @@ static std::string cloudTsvField(const std::vector<std::string>& cols, size_t i)
 static std::vector<CloudBackend> cloudRemoteBackends()
 {
 	std::vector<CloudBackend> list;
-	for (auto& line : cloudRemoteLines("providers"))
+	for (auto& line : cloudRemoteLines({ "providers" }))
 	{
 		auto cols = Utils::String::splitAny(line, "\t", false);
 		if (cols.size() < 3)
@@ -7241,21 +7339,11 @@ cloudRemoteEditor(std::shared_ptr<std::map<std::string, std::string>> values,
 	};
 }
 
-// One provider's questions.
-static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
-	std::shared_ptr<std::map<std::string, std::string>> values, GuiSettings* prev)
+// A provider's questions, as cloud_remote fields prints them.
+static std::vector<CloudBackendField> cloudParseFields(const std::vector<std::string>& lines)
 {
-	auto s = new GuiSettings(window, _("CONNECT CLOUD STORAGE"));
-	s->setSubTitle(CloudText::providerSubtitle(backend.name, backend.label));
-
 	std::vector<CloudBackendField> fields;
-	// The backend id is quoted: rclone has ids with spaces in them
-	// ("google cloud storage", "google photos"), which would otherwise split
-	// into extra arguments.
-	std::string fieldsArgs = "fields " + cloudShellQuote(backend.name);
-	if (!backend.subprovider.empty())
-		fieldsArgs += " " + cloudShellQuote(backend.subprovider);
-	for (auto& line : cloudRemoteLines(fieldsArgs))
+	for (auto& line : lines)
 	{
 		auto cols = Utils::String::splitAny(line, "\t", false);
 		if (cols.size() < 5 || cols[0].empty())
@@ -7271,6 +7359,56 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 		f.choices   = atoi(cloudTsvField(cols, 7).c_str());
 		fields.push_back(f);
 	}
+	return fields;
+}
+
+// What the form shows, read before it is built: its fields, and the choices
+// of each short list it offers.
+struct CloudFormLines
+{
+	std::vector<CloudBackendField> fields;
+	std::map<std::string, std::vector<std::string>> choices;
+};
+
+static void cloudRemoteShowFormWith(Window* window, const CloudBackend& backend,
+	std::shared_ptr<std::map<std::string, std::string>> values, GuiSettings* prev, const CloudFormLines& form);
+
+// One provider's questions. The backend id is one argument: rclone has ids
+// with spaces in them ("google cloud storage", "google photos").
+static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
+	std::shared_ptr<std::map<std::string, std::string>> values, GuiSettings* prev)
+{
+	const bool edit = values->count("__edit__") != 0;
+	cloudFetchThen<CloudFormLines>(window, [backend, edit]
+	{
+		CloudFormLines form;
+		std::vector<std::string> args { "fields", backend.name };
+		if (!backend.subprovider.empty())
+			args.push_back(backend.subprovider);
+		form.fields = cloudParseFields(cloudRemoteLines(args));
+		// The rows that offer a list below: not an edit, not a switch, and
+		// short enough to scroll on a handheld.
+		for (const auto& f : form.fields)
+		{
+			if (edit || f.type == "bool" || f.choices <= 0 || f.choices > 12)
+				continue;
+			std::vector<std::string> choiceArgs { "choices", backend.name, f.name };
+			if (!backend.subprovider.empty())
+				choiceArgs.push_back(backend.subprovider);
+			form.choices[f.name] = cloudRemoteLines(choiceArgs);
+		}
+		return form;
+	},
+	[window, backend, values, prev](CloudFormLines form) { cloudRemoteShowFormWith(window, backend, values, prev, form); });
+}
+
+static void cloudRemoteShowFormWith(Window* window, const CloudBackend& backend,
+	std::shared_ptr<std::map<std::string, std::string>> values, GuiSettings* prev, const CloudFormLines& form)
+{
+	auto s = new GuiSettings(window, _("CONNECT CLOUD STORAGE"));
+	s->setSubTitle(CloudText::providerSubtitle(backend.name, backend.label));
+
+	const std::vector<CloudBackendField>& fields = form.fields;
 
 	if (values->find("__name__") == values->end())
 		(*values)["__name__"] = backend.name;
@@ -7335,15 +7473,14 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 			// effectively free-form and stay as text.
 			if (f.choices > 0 && f.choices <= 12 && !values->count("__edit__"))
 			{
-				std::string choicesArgs = "choices " + cloudShellQuote(backend.name)
-					+ " " + cloudShellQuote(fieldName);
-				if (!backend.subprovider.empty())
-					choicesArgs += " " + cloudShellQuote(backend.subprovider);
+				static const std::vector<std::string> noChoices;
+				const auto fetched = form.choices.find(fieldName);
+				const auto& choiceLines = fetched == form.choices.end() ? noChoices : fetched->second;
 
 				auto list = std::make_shared<OptionListComponent<std::string>>(
 					window, CloudText::fieldLabel(fieldName), false);
 				bool any = false;
-				for (auto& line : cloudRemoteLines(choicesArgs))
+				for (auto& line : choiceLines)
 				{
 					auto cols = Utils::String::splitAny(line, "\t", false);
 					if (cols.empty() || cols[0].empty())
@@ -7469,10 +7606,18 @@ static void cloudRemoteShowForm(Window* window, const CloudBackend& backend,
 // `password` (Koofr, Digi Storage, other) and s3 has 51 vendors with
 // options like ibm_api_key that are noise unless you picked IBMCOS.
 // Asking first keeps the form to the questions that apply.
+static void cloudRemoteChooseBackendWith(Window* window, const CloudBackend& backend, const std::vector<std::string>& lines);
+
 static void cloudRemoteChooseBackend(Window* window, const CloudBackend& backend)
 {
+	cloudFetchThen<std::vector<std::string>>(window, [backend] { return cloudRemoteLines({ "subproviders", backend.name }); },
+		[window, backend](std::vector<std::string> lines) { cloudRemoteChooseBackendWith(window, backend, lines); });
+}
+
+static void cloudRemoteChooseBackendWith(Window* window, const CloudBackend& backend, const std::vector<std::string>& lines)
+{
 	std::vector<std::pair<std::string, std::string>> subs;
-	for (auto& line : cloudRemoteLines("subproviders " + cloudShellQuote(backend.name)))
+	for (auto& line : lines)
 	{
 		auto cols = Utils::String::splitAny(line, "\t", false);
 		if (cols.size() < 1 || cols[0].empty())
@@ -7537,25 +7682,27 @@ static void cloudOAuthStart(Window* window, const CloudBackend& backend,
 	// read those and put a dead code on the screen. Doing it here rather
 	// than inside the detached launch means it has already happened before
 	// the first poll, so there is no window where the old one is readable.
-	Utils::Platform::runSystemCommand("/usr/bin/cloud_oauth cancel", "", nullptr);
+	// Under the spinner since T26 S5 (#1220): the wait holds no frame.
+	cloudOAuthCancelThen(window, [window, backend, remoteName, prev]
+	{
+		// Detached, because it stays up until someone signs in or it times out.
+		// Its own output carries the URL and PIN, which `cloud_oauth info` reads
+		// back rather than this parsing them out of a launch.
+		// --label carries the name we already show in our own menu, so the page
+		// on the phone says "Connect Dropbox" rather than "Connect dropbox".
+		// rclone's backend names are lowercase identifiers, and a page headed
+		// with one reads like a typo on the screen where somebody is deciding
+		// whether to trust us with their storage.
+		std::string cmd = "setsid sh -c " + cloudShellQuote(
+			"/usr/bin/cloud_oauth serve " + cloudShellQuote(backend.name)
+			+ " --name " + cloudShellQuote(remoteName)
+			+ " --label " + cloudShellQuote(backend.label)
+			+ (backend.reauthorize ? " --replace" : "")
+			+ " --timeout 900 >/dev/null 2>&1") + " </dev/null >/dev/null 2>&1 &";
+		Utils::Platform::runSystemCommand(cmd, "", nullptr);
 
-	// Detached, because it stays up until someone signs in or it times out.
-	// Its own output carries the URL and PIN, which `cloud_oauth info` reads
-	// back rather than this parsing them out of a launch.
-	// --label carries the name we already show in our own menu, so the page
-	// on the phone says "Connect Dropbox" rather than "Connect dropbox".
-	// rclone's backend names are lowercase identifiers, and a page headed
-	// with one reads like a typo on the screen where somebody is deciding
-	// whether to trust us with their storage.
-	std::string cmd = "setsid sh -c " + cloudShellQuote(
-		"/usr/bin/cloud_oauth serve " + cloudShellQuote(backend.name)
-		+ " --name " + cloudShellQuote(remoteName)
-		+ " --label " + cloudShellQuote(backend.label)
-		+ (backend.reauthorize ? " --replace" : "")
-		+ " --timeout 900 >/dev/null 2>&1") + " </dev/null >/dev/null 2>&1 &";
-	Utils::Platform::runSystemCommand(cmd, "", nullptr);
-
-	cloudOAuthChooseInput(window, backend, remoteName, prev);
+		cloudOAuthChooseInput(window, backend, remoteName, prev);
+	});
 }
 
 // Wait for the listener to say it is *waiting*, not merely for an address to
@@ -7695,7 +7842,7 @@ static void cloudOAuthPresentChoice(Window* window, const CloudBackend& backend,
 		}, "", false, true);
 
 	cloudSetupSetButtons(s, nullptr);
-	cloudOAuthOwnSession(s);
+	cloudOAuthOwnSession(window, s);
 	cloudSetupPresent(window, s, prev);
 }
 
@@ -7765,7 +7912,7 @@ static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
 		// well, which offered to continue with a sign-in that had not begun.
 		s->getMenu().clearButtons();
 		s->getMenu().addButton(_("GO BACK"), _("go back"), [s] { s->close(); });
-		cloudOAuthOwnSession(s);
+		cloudOAuthOwnSession(window, s);
 		cloudSetupPresent(window, s, prev);
 		return;
 	}
@@ -7857,8 +8004,7 @@ static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
 			_("OK"), nullptr,
 			_("CANCEL SIGN-IN"), [window, s]
 			{
-				Utils::Platform::runSystemCommand("/usr/bin/cloud_oauth cancel", "", nullptr);
-				s->close();
+				cloudOAuthCancelThen(window, [s] { s->close(); });
 			}));
 	};
 
@@ -7883,7 +8029,7 @@ static void cloudOAuthShowSignIn(Window* window, CloudBackend backend,
 		finish();
 	});
 
-	cloudOAuthOwnSession(s);
+	cloudOAuthOwnSession(window, s);
 	cloudSetupPresent(window, s, prev);
 
 	// After the page is on the stack, never while it is being built: this
@@ -7910,12 +8056,20 @@ static void cloudOAuthShowConnected(Window* window, const CloudBackend& backend,
 
 // Adding and renewing are distinct before a sign-in begins. A new name is
 // editable and never overwrites an existing connection at the backend.
+static void cloudOAuthAddWith(Window* window, const CloudBackend& backend, GuiSettings* prev, const std::vector<std::string>& rows);
+
 static void cloudOAuthAdd(Window* window, const CloudBackend& backend, GuiSettings* prev)
+{
+	cloudFetchThen<std::vector<std::string>>(window, [] { return cloudRemoteLines({ "list" }); },
+		[window, backend, prev](std::vector<std::string> rows) { cloudOAuthAddWith(window, backend, prev, rows); });
+}
+
+static void cloudOAuthAddWith(Window* window, const CloudBackend& backend, GuiSettings* prev, const std::vector<std::string>& rows)
 {
 	auto s = new GuiSettings(window, _("ADD CONNECTION"));
 	auto name = std::make_shared<std::string>(backend.name);
 	std::set<std::string> existing;
-	for (const auto& line : cloudRemoteLines("list"))
+	for (const auto& line : rows)
 	{
 		auto cols = Utils::String::splitAny(line, "\t", false);
 		if (cols.size() >= 2) existing.insert(cols[0]);
@@ -7946,13 +8100,22 @@ static void cloudOAuthAdd(Window* window, const CloudBackend& backend, GuiSettin
 	cloudSetupPresent(window, s, prev);
 }
 
+static void cloudRemoteShowListWith(Window* window, const std::string& title,
+	const std::string& tier, const std::string& textFilter, const std::vector<CloudBackend>& backends);
+
 // A filtered list of backends. `tier` empty means every tier.
 static void cloudRemoteShowList(Window* window, const std::string& title,
 	const std::string& tier, const std::string& textFilter)
 {
+	cloudFetchThen<std::vector<CloudBackend>>(window, [] { return cloudRemoteBackends(); },
+		[window, title, tier, textFilter](std::vector<CloudBackend> backends) { cloudRemoteShowListWith(window, title, tier, textFilter, backends); });
+}
+
+static void cloudRemoteShowListWith(Window* window, const std::string& title,
+	const std::string& tier, const std::string& textFilter, const std::vector<CloudBackend>& backends)
+{
 	auto s = new GuiSettings(window, title);
 
-	auto backends = cloudRemoteBackends();
 	int shown = 0;
 	for (auto& b : backends)
 	{
@@ -8030,7 +8193,17 @@ static void cloudConnectionChange(Window* window, const std::string& command, Gu
 		}));
 }
 
+static void cloudConnectionDetailsWith(Window* window, const std::string& name, const std::string& type, const std::string& subprovider,
+	const std::vector<CloudBackend>& backends);
+
 static void cloudConnectionDetails(Window* window, const std::string& name, const std::string& type, const std::string& subprovider)
+{
+	cloudFetchThen<std::vector<CloudBackend>>(window, [] { return cloudRemoteBackends(); },
+		[window, name, type, subprovider](std::vector<CloudBackend> backends) { cloudConnectionDetailsWith(window, name, type, subprovider, backends); });
+}
+
+static void cloudConnectionDetailsWith(Window* window, const std::string& name, const std::string& type, const std::string& subprovider,
+	const std::vector<CloudBackend>& backends)
 {
 	auto s = new GuiSettings(window, _("CLOUD CONNECTION"));
 	cloudSetupAddFact(s, window, _("CONNECTION NAME"), name);
@@ -8049,7 +8222,7 @@ static void cloudConnectionDetails(Window* window, const std::string& name, cons
 			_("USE THIS CONNECTION FOR CLOUD TOOLS? YOUR SELECTED FOLDER PATHS WILL STAY THE SAME. CHECK THEM BEFORE YOUR NEXT BACKUP OR RESTORE."),
 			_("USE CONNECTION"), [window, name, s] { cloudConnectionChange(window, "select " + cloudShellQuote(name), s); }, _("CANCEL"), nullptr));
 	});
-	for (auto backend : cloudRemoteBackends())
+	for (auto backend : backends)
 	{
 		if (backend.name != type) continue;
 		backend.subprovider = subprovider;
@@ -8085,10 +8258,17 @@ static void cloudConnectionDetails(Window* window, const std::string& name, cons
 	cloudSetupPresent(window, s, nullptr);
 }
 
+static void cloudShowConnections(Window* window, const std::vector<std::string>& rows);
+
 void GuiMenu::openCloudConnections(Window* window)
 {
-	auto s = new CloudConnectionsPage(window, _("CLOUD CONNECTIONS"), [window] { GuiMenu::openCloudConnections(window); });
-	const auto rows = cloudRemoteLines("list");
+	cloudFetchThen<std::vector<std::string>>(window, [] { return cloudRemoteLines({ "list" }); },
+		[window](std::vector<std::string> rows) { cloudShowConnections(window, rows); });
+}
+
+static void cloudShowConnections(Window* window, const std::vector<std::string>& rows)
+{
+	auto s = new CloudConnectionsPage(window, _("CLOUD CONNECTIONS"), [window] { GuiMenu::openCloudConnections(window); }, cloudJoinLines(rows));
 	const bool readable = !rows.empty() && Utils::String::startsWith(rows.front(), "STATE=");
 	if (!readable)
 		cloudSetupAddProse(s, window, _("CONNECTIONS UNAVAILABLE"), _("YOUR CLOUD CONNECTIONS COULDN'T BE READ. TRY AGAIN."));
@@ -8109,11 +8289,18 @@ void GuiMenu::openCloudConnections(Window* window)
 	cloudSetupPresent(window, s, nullptr);
 }
 
+static void cloudShowAddRemote(Window* window, const std::vector<CloudBackend>& backends);
+
 void GuiMenu::openCloudAddRemote(Window* window)
+{
+	cloudFetchThen<std::vector<CloudBackend>>(window, [] { return cloudRemoteBackends(); },
+		[window](std::vector<CloudBackend> backends) { cloudShowAddRemote(window, backends); });
+}
+
+static void cloudShowAddRemote(Window* window, const std::vector<CloudBackend>& backends)
 {
 	auto s = new GuiSettings(window, _("CONNECT CLOUD STORAGE"));
 
-	auto backends = cloudRemoteBackends();
 	if (backends.empty())
 	{
 		// cloud_remote asks rclone for this list, so an empty result means
