@@ -506,8 +506,14 @@ bool ViewController::checkLaunchOptions(FileData* game, LaunchGameOptions option
 
 	if (Settings::getInstance()->getBool("CheckBiosesAtLaunch") && ApiSystem::getInstance()->isScriptingSupported(ApiSystem::ScriptId::BIOSINFORMATION))
 	{
-		auto bios = ApiSystem::getInstance()->getBiosInformations(game->getSourceFileData()->getSystem()->getName());
-		if (bios.size() != 0)
+		// A check that did not run to its end warns about nothing: the game
+		// launches, and the log says why there was no check (T21 PL-14,
+		// #1202; the ruling on #668, 01:47 UTC).
+		bool ran = true;
+		auto bios = ApiSystem::getInstance()->getBiosInformations(game->getSourceFileData()->getSystem()->getName(), false, &ran);
+		if (!ran)
+			LOG(LogWarning) << "launch: the BIOS check did not run to its end; launching without its warning";
+		else if (bios.size() != 0)
 		{
 			auto systemName = game->getSystem()->getName();
 			auto it = std::find_if(bios.cbegin(), bios.cend(), [&systemName](const BiosSystem& x) { return x.name == systemName; });

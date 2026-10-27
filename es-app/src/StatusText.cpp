@@ -40,6 +40,13 @@ namespace StatusText
 		return "";
 	}
 
+	std::string biosPageSentence(bool ran)
+	{
+		// The page showed whatever a failed or killed check had printed, as
+		// though it were the answer.
+		return ran ? "" : _("COULDN'T CHECK THE BIOS FILES RIGHT NOW.");
+	}
+
 	std::string scraperTransportSentence(int status)
 	{
 		// A connection that never opened is offline; a server that answered

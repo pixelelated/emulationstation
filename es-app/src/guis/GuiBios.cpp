@@ -1,4 +1,5 @@
 #include "guis/GuiBios.h"
+#include "StatusText.h"
 
 #include "ApiSystem.h"
 #include "guis/GuiSettings.h"
@@ -40,13 +41,13 @@ void GuiBios::show(Window* window)
 {
 	// --all: present files too, not only the problems. The launch-time check
 	// keeps the default output, which lists problems alone.
-	window->pushGui(new GuiLoading<std::vector<BiosSystem>>(window, _("PLEASE WAIT"),
-		[](auto gui) { return ApiSystem::getInstance()->getBiosInformations("", true); },
-		[window](std::vector<BiosSystem> ra) { window->pushGui(new GuiBios(window, ra)); }));
+	window->pushGui(new GuiLoading<std::pair<std::vector<BiosSystem>, bool>>(window, _("PLEASE WAIT"),
+		[](auto gui) { bool ran = true; auto systems = ApiSystem::getInstance()->getBiosInformations("", true, &ran); return std::make_pair(systems, ran); },
+		[window](std::pair<std::vector<BiosSystem>, bool> ra) { window->pushGui(new GuiBios(window, ra.first, ra.second)); }));
 }
 
-GuiBios::GuiBios(Window* window, const std::vector<BiosSystem> bioses)
-	: GuiComponent(window), mGrid(window, Vector2i(1, 4)), mBackground(window, ":/frame.png")
+GuiBios::GuiBios(Window* window, const std::vector<BiosSystem> bioses, bool ran)
+	: GuiComponent(window), mGrid(window, Vector2i(1, 4)), mBackground(window, ":/frame.png"), mRan(ran)
 {
 	mBios = bioses;
 
@@ -113,9 +114,9 @@ void GuiBios::onSizeChanged()
 
 void GuiBios::refresh()
 {
-	mWindow->pushGui(new GuiLoading<std::vector<BiosSystem>>(mWindow, _("PLEASE WAIT"),
-		[](auto gui) { return ApiSystem::getInstance()->getBiosInformations("", true); },
-		[this](std::vector<BiosSystem> ra) { mBios = ra; loadList(); }));
+	mWindow->pushGui(new GuiLoading<std::pair<std::vector<BiosSystem>, bool>>(mWindow, _("PLEASE WAIT"),
+		[](auto gui) { bool ran = true; auto systems = ApiSystem::getInstance()->getBiosInformations("", true, &ran); return std::make_pair(systems, ran); },
+		[this](std::pair<std::vector<BiosSystem>, bool> ra) { mBios = ra.first; mRan = ra.second; loadList(); }));
 }
 
 void GuiBios::loadList()
@@ -135,8 +136,12 @@ void GuiBios::loadList()
 		int         present;
 	};
 
+	// A check that did not run to its end: its sentence in place of the list
+	// (T21 PL-14, #1202; the ruling on #668, 01:47 UTC).
+	const std::string notRun = StatusText::biosPageSentence(mRan);
+
 	std::vector<Entry> entries;
-	for (auto& systemBiosData : mBios)
+	for (auto& systemBiosData : (notRun.empty() ? mBios : std::vector<BiosSystem>()))
 	{
 		Entry e;
 		e.data = systemBiosData;
@@ -184,7 +189,7 @@ void GuiBios::loadList()
 	{
 		// Only when the check itself produced nothing: with every system
 		// listed, an empty page is a failed check, not a clean one.
-		auto text = std::make_shared<TextComponent>(mWindow, _("THE BIOS CHECK RETURNED NOTHING"), theme->Text.font, theme->Text.color);
+		auto text = std::make_shared<TextComponent>(mWindow, notRun.empty() ? _("THE BIOS CHECK RETURNED NOTHING") : notRun, theme->Text.font, theme->Text.color);
 		if (EsLocale::isRTL())
 			text->setHorizontalAlignment(Alignment::ALIGN_RIGHT);
 

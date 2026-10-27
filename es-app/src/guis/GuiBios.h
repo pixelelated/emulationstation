@@ -23,7 +23,7 @@ public:
 	virtual void onSizeChanged() override;
 
 protected:
-	GuiBios(Window* window, const std::vector<BiosSystem> bioses);
+	GuiBios(Window* window, const std::vector<BiosSystem> bioses, bool ran = true);
 
 private:
 	static void openSystem(Window* window, const BiosSystem& system, const std::string& displayName);
@@ -33,6 +33,9 @@ private:
 	void centerWindow();
 
 	std::vector<BiosSystem> mBios;
+	// The check ran to its end (T21 PL-14, #1202): when it did not, the page
+	// says so in place of its list.
+	bool mRan;
 
 	NinePatchComponent				mBackground;
 	ComponentGrid					mGrid;

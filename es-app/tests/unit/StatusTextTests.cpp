@@ -31,3 +31,9 @@ TEST_CASE("scraperTransportSentence: offline, not answering and not verified are
 	CHECK(StatusText::scraperTransportSentence(403) == "");
 	CHECK(StatusText::scraperTransportSentence(HttpText::kStatusSuccess) == "");
 }
+
+TEST_CASE("biosPageSentence: a check that did not run says so in place of the list (T21 PL-14, #1202)")
+{
+	CHECK(StatusText::biosPageSentence(false) == "COULDN'T CHECK THE BIOS FILES RIGHT NOW.");
+	CHECK(StatusText::biosPageSentence(true) == "");
+}

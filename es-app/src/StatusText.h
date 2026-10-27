@@ -21,6 +21,11 @@ namespace StatusText
 	// a server not answering, a certificate that did not verify; empty for
 	// any other status, which the caller's own table words.
 	std::string scraperTransportSentence(int status);
+
+	// What the BIOS CHECK page shows in place of its list when the check did
+	// not run to its end; empty when it did (T21 PL-14, #1202; the ruling on
+	// #668, 01:47 UTC).
+	std::string biosPageSentence(bool ran);
 }
 
 #endif // ES_APP_STATUS_TEXT_H
