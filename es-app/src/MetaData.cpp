@@ -630,6 +630,10 @@ void MetaDataList::importScrappedMetadata(const MetaDataList& source)
 		if (mdd.id == MetaDataId::Rating && source.getFloat(mdd.id) < 0)
 			continue;
 
+		// #1292: a field the scrape returned nothing for keeps what it had
+		if (source.get(mdd.id).empty())
+			continue;
+
 		set(mdd.id, source.get(mdd.id));
 	}
 

@@ -50,6 +50,10 @@ public:
 	std::vector<PlayerMapping> players;
 	std::string path;
 
+	// #1282: the triggers load() refused, by name, and the line that says so
+	std::vector<std::string> refusedTriggers;
+	static std::string refusedTriggersSentence(const std::vector<std::string>& names);
+
 
 	class KeyName
 	{

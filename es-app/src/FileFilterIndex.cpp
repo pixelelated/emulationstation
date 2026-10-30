@@ -339,7 +339,9 @@ std::string FileFilterIndex::getIndexableKey(FileData* game, FilterIndexType typ
 		if (rating > 1.0f)
 			rating = 1.0f;
 
-		ratingNumber = (int)Math::round(rating * 5);
+		// #1291: a positive rating is at least one star; 0 STARS was a key no
+		// filter row could mean
+		ratingNumber = std::max(1, (int)Math::round(rating * 5));
 		return std::to_string(ratingNumber) + " STARS";					
 	}
 
@@ -367,7 +369,8 @@ std::string FileFilterIndex::getIndexableKey(FileData* game, FilterIndexType typ
 	case YEAR_FILTER:
 	{
 		key = game->getMetadata(MetaDataId::ReleaseDate);
-		key = (key.length() >= 4 && key[0] >= '1' && key[0] <= '2') ? key.substr(0, 4) : "";
+		// #1291: any four leading digits are a year
+		key = (key.length() >= 4 && isdigit((unsigned char)key[0]) && isdigit((unsigned char)key[1]) && isdigit((unsigned char)key[2]) && isdigit((unsigned char)key[3])) ? key.substr(0, 4) : "";
 		break;
 	}
 
@@ -1191,7 +1194,12 @@ bool CollectionFilter::load(const std::string file)
 		else if (name == "family")
 			familyIndexFilteredKeys.insert(node.text().as_string());
 		else if (name == "ratings")
-			ratingsIndexFilteredKeys.insert(node.text().as_string());
+		{
+			// #1291: a selection stored before positive ratings floored at one
+			// star is read as that star; the next save writes it so
+			std::string rating = node.text().as_string();
+			ratingsIndexFilteredKeys.insert(rating == "0 STARS" ? "1 STARS" : rating);
+		}
 		else if (name == "year")
 			yearIndexFilteredKeys.insert(node.text().as_string());
 		else if (name == "players")

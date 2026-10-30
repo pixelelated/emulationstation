@@ -2,6 +2,7 @@
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
 #include "Log.h"
+#include "LocaleES.h"
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/pointer.h>
 #include <rapidjson/prettywriter.h>
@@ -245,50 +246,86 @@ KeyMappingFile KeyMappingFile::load(const std::string& fileName)
 		{		
 			for (auto& action : doc[playerID.c_str()].GetArray())
 			{
+				// #1282: a value of the wrong shape is logged and skipped, never
+				// read -- the build defines NDEBUG, so rapidjson does not check.
+				if (!action.IsObject())
+				{
+					LOG(LogWarning) << "KeyMappingFile - an action that is not an object in " << fileName;
+					continue;
+				}
+
 				KeyMapping map;
+				for (auto field : { "type", "mode", "description" })
+					if (action.HasMember(field) && !action[field].IsString())
+						LOG(LogWarning) << "KeyMappingFile - a " << field << " that is not a string in " << fileName;
 
-				if (action.HasMember("type"))
+				if (action.HasMember("type") && action["type"].IsString())
 					map.type = action["type"].GetString();
-
-				if (action.HasMember("mode"))
+				if (action.HasMember("mode") && action["mode"].IsString())
 					map.mode = action["mode"].GetString();
-
-				if (action.HasMember("description"))
+				if (action.HasMember("description") && action["description"].IsString())
 					map.description = action["description"].GetString();
+
+				// #1282: a trigger the table refuses is logged and named to the
+				// player; a mapping that loses one is left out whole, so a chord
+				// is never kept on its other keys alone.
+				bool refused = false;
+				auto takeTrigger = [&](const rapidjson::Value& trigger)
+				{
+					if (!trigger.IsString())
+					{
+						LOG(LogWarning) << "KeyMappingFile - a trigger that is not a string in " << fileName;
+						refused = true;
+						return;
+					}
+
+					std::string name = trigger.GetString();
+					if (checkTriggerExists(name, map.type))
+						map.triggers.insert(name);
+					else
+					{
+						LOG(LogWarning) << "KeyMappingFile - unknown trigger " << name << " in " << fileName;
+						ret.refusedTriggers.push_back(name);
+						refused = true;
+					}
+				};
 
 				if (action.HasMember("trigger"))
 				{
 					if (action["trigger"].IsArray())
 					{
 						for (auto& target : action["trigger"].GetArray())
-						{
-							if (checkTriggerExists(target.GetString(), map.type))
-								map.triggers.insert(target.GetString());
-						}
+							takeTrigger(target);
 					}
 					else
-					{
-						if (checkTriggerExists(action["trigger"].GetString(), map.type))
-							map.triggers.insert(action["trigger"].GetString());
-					}
+						takeTrigger(action["trigger"]);
 				}
+
+				auto takeTarget = [&](const rapidjson::Value& target)
+				{
+					if (!target.IsString())
+					{
+						LOG(LogWarning) << "KeyMappingFile - a target that is not a string in " << fileName;
+						return;
+					}
+
+					if (map.type != "key" || checkTargetExists(target.GetString()))
+						map.targets.insert(target.GetString());
+				};
 
 				if (action.HasMember("target"))
 				{
 					if (action["target"].IsArray())
 					{
 						for (auto& target : action["target"].GetArray())
-						{
-							if (map.type != "key" || checkTargetExists(target.GetString()))
-								map.targets.insert(target.GetString());
-						}
+							takeTarget(target);
 					}
 					else
-					{
-						if (map.type != "key" || checkTargetExists(action["target"].GetString()))
-							map.targets.insert(action["target"].GetString());
-					}				
+						takeTarget(action["target"]);
 				}
+
+				if (refused)
+					continue;
 
 				if ((map.targets.size() > 0 || map.type == "mouse") && map.triggers.size() > 0)
 					pm.mappings.push_back(map);
@@ -301,6 +338,20 @@ KeyMappingFile KeyMappingFile::load(const std::string& fileName)
 	}
 
 	return ret;
+}
+
+// #1282: the one line a player reads when a key map named keys the table
+// does not know; "" when it named none.
+std::string KeyMappingFile::refusedTriggersSentence(const std::vector<std::string>& names)
+{
+	if (names.empty())
+		return "";
+
+	std::string joined;
+	for (auto name : names)
+		joined += (joined.empty() ? "" : ", ") + name;
+
+	return Utils::String::format(_("THE KEY %s ISN'T KNOWN, SO ITS MAPPING WAS LEFT OUT.").c_str(), joined.c_str());
 }
 
 std::string KeyMappingFile::joinStrings(const std::set<std::string>& items)

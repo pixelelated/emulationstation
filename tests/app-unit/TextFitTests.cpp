@@ -73,3 +73,12 @@ TEST_CASE("fit: what fits is left alone, and ASCII is cut as before")
 	CHECK(TextFit::fitOneLine("SNES", 100.0f, [&font](const std::string& s) { return font(s); }) == "SNES");
 	CHECK(TextFit::fitOneLine("ABCDEFGHIJKL", 90.0f, [&font](const std::string& s) { return font(s); }) == "ABCDEF...");
 }
+
+TEST_CASE("fit: the floor keeps four characters in every script (#1278)")
+{
+	Font font;
+	auto fit = [&font](const std::string& s) { return TextFit::fitOneLine(s, 1.0f, [&font](const std::string& x) { return font(x); }); };
+	CHECK(fit("ABCDEFGH") == "ABCD...");
+	CHECK(fit("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe6\x96\x87\xe5\xad\x97\xe5\x88\x97") == "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe6\x96\x87...");
+	CHECK(fit("\xe6\x97\xa5\xe6\x9c\xac") == "\xe6\x97\xa5\xe6\x9c\xac...");
+}

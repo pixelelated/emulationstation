@@ -296,13 +296,13 @@ GameGenre* Genres::fromGenreName(const std::string& name)
 	if (g != mAllGenresNames.cend())
 		return mGenres[g->second];
 	
-	if (name.find("/") >= 0)
+	if (name.find("/") != std::string::npos) // #1274: find() is unsigned; >= 0 was always true
 	{
 		for (auto subgenre : Utils::String::splitAny(Utils::String::toUpper(name), "/", true))
 		{
 			auto sg = mAllGenresNames.find(Utils::String::trim(subgenre));
 			if (sg != mAllGenresNames.cend())
-				return mGenres[g->second];
+				return mGenres[sg->second]; // #1274: the part found, not the whole name's end
 		}
 	}
 

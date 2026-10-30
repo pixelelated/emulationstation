@@ -26,12 +26,22 @@ namespace TextFit
 		text.erase(i);
 	}
 
+	// The characters in `text`: its lead bytes (#1278).
+	inline size_t characterCount(const std::string& text)
+	{
+		size_t n = 0;
+		for (unsigned char c : text)
+			if ((c & 0xC0) != 0x80)
+				n++;
+		return n;
+	}
+
 	template <class Measure>
 	std::string fitOneLine(std::string text, float width, Measure measure)
 	{
 		if (text.empty() || measure(text) <= width)
 			return text;
-		while (text.size() > 4 && measure(text + "...") > width)
+		while (characterCount(text) > 4 && measure(text + "...") > width) // #1278: four characters in every script
 			popCharacter(text);
 		return text + "...";
 	}

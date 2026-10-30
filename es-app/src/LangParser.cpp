@@ -62,7 +62,7 @@ void LangInfo::extractLang(const std::string& val)
 
 		{ { "canada", "ca", "c", "fc" }, "fr", "wr" },
 
-		{ { "in", "ìndia" }, "in", "in" },
+		{ { "in", "india" }, "in", "in" }, // #1279: an ASCII token; names are lowercased before they reach it
 	};
 
 	static std::set<std::string> hardRegions =
