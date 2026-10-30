@@ -103,7 +103,7 @@ protected:
 	void manageLangEntryInIndex(FileData* game, bool remove = false);
 	void manageRegionEntryInIndex(FileData* game, bool remove = false);
 
-	void clearIndex(std::map<std::string, int> indexMap);
+	void clearIndex(std::map<std::string, int>& indexMap);
 
 	bool filterByGenre;
 	bool filterByFamily;

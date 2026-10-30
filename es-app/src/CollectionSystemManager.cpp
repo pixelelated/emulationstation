@@ -1,6 +1,7 @@
 #include "CollectionSystemManager.h"
 
 #include "guis/GuiInfoPopup.h"
+#include "utils/AtomicFileUtil.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
 #include "views/gamelist/IGameListView.h"
@@ -342,8 +343,9 @@ void CollectionSystemManager::saveCustomCollection(SystemData* sys)
 		{
 			std::string relativeTo = Paths::getRootPath();
 
-			std::ofstream configFile;
-			configFile.open(getCustomCollectionConfigPath(name));
+			// #1275: the list is written whole beside its path and renamed
+			// over it, and the file cache forgets the path.
+			std::string text;
 			for (auto iter = games.cbegin(); iter != games.cend(); ++iter)
 			{
 				std::string path = (*iter)->getKey();
@@ -351,10 +353,14 @@ void CollectionSystemManager::saveCustomCollection(SystemData* sys)
 				// Allow collection items to be portable, relative to home
 				path = Utils::FileSystem::createRelativePath(path, relativeTo, true);
 
-				configFile << path << std::endl;
+				text += path + "\n";
 			}
 
-			configFile.close();
+			std::string configPath = getCustomCollectionConfigPath(name);
+			if (Utils::AtomicFile::writeText(configPath, text))
+				Utils::FileSystem::FileSystemCache::reset(configPath);
+			else
+				LOG(LogError) << "Error saving custom collection \"" << configPath << "\"";
 		}
 	}
 	else
@@ -1572,29 +1578,56 @@ void CollectionSystemManager::reloadCollection(const std::string& collectionName
 
 	if (data->second.filteredIndex != nullptr)
 	{
+		auto bundle = CollectionSystemManager::get()->getCustomCollectionsBundle();
+
+		FolderData* bundled = nullptr;
+		if (bundle != nullptr)
+			for (auto ff : bundle->getRootFolder()->getChildren())
+				if (ff->getType() == FOLDER && ff->getName() == collectionName)
+					bundled = (FolderData*)ff;
+
+		// #1272: populateCustomCollection deletes the collection's games, and
+		// a view holding one would read it after (es-code-traps.md: a rescan
+		// that deletes FileData drops the view first). Every view that holds
+		// them -- the bundle's, the collection is its child by identity, and
+		// the collection's own -- is dropped with its cursor's path read
+		// while the games are alive, and made again after.
+		struct DroppedView { SystemData* system; std::string cursorPath; bool wasCurrent; };
+		std::vector<DroppedView> dropped;
+
+		std::vector<SystemData*> holders;
+		if (bundled != nullptr)
+			holders.push_back(bundle);
+		holders.push_back(data->second.system);
+
+		for (auto holder : holders)
+		{
+			if (holder == nullptr || ViewController::get()->getGameListView(holder, false) == nullptr)
+				continue;
+
+			DroppedView view = { holder, "", false };
+			view.cursorPath = ViewController::get()->dropGameListView(holder, &view.wasCurrent);
+			dropped.push_back(view);
+		}
+
 		data->second.isPopulated = false;
 		populateCustomCollection(&data->second);
+
+		for (auto view : dropped)
+			ViewController::get()->remakeGameListView(view.system, view.cursorPath, view.wasCurrent);
 
 		if (!repopulateGamelist)
 			return;
 
-		auto bundle = CollectionSystemManager::get()->getCustomCollectionsBundle();
-		for (auto ff : bundle->getRootFolder()->getChildren())
+		if (bundled != nullptr)
 		{
-			if (ff->getType() == FOLDER && ff->getName() == collectionName)
-			{
-				auto view = ViewController::get()->getGameListView(bundle, false);
-				if (view != nullptr)
-				{
-					ViewController::get()->reloadGameListView(bundle);
+			// #1272 (EP-37): the view moved to the folder is the one remade
+			auto view = ViewController::get()->getGameListView(bundle, false);
+			ISimpleGameListView* sgview = dynamic_cast<ISimpleGameListView*>(view.get());
+			if (sgview != nullptr)
+				sgview->moveToFolder(bundled);
 
-					ISimpleGameListView* sgview = dynamic_cast<ISimpleGameListView*>(view.get());
-					if (sgview != nullptr)
-						sgview->moveToFolder((FolderData*)ff);
-				}
-
-				return;
-			}
+			return;
 		}
 	}
 	
@@ -1606,11 +1639,12 @@ bool CollectionSystemManager::deleteCustomCollection(CollectionSystemData* data)
 {
 	std::string name = data->system->getName();
 
+	// #1275: read as the files are now, not as the session first found them
 	std::string path = getCollectionsFolder() + "/" + name + ".xcc";
-	if (!Utils::FileSystem::exists(path))
+	if (!Utils::FileSystem::exists(path, false))
 		path = getCollectionsFolder() + "/custom-" + name + ".cfg";
 
-	if (!Utils::FileSystem::exists(path))
+	if (!Utils::FileSystem::exists(path, false))
 		return false;
 
 	std::vector<std::string> customSelected = Utils::String::split(Settings::getInstance()->getString("CollectionSystemsCustom"), ',', true);

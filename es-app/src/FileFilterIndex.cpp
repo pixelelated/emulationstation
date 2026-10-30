@@ -1,5 +1,7 @@
 #include "FileFilterIndex.h"
 
+#include "utils/AtomicFileUtil.h"
+#include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
 #include "views/UIModeController.h"
 #include "FileData.h"
@@ -15,6 +17,7 @@
 #include "Genres.h"
 #include "SystemConf.h"
 #include "FileTag.h"
+#include <sstream>
 
 #define UNKNOWN_LABEL "UNKNOWN"
 #define INCLUDE_UNKNOWN false;
@@ -1099,7 +1102,7 @@ void FileFilterIndex::manageIndexEntry(std::map<std::string, int>* index, const 
 		(index->at(key))++;
 }
 
-void FileFilterIndex::clearIndex(std::map<std::string, int> indexMap)
+void FileFilterIndex::clearIndex(std::map<std::string, int>& indexMap) // #1287: by reference, so the index is cleared
 {
 	indexMap.clear();
 }
@@ -1310,12 +1313,17 @@ bool CollectionFilter::save()
 	for (auto key : tagIndexFilteredKeys)
 		root.append_child("tag").text().set(key.c_str());
 
-	if (!doc.save_file(WINSTRINGW(mPath).c_str()))
+	// #1275: the filter is written whole beside its path and renamed over
+	// it, and the file cache forgets the path.
+	std::ostringstream text;
+	doc.save(text);
+	if (!Utils::AtomicFile::writeText(mPath, text.str()))
 	{
 		LOG(LogError) << "Error saving CollectionFilter to \"" << mPath << "\" !";
 		return false;
 	}
 
+	Utils::FileSystem::FileSystemCache::reset(mPath);
 	return true;
 }
 
