@@ -1,5 +1,6 @@
 #include "Gamelist.h"
 
+#include "utils/AtomicFileUtil.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
 #include "FileData.h"
@@ -11,6 +12,7 @@
 #include "Genres.h"
 #include "Paths.h"
 #include "utils/ThreadPool.h"
+#include <sstream>
 
 #ifdef WIN32
 #include <Windows.h>
@@ -22,6 +24,21 @@
 std::string getGamelistRecoveryPath(SystemData* system)
 {
 	return Utils::FileSystem::getGenericPath(Paths::getUserEmulationStationPath() + "/recovery/" + system->getName());
+}
+
+// #1271, #1285: a game list or a recovery record is replaced whole --
+// written beside its path and renamed over it, so a write cut short leaves
+// the previous file -- and the file cache forgets the path, so a later read
+// sees what was written. False when the rename did not land.
+static bool writeXmlDocument(const pugi::xml_document& doc, const std::string& path)
+{
+	std::ostringstream text;
+	doc.save(text);
+	if (!Utils::AtomicFile::writeText(path, text.str()))
+		return false;
+
+	Utils::FileSystem::FileSystemCache::reset(path);
+	return true;
 }
 
 FileData* findOrCreateFile(SystemData* system, const std::string& path, FileType type, std::unordered_map<std::string, FileData*>& fileMap)
@@ -304,8 +321,7 @@ bool saveToXml(FileData* file, const std::string& fileName, bool fullPaths)
 		if (!Utils::FileSystem::exists(folder))
 			Utils::FileSystem::createDirectory(folder);
 
-		Utils::FileSystem::removeFile(fileName);
-		if (!doc.save_file(WINSTRINGW(fileName).c_str()))
+		if (!writeXmlDocument(doc, fileName))
 		{
 			LOG(LogError) << "Error saving metadata to \"" << fileName << "\" (for system " << system->getName() << ")!";
 			return false;
@@ -410,12 +426,20 @@ void updateGamelist(SystemData* system)
 	pugi::xml_node root;
 	std::string xmlReadPath = system->getGamelistPath(false);
 
-	if(Utils::FileSystem::exists(xmlReadPath))
+	// #1271: read as the file is now, not as the session first found it --
+	// the cloud's game-content restore, the scraper or the player may have
+	// written it since.
+	if(Utils::FileSystem::exists(xmlReadPath, false))
 	{
 		//parse an existing file first
 		pugi::xml_parse_result result = doc.load_file(WINSTRINGW(xmlReadPath).c_str());
 		if(!result)
+		{
+			// #1271: a file that did not parse is never written over; the
+			// dirty entries stay in memory and in the recovery folder.
 			LOG(LogError) << "Error parsing XML file \"" << xmlReadPath << "\"!\n	" << result.description();
+			return;
+		}
 
 		root = doc.child("gameList");
 		if(!root)
@@ -471,7 +495,7 @@ void updateGamelist(SystemData* system)
 
 		LOG(LogInfo) << "Added/Updated " << numUpdated << " entities in '" << xmlReadPath << "'";
 
-		if (!doc.save_file(WINSTRINGW(xmlWritePath).c_str()))
+		if (!writeXmlDocument(doc, xmlWritePath))
 			LOG(LogError) << "Error saving gamelist.xml to \"" << xmlWritePath << "\" (for system " << system->getName() << ")!";
 		else
 			clearTemporaryGamelistRecovery(system);
@@ -528,7 +552,7 @@ void packGamelist(SystemData* system)
 	}
 
 	std::string xmlReadPath = system->getGamelistPath(false);
-	if (!Utils::FileSystem::exists(xmlReadPath))
+	if (!Utils::FileSystem::exists(xmlReadPath, false)) // #1271: as the file is now
 		return;
 
 	pugi::xml_document doc;
@@ -598,7 +622,7 @@ void packGamelist(SystemData* system)
 			if (mddFullPath.size() && files.find(mddFullPath) != files.cend())
 				continue;
 
-			if (mddFullPath.empty() || !Utils::FileSystem::exists(mddFullPath))
+			if (mddFullPath.empty() || !Utils::FileSystem::exists(mddFullPath, false)) // #1271
 			{
 				dirty = true;
 				fileNode.remove_child(xelement);
@@ -619,13 +643,13 @@ void packGamelist(SystemData* system)
 		Utils::FileSystem::removeFile(oldXml);
 		Utils::FileSystem::copyFile(xmlWritePath, oldXml);
 
-		if (!doc.save_file(WINSTRINGW(xmlWritePath).c_str()))
+		if (!writeXmlDocument(doc, xmlWritePath))
 			LOG(LogError) << "Error saving gamelist.xml to \"" << xmlWritePath << "\" (for system " << system->getName() << ")!";
-		else
-			clearTemporaryGamelistRecovery(system);
 	}
-	else
-		clearTemporaryGamelistRecovery(system);
+
+	// #1271: the recovery folder is left for the save that folds it in
+	// (updateGamelist): packGamelist runs before parseGamelist reads it
+	// (SystemData.cpp:125-128), and this pass writes no dirty entry.
 }
 
 void cleanupGamelist(SystemData* system)
@@ -641,7 +665,7 @@ void cleanupGamelist(SystemData* system)
 	}
 
 	std::string xmlReadPath = system->getGamelistPath(false);
-	if (!Utils::FileSystem::exists(xmlReadPath))
+	if (!Utils::FileSystem::exists(xmlReadPath, false)) // #1271: as the file is now
 		return;
 
 	pugi::xml_document doc;
@@ -702,7 +726,7 @@ void cleanupGamelist(SystemData* system)
 			pugi::xml_node mddPath = fileNode.child(mdd.key.c_str());
 
 			std::string mddFullPath = (mddPath ? Utils::FileSystem::getCanonicalPath(Utils::FileSystem::resolveRelativePath(mddPath.text().get(), system->getStartPath(), true)) : "");
-			if (!Utils::FileSystem::exists(mddFullPath))
+			if (!Utils::FileSystem::exists(mddFullPath, false)) // #1271: a picture restored since is seen
 			{
 				std::string ext = ".jpg";
 				std::string folder = "/images/";
@@ -729,23 +753,23 @@ void cleanupGamelist(SystemData* system)
 				{					
 					std::string mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + "-"+ suffix + ext;
 
-					if (ext == ".pdf" && !Utils::FileSystem::exists(mediaPath))
+					if (ext == ".pdf" && !Utils::FileSystem::exists(mediaPath, false))
 					{
 						mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + ".pdf";
-						if (!Utils::FileSystem::exists(mediaPath))
+						if (!Utils::FileSystem::exists(mediaPath, false))
 							mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + ".cbz";
 					}
-					else if (ext != ".jpg" && !Utils::FileSystem::exists(mediaPath))
+					else if (ext != ".jpg" && !Utils::FileSystem::exists(mediaPath, false))
 						mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + ext;
-					else if (ext == ".jpg" && !Utils::FileSystem::exists(mediaPath))
+					else if (ext == ".jpg" && !Utils::FileSystem::exists(mediaPath, false))
 						mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + "-" + suffix + ".png";
 
-					if (mdd.id == MetaDataId::Image && !Utils::FileSystem::exists(mediaPath))
+					if (mdd.id == MetaDataId::Image && !Utils::FileSystem::exists(mediaPath, false))
 						mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + ".jpg";
-					if (mdd.id == MetaDataId::Image && !Utils::FileSystem::exists(mediaPath))
+					if (mdd.id == MetaDataId::Image && !Utils::FileSystem::exists(mediaPath, false))
 						mediaPath = system->getStartPath() + folder + file->second->getDisplayName() + ".png";
 
-					if (Utils::FileSystem::exists(mediaPath))
+					if (Utils::FileSystem::exists(mediaPath, false))
 					{
 						auto relativePath = Utils::FileSystem::createRelativePath(mediaPath, system->getStartPath(), true);
 
@@ -838,11 +862,11 @@ void cleanupGamelist(SystemData* system)
 		Utils::FileSystem::removeFile(oldXml);
 		Utils::FileSystem::copyFile(xmlWritePath, oldXml);
 
-		if (!doc.save_file(WINSTRINGW(xmlWritePath).c_str()))
+		if (!writeXmlDocument(doc, xmlWritePath))
 			LOG(LogError) << "Error saving gamelist.xml to \"" << xmlWritePath << "\" (for system " << system->getName() << ")!";
-		else
-			clearTemporaryGamelistRecovery(system);
 	}
-	else
-		clearTemporaryGamelistRecovery(system);
+
+	// #1271: the recovery folder is left for the save that folds it in
+	// (updateGamelist): packGamelist runs before parseGamelist reads it
+	// (SystemData.cpp:125-128), and this pass writes no dirty entry.
 }
