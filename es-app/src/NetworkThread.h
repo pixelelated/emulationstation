@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Window.h"
+#include <atomic>
 #include <thread>
 #include <condition_variable>
 #include <mutex>
@@ -49,7 +50,13 @@ private:
 class CheckCheevosTokenComponent : public IWatcher
 {
 public:
+	~CheckCheevosTokenComponent();
+
 	std::string& getLastToken() { return mLastToken; }
+
+	// The account the last token was issued for: it is saved only while
+	// that account is still the one signed in (#1288).
+	std::string& getLastAccount() { return mLastAccount; }
 
 	// The last check could not reach RetroAchievements, as against being
 	// turned down by it: worth running again as soon as the network is up
@@ -65,17 +72,47 @@ protected:
 	bool enabled() override;
 	// Decided by the last check(): CheevosRetry::ScheduledMs (120 minutes)
 	// unless that check could not reach the server while the network was
-	// up, when it is a short retry, a bounded number of times.
+	// up, when it is a short retry, a bounded number of times -- or, while
+	// a sign-in is out, SignInPollMs, so its answer is taken on the
+	// watcher's next pass.
 	int  updateTime() override { return mNextDelayMs; }
 	int  initialUpdateTime() override { return 100; } // 100ms
 	bool check() override;
 
 private:
+	// A sign-in's answer, with the credentials it was asked with (#1288).
+	struct SignIn
+	{
+		std::string username;
+		std::string password;
+		std::string tokenOrError;
+		bool ok = false;
+		bool refused = false;
+	};
+
+	static const int SignInPollMs = 1000;
+
+	bool takeSignIn(SignIn& signIn);
+	void startSignIn(const std::string& username, const std::string& password);
+	bool applySignIn(const SignIn& signIn);
+	void joinWorker();
+
 	std::string mLastToken;
+	std::string mLastAccount;
 	bool mRetryWhenOnline = false;
 	bool mOnline = false;
 	int  mUnreachableInARow = 0;
 	int  mNextDelayMs = CheevosRetry::ScheduledMs;
+
+	// The sign-in runs here, not under WatchersManager's lock (#1283). The
+	// worker leaves its answer under mSignInLock and then sets
+	// mWorkerExited; it never calls into the manager, so check() may join it
+	// under that lock once it has left its answer.
+	std::thread       mWorker;
+	std::atomic<bool> mWorkerExited { true };
+	std::mutex        mSignInLock;
+	bool              mSignInReady = false;
+	SignIn            mSignIn;
 };
 
 class NetworkStateWatcher;

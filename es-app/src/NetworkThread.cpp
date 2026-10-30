@@ -1,10 +1,12 @@
 #include "NetworkThread.h"
+#include "AppWindow.h"
 #include "ApiSystem.h"
 #include "Settings.h"
 #include "SystemConf.h"
 #include "guis/GuiMsgBox.h"
 #include "LocaleES.h"
 #include "Log.h"
+#include <atomic>
 #include <chrono>
 #include <SDL.h>
 
@@ -17,6 +19,21 @@
 #include "ThreadedHasher.h"
 
 static CheckCheevosTokenComponent* sCheevosToken = nullptr;
+
+// Every post from the watchers' thread goes through AppWindow's closing gate
+// (#1276). Once main() has called AppWindow::closing() a post is dropped, not
+// queued for a loop that will not run again, and nothing is saved after the
+// window closes. Each dropped task is repeated by the next start's own
+// schedule -- the pads' levels at the next check, the link-up's cards and the
+// index at the next link-up, the retry's reset at the next link-up, the token
+// at the next scheduled check -- so a lost token write costs one check, not a
+// sign-in. Logged once.
+static void droppedAfterClosing()
+{
+	static std::atomic<bool> logged(false);
+	if (!logged.exchange(true))
+		LOG(LogInfo) << "NetworkThread : the window is closing, so its posts from here on are dropped";
+}
 
 void NetworkThread::checkCheevosTokenSoon()
 {
@@ -117,12 +134,47 @@ bool CheckCheevosTokenComponent::enabled()
 	return SystemConf::getInstance()->getBool("global.retroachievements");
 };
 
+CheckCheevosTokenComponent::~CheckCheevosTokenComponent()
+{
+	joinWorker();
+}
+
+void CheckCheevosTokenComponent::joinWorker()
+{
+	if (mWorker.joinable())
+		mWorker.join();
+}
+
 bool CheckCheevosTokenComponent::check()
 {
 	// The regular schedule unless this check decides otherwise below, so a
 	// check that returns early -- the switch off, no account -- never
 	// inherits a short retry from the one before it.
 	mNextDelayMs = CheevosRetry::ScheduledMs;
+
+	// check() runs under WatchersManager's lock, which the settings page's
+	// close waits on through ResetComponent (checkCheevosTokenSoon), so the
+	// sign-in is never made here (#1283): a check takes the answer a worker
+	// has left, or starts one, and returns at once.
+	SignIn signIn;
+	if (takeSignIn(signIn))
+	{
+		// The page may have turned achievements off and cleared the token,
+		// or changed the account, while the sign-in was out (#1288). Its
+		// answer is applied only to the credentials it was asked with;
+		// otherwise it is dropped and the current ones are asked below.
+		if (enabled() &&
+			signIn.username == SystemConf::getInstance()->get("global.retroachievements.username") &&
+			signIn.password == SystemConf::getInstance()->get("global.retroachievements.password"))
+			return applySignIn(signIn);
+
+		LOG(LogInfo) << "[CheckCheevosTokenComponent] The account or the switch changed during the sign-in, so its answer was dropped.";
+	}
+	else if (mWorker.joinable())
+	{
+		mNextDelayMs = SignInPollMs;
+		return false;
+	}
 
 	if (!enabled())
 		return false;
@@ -133,20 +185,82 @@ bool CheckCheevosTokenComponent::check()
 	if (cheevosUsername.empty() || cheevosPassword.empty())
 		return false;
 
-	std::string tokenOrError;
-	bool refused = false;
-	if (RetroAchievements::testAccount(cheevosUsername, cheevosPassword, tokenOrError, &refused))
+	startSignIn(cheevosUsername, cheevosPassword);
+	mNextDelayMs = SignInPollMs;
+	return false;
+}
+
+bool CheckCheevosTokenComponent::takeSignIn(SignIn& signIn)
+{
+	// Exited is read first: the worker leaves its answer and then sets it,
+	// so a worker seen to have exited has left its answer, and joining it
+	// does not wait.
+	bool exited = mWorkerExited;
+	bool ready = false;
+	{
+		std::lock_guard<std::mutex> lock(mSignInLock);
+		if (mSignInReady)
+		{
+			signIn = mSignIn;
+			mSignInReady = false;
+			ready = true;
+		}
+	}
+
+	if (exited)
+		joinWorker();
+
+	return ready;
+}
+
+void CheckCheevosTokenComponent::startSignIn(const std::string& username, const std::string& password)
+{
+	// NetworkThread is never deleted (main.cpp), so this component's
+	// destructor does not run at exit, and a sign-in still out then would
+	// run on while the process's statics go, HttpReq's among them. This
+	// static is made after those and goes before them: it joins the worker.
+	static struct JoinAtExit
+	{
+		CheckCheevosTokenComponent* component;
+		~JoinAtExit() { component->joinWorker(); }
+	} joinAtExit { this };
+
+	// Called only with no worker or one past its sign-in.
+	joinWorker();
+
+	mWorkerExited = false;
+	mWorker = std::thread([this, username, password]()
+	{
+		SignIn signIn;
+		signIn.username = username;
+		signIn.password = password;
+		signIn.ok = RetroAchievements::testAccount(username, password, signIn.tokenOrError, &signIn.refused);
+
+		{
+			std::lock_guard<std::mutex> lock(mSignInLock);
+			mSignIn = signIn;
+			mSignInReady = true;
+		}
+
+		mWorkerExited = true;
+	});
+}
+
+bool CheckCheevosTokenComponent::applySignIn(const SignIn& signIn)
+{
+	if (signIn.ok)
 	{
 		mRetryWhenOnline = false;
 		mUnreachableInARow = 0;
-		if (tokenOrError == SystemConf::getInstance()->get("global.retroachievements.token"))
+		if (signIn.tokenOrError == SystemConf::getInstance()->get("global.retroachievements.token"))
 		{
 			LOG(LogInfo) << "[CheckCheevosTokenComponent] Cheevos token is unchanged.";
 		}
 		else
 		{
 			LOG(LogInfo) << "[CheckCheevosTokenComponent] Generated a new cheevos token, saving.";
-			mLastToken = tokenOrError;
+			mLastToken = signIn.tokenOrError;
+			mLastAccount = signIn.username;
 			return true;
 		}
 	}
@@ -156,9 +270,9 @@ bool CheckCheevosTokenComponent::check()
 		// other failure is the first check of a boot running before the
 		// link was up (#175), and NetworkThread asks for it again when
 		// the network arrives.
-		mRetryWhenOnline = !refused;
-		mUnreachableInARow = refused ? 0 : mUnreachableInARow + 1;
-		LOG(LogError) << "[CheckCheevosTokenComponent] Failed to generate a new cheevos token: " << tokenOrError;
+		mRetryWhenOnline = !signIn.refused;
+		mUnreachableInARow = signIn.refused ? 0 : mUnreachableInARow + 1;
+		LOG(LogError) << "[CheckCheevosTokenComponent] Failed to generate a new cheevos token: " << signIn.tokenOrError;
 
 		// That network-up check can itself run before the resolver answers
 		// (RC-3 on #175: "Could not resolve hostname" five seconds after
@@ -203,7 +317,8 @@ void NetworkThread::OnWatcherChanged(IWatcher* component)
 	{
 		auto pads = mCheckPadsBatteryLevelComponent.getPadsInfo();
 
-		mWindow->postToUiThread([pads]() { for (auto pad : pads) InputManager::getInstance()->updateBatteryLevel(pad.id, pad.device, pad.path, pad.battery); });
+		if (!AppWindow::post(mWindow, [pads]() { for (auto pad : pads) InputManager::getInstance()->updateBatteryLevel(pad.id, pad.device, pad.path, pad.battery); }))
+			droppedAfterClosing();
 		return;
 	}
 
@@ -234,7 +349,8 @@ void NetworkThread::OnWatcherChanged(IWatcher* component)
 		if (online)
 		{
 			Window* window = mWindow;
-			mWindow->postToUiThread([window]() { ProxyCards::linkReturned(window); });
+			if (!AppWindow::post(mWindow, [window]() { ProxyCards::linkReturned(window); }))
+				droppedAfterClosing();
 		}
 
 		// The startup index asks RetroAchievements for its hash library as the
@@ -248,13 +364,15 @@ void NetworkThread::OnWatcherChanged(IWatcher* component)
 		if (online && Settings::CheevosCheckIndexesAtStart() && !ThreadedHasher::cheevosLibraryCameThisSession())
 		{
 			Window* window = mWindow;
-			mWindow->postToUiThread([window]() { SystemData::startIndexesAtStart(window, true); });
+			if (!AppWindow::post(mWindow, [window]() { SystemData::startIndexesAtStart(window, true); }))
+				droppedAfterClosing();
 		}
 
 		if (online && mCheckCheevosTokenComponent.retryWhenOnline())
 		{
 			CheckCheevosTokenComponent* cheevos = &mCheckCheevosTokenComponent;
-			mWindow->postToUiThread([cheevos]() { WatchersManager::getInstance()->ResetComponent(cheevos); });
+			if (!AppWindow::post(mWindow, [cheevos]() { WatchersManager::getInstance()->ResetComponent(cheevos); }))
+				droppedAfterClosing();
 		}
 		return;
 	}
@@ -262,12 +380,24 @@ void NetworkThread::OnWatcherChanged(IWatcher* component)
 	if (component == &mCheckCheevosTokenComponent)
 	{
 		auto token = mCheckCheevosTokenComponent.getLastToken();
+		auto account = mCheckCheevosTokenComponent.getLastAccount();
 
-		mWindow->postToUiThread([token]() 
-			{ 
+		// Saved only while achievements are on and the account is the one the
+		// token was issued for: the page may have turned the switch off,
+		// clearing the token, or changed the account since the check (#1288).
+		if (!AppWindow::post(mWindow, [token, account]()
+			{
+				if (!SystemConf::getInstance()->getBool("global.retroachievements") ||
+					SystemConf::getInstance()->get("global.retroachievements.username") != account)
+				{
+					LOG(LogInfo) << "[CheckCheevosTokenComponent] The account or the switch changed before the token was saved, so it was dropped.";
+					return;
+				}
+
 				SystemConf::getInstance()->set("global.retroachievements.token", token);
 				SystemConf::getInstance()->saveSystemConf();
-			});
+			}))
+			droppedAfterClosing();
 
 		return;
 	}
