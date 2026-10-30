@@ -16,6 +16,7 @@
 #include "Window.h"
 #include "LocaleES.h"
 #include "components/MultiLineMenuEntry.h"
+#include <atomic>
 #include <thread>
 
 ScraperSearchComponent::ScraperSearchComponent(Window* window) : GuiComponent(window),
@@ -194,23 +195,37 @@ void ScraperSearchComponent::updateViewStyle()
 
 /// This class is used to call Scraper->search() in a thread. 
 /// This avoids freezes while building requests, as they can have some blocking code ( build rom md5, ask server for a token... )
+///
+/// The builder owns its thread and joins it when it goes (#1273): the page's
+/// stop() and destructor drop the builder while search() may still run, and
+/// a thread left running wrote its answer into the freed builder. So they
+/// wait for search() -- the ROM's hash and a token request, bounded by the
+/// request's 10 s connect and no stall bound on this branch. The search reads
+/// a copy of its params: an engine's params go before its searchHandle when
+/// the page deletes it.
 class ScraperAsyncRequestsBuilder : public ScraperSearchHandle
 {
 public:
 	ScraperAsyncRequestsBuilder(Scraper* scraper, ScraperSearch* ss)
 	{
 		mScraper = scraper;		
-		mSearch = ss;
+		mParams = ss->params;
 
 		mFinished = false;
-		mThread = new std::thread(&ScraperAsyncRequestsBuilder::loadSearchHandleAsync, this);
+		mThread = std::thread(&ScraperAsyncRequestsBuilder::loadSearchHandleAsync, this);
+	}
+
+	~ScraperAsyncRequestsBuilder()
+	{
+		if (mThread.joinable())
+			mThread.join();
 	}
 	
 	void loadSearchHandleAsync()
 	{
 		try
 		{
-			mSearchHandle = mScraper->search(mSearch->params);
+			mSearchHandle = mScraper->search(mParams);
 		}
 		catch (std::exception& e)
 		{ 
@@ -227,11 +242,8 @@ public:
 
 		mFinished = false;
 
-		if (mThread && mThread->joinable())
-		{
-			mThread->join();
-			mThread = nullptr;
-		}
+		if (mThread.joinable())
+			mThread.join();
 
 		if (mSearchHandle == nullptr)
 			setError(mError);
@@ -248,12 +260,12 @@ public:
 	}
 
 private:
-	Scraper*		mScraper;
-	ScraperSearch*	mSearch;
-	std::thread*	mThread;
+	Scraper*			mScraper;
+	ScraperSearchParams	mParams;
+	std::thread			mThread;
 
-	std::string		mError;
-	bool			mFinished;
+	std::string			mError;
+	std::atomic<bool>	mFinished;
 
 	std::unique_ptr<ScraperSearchHandle> mSearchHandle;
 };
@@ -649,13 +661,14 @@ void ScraperSearchComponent::update(int deltaTime)
 				if (newHandle != nullptr)
 					engine->searchHandle = std::unique_ptr<ScraperSearchHandle>(newHandle);
 				else 
-					engine->searchHandle = Scraper::getScraper(engine->name)->search(engine->params);
+					engine->searchHandle = std::make_unique<ScraperAsyncRequestsBuilder>(Scraper::getScraper(engine->name), engine);
 			}
 			else
 			{
-				// ScreenScraper in UI mode -> jeuInfo has no result, try with jeuRecherche
+				// ScreenScraper in UI mode -> jeuInfo has no result, try with jeuRecherche,
+				// on a builder's thread as the first search was, not the interface's (#1273)
 				engine->params.nameOverride = engine->params.game->getName();
-				engine->searchHandle = Scraper::getScraper(engine->name)->search(engine->params);
+				engine->searchHandle = std::make_unique<ScraperAsyncRequestsBuilder>(Scraper::getScraper(engine->name), engine);
 			}
 		}
 		else

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <thread>
 #include "components/AsyncNotificationComponent.h"
 
@@ -7,7 +8,7 @@ class ThreadedBluetooth
 {
 public:
 	static void start(Window* window);
-	static bool isRunning() { return mInstance != nullptr; }
+	static bool isRunning();
 
 private:
 	void run();
@@ -21,13 +22,14 @@ private:
 
 	std::thread*				mHandle;
 	static ThreadedBluetooth*	mInstance;
+	static std::mutex			mLock;   // over mInstance (#1290)
 };
 
 class ThreadedFormatter
 {
 public:
 	static void start(Window* window, const std::string disk, const std::string fileSystem);
-	static bool isRunning() { return mInstance != nullptr; }
+	static bool isRunning();
 
 private:
 	std::string mDisk;
@@ -44,4 +46,5 @@ private:
 
 	std::thread*				mHandle;
 	static ThreadedFormatter*	mInstance;
+	static std::mutex			mLock;   // over mInstance (#1290)
 };
