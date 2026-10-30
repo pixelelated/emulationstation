@@ -8,6 +8,7 @@
 #include "Log.h"
 #include "SaveStateConfigFile.h"
 #include "SystemData.h"
+#include "utils/AtomicFileUtil.h"
 #include "utils/FileSystemUtil.h"
 
 #include <map>
@@ -86,7 +87,25 @@ namespace CaptureRotation
 	// that arrived any other way was not seen until a restart (audit #258
 	// PL-019). The stat is one syscall a lookup; a screenshot list of a few
 	// hundred is a few hundred stats, once per rebuild of its tiles.
-	struct Known { int turns; time_t mtime; };
+	//
+	// The mtime alone missed a record replaced within the same second, or
+	// with its mtime kept -- a restore through rclone writes a temporary and
+	// renames it, with the source's modtime (#1289). So a record is known by
+	// its mtime to the nanosecond, its size and its inode; a temporary
+	// renamed over it is a new inode whatever its time and size.
+	struct RecordStamp
+	{
+		time_t mtime = 0;
+		long   mtimeNsec = 0;
+		off_t  size = 0;
+		ino_t  inode = 0;
+
+		bool operator==(const RecordStamp& other) const
+		{
+			return mtime == other.mtime && mtimeNsec == other.mtimeNsec && size == other.size && inode == other.inode;
+		}
+	};
+	struct Known { int turns; RecordStamp stamp; };
 	std::map<std::string, Known> sKnownAt;
 
 	static time_t recordMtime(const std::string& path)
@@ -95,22 +114,37 @@ namespace CaptureRotation
 		return ::stat(path.c_str(), &st) == 0 ? st.st_mtime : 0;
 	}
 
+	// All zero when there is no record.
+	static RecordStamp recordStamp(const std::string& path)
+	{
+		RecordStamp stamp;
+		struct stat st;
+		if (::stat(path.c_str(), &st) == 0)
+		{
+			stamp.mtime = st.st_mtim.tv_sec;
+			stamp.mtimeNsec = st.st_mtim.tv_nsec;
+			stamp.size = st.st_size;
+			stamp.inode = st.st_ino;
+		}
+		return stamp;
+	}
+
 	int read(FileData* game)
 	{
 		const std::string path = recordPath(game);
 		if (path.empty())
 			return 0;
-		const time_t mtime = recordMtime(path);
+		const RecordStamp stamp = recordStamp(path);
 		{
 			std::unique_lock<std::mutex> lock(sLock);
 			auto it = sKnownAt.find(path);
-			if (it != sKnownAt.cend() && it->second.mtime == mtime)
+			if (it != sKnownAt.cend() && it->second.stamp == stamp)
 				return it->second.turns;
 		}
 		// Uncached exists: the record is written while the interface runs.
 		int turns = 0;
 		std::string record;
-		if (mtime != 0 && Utils::FileSystem::exists(path, false))
+		if (stamp.mtime != 0 && Utils::FileSystem::exists(path, false))
 			record = Utils::FileSystem::readAllText(path);
 		// A record that does not say its turn came from the game's own
 		// launch was written by the reader that took the last rotation line
@@ -126,7 +160,7 @@ namespace CaptureRotation
 		else
 			turns = fromTable(game);
 		std::unique_lock<std::mutex> lock(sLock);
-		sKnownAt[path] = Known{ turns, mtime };
+		sKnownAt[path] = Known{ turns, stamp };
 		return turns;
 	}
 
@@ -171,13 +205,21 @@ namespace CaptureRotation
 		if (!CaptureRotationText::shouldRecord(log, record, turns, fromTable(game)))
 			return;
 
+		// Temp-and-rename, and checked: a write cut short leaves the record
+		// before it whole (#1285), and a write that failed leaves the turns
+		// read before it, not the ones that never reached the disk (#1289).
 		Utils::FileSystem::createDirectory(Utils::FileSystem::getParent(path));
-		Utils::FileSystem::writeAllText(path, CaptureRotationText::recordText(turns));
+		if (!Utils::AtomicFile::writeText(path, CaptureRotationText::recordText(turns)))
+		{
+			LOG(LogWarning) << "CaptureRotation: " << game->getName() << " -- the record could not be written; the turns read before it stand";
+			return;
+		}
+		Utils::FileSystem::FileSystemCache::reset(path);
 		LOG(LogInfo) << "CaptureRotation: " << game->getName() << " turns " << turns << " (core " << coreTurns << ") -> " << path;
 
 		{
 			std::unique_lock<std::mutex> lock(sLock);
-			sKnownAt[path] = Known{ turns, recordMtime(path) };
+			sKnownAt[path] = Known{ turns, recordStamp(path) };
 		}
 		// The screenshots of this game were resolved to a Transform before
 		// the session; that cache is keyed by screenshot path and knows

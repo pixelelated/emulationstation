@@ -2,6 +2,7 @@
 
 #include "AppWindow.h"
 #include "ApiSystem.h"
+#include "CloudText.h"
 #include "Window.h"
 #include "guis/GuiLoading.h"
 #include "guis/GuiMenu.h"
@@ -11,6 +12,42 @@
 
 namespace CloudOffer
 {
+
+// What the box says once the seed has run (#1284), from its exit status and
+// its lines. cloud_setup --seed-folders saves prints ">>> why <SENTENCE>" on
+// every failure and "OK <folder>" for the folder it then finds in the cloud --
+// the saves folder, the one it was asked for -- so DONE needs rc 0, that line,
+// and no why: a run whose output says otherwise did not create the folder,
+// whatever its status (fail closed). A why is said in the interface's
+// language; 124 is timeout's, the cloud that stopped answering; with neither,
+// the sentence that names the connection.
+static std::string outcomeFor(int rc, const std::vector<std::string>& lines)
+{
+	bool found = false;
+	std::string why;
+	for (const std::string& raw : lines)
+	{
+		const std::string clean = CloudText::cleanLine(raw);
+		const CloudText::ProtocolLine protocol = CloudText::classifyProtocolLine(clean);
+		if (protocol.kind == CloudText::ProtocolKind::Why)
+			why = protocol.text;
+		else if (protocol.kind == CloudText::ProtocolKind::NotProtocol && clean.size() > 3 && clean.rfind("OK ", 0) == 0)
+			found = true;
+	}
+
+	if (rc == 0 && found && why.empty())
+		return _("DONE. YOUR SAVES WILL GO THERE THE NEXT TIME YOU BACK THEM UP.");
+
+	if (why.empty() && rc == 124)
+		why = "YOUR CLOUD STOPPED ANSWERING";
+	if (why.empty())
+		return _("COULDN'T CREATE IT. CHECK YOUR CONNECTION AND TRY AGAIN FROM MANAGE CLOUD STORAGE.");
+
+	// The lock's why is the one the seed prints that CloudText's table does
+	// not carry.
+	const std::string said = why == "ANOTHER CLOUD SYNC IS RUNNING" ? _("ANOTHER CLOUD SYNC IS RUNNING") : CloudText::localizedWhy(why);
+	return Utils::String::format(_("COULDN'T CREATE IT. %s. TRY AGAIN FROM MANAGE CLOUD STORAGE.").c_str(), said.c_str());
+}
 
 // The cloud answered, and there is no saves folder in it: not a failure,
 // but it leaves the player with nothing restored and no obvious way
@@ -31,18 +68,17 @@ static void createSavesFolder(Window* window, const std::vector<std::string>& ar
 
 	auto create = [window]
 	{
-		window->pushGui(new GuiLoading<int>(window, _("SETTING UP YOUR CLOUD FOLDERS"),
+		window->pushGui(new GuiLoading<std::pair<int, std::vector<std::string>>>(window, _("SETTING UP YOUR CLOUD FOLDERS"),
 			[](auto gui)
 			{
-				return ApiSystem::executeScriptLegacy("timeout 90 /usr/bin/cloud_setup --seed-folders saves",
-					[](const std::string) {}).second;
+				std::vector<std::string> lines;
+				const int rc = ApiSystem::executeScriptLegacy("timeout 90 /usr/bin/cloud_setup --seed-folders saves",
+					[&lines](const std::string line) { lines.push_back(line); }).second;
+				return std::make_pair(rc, lines);
 			},
-			[window](int rc)
+			[window](std::pair<int, std::vector<std::string>> run)
 			{
-				window->pushGui(new GuiMsgBox(window, rc == 0
-					? _("DONE. YOUR SAVES WILL GO THERE THE NEXT TIME YOU BACK THEM UP.")
-					: _("COULDN'T CREATE IT. CHECK YOUR CONNECTION AND TRY AGAIN FROM MANAGE CLOUD STORAGE."),
-					_("OK")));
+				window->pushGui(new GuiMsgBox(window, outcomeFor(run.first, run.second), _("OK")));
 			}));
 	};
 

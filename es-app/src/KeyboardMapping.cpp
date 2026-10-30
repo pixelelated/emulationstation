@@ -1,4 +1,5 @@
 #include "KeyboardMapping.h"
+#include "utils/AtomicFileUtil.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
 #include "Log.h"
@@ -471,13 +472,16 @@ void KeyMappingFile::save(const std::string& fileName)
 	if (!Utils::FileSystem::isDirectory(Utils::FileSystem::getParent(path)))
 		Utils::FileSystem::createDirectory(Utils::FileSystem::getParent(path));
 
-	if (fileName.empty())
-	{
-		if (!path.empty())
-			Utils::FileSystem::writeAllText(path, data);
-	}
+	// Temp-and-rename: a save cut short leaves the map before it whole, where
+	// a cut .keys read as an empty map (#1285).
+	const std::string target = fileName.empty() ? path : fileName;
+	if (target.empty())
+		return;
+
+	if (Utils::AtomicFile::writeText(target, data))
+		Utils::FileSystem::FileSystemCache::reset(target);
 	else
-		Utils::FileSystem::writeAllText(fileName, data);
+		LOG(LogError) << "KeyMappingFile: " << target << " could not be written; the map before it is unchanged";
 }
 
 KeyMappingFile KeyMappingFile::fromP2k(const std::string& fileName)

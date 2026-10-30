@@ -38,9 +38,15 @@ namespace RunLock
 		return !free;
 	}
 
-	// The pid holding `lockPath`, when its command line names `program`;
-	// 0 when nobody holds the lock, the file names no pid, or the pid is
-	// some other process.
+	// The pid holding `lockPath`, when it is running `program`; 0 when
+	// nobody holds the lock, the file names no pid, or the pid is some other
+	// process.
+	//
+	// The program is the command line's first field by its base name, or --
+	// for a script run by its interpreter, as a "#!/bin/bash" script runs as
+	// "/bin/bash /usr/bin/<script> ..." -- the field after sh or bash. A
+	// process whose later arguments merely name the program, a tail of its
+	// log or a grep, is not it (#1280).
 	inline long holder(const std::string& lockPath, const std::string& program)
 	{
 		const int fd = ::open(lockPath.c_str(), O_RDONLY | O_CLOEXEC);
@@ -65,9 +71,23 @@ namespace RunLock
 			return 0;
 		std::ifstream cmd("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
 		const std::string line((std::istreambuf_iterator<char>(cmd)), std::istreambuf_iterator<char>());
-		if (line.find(program) == std::string::npos)
-			return 0;
-		return pid;
+		auto baseName = [](const std::string& field)
+		{
+			const size_t slash = field.rfind('/');
+			return slash == std::string::npos ? field : field.substr(slash + 1);
+		};
+		const size_t end0 = line.find('\0');
+		const std::string first = baseName(line.substr(0, end0));
+		if (first == program)
+			return pid;
+		if ((first == "sh" || first == "bash") && end0 != std::string::npos)
+		{
+			const size_t end1 = line.find('\0', end0 + 1);
+			const std::string second = line.substr(end0 + 1, end1 == std::string::npos ? std::string::npos : end1 - end0 - 1);
+			if (baseName(second) == program)
+				return pid;
+		}
+		return 0;
 	}
 }
 

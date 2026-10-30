@@ -27,6 +27,7 @@
 //
 // Translation stays outside on purpose: no _() here.
 
+#include <cstdint>
 #include <ctime>
 #include <string>
 #include <vector>
@@ -46,9 +47,10 @@ namespace OfflineAchievementsText
 	// URL: /Badge/<name>.png, or the _lock variant.
 	std::string badgeUrl(const std::string& badgeName, bool unlocked);
 
+	// Ids are 64-bit, as the server's are (#1281).
 	struct Achievement
 	{
-		int id = 0;
+		int64_t id = 0;
 		std::string title;
 		std::string description;
 		int points = 0;
@@ -60,7 +62,7 @@ namespace OfflineAchievementsText
 	struct Game
 	{
 		bool ok = false;             // a body of the right shape with a positive game id
-		int id = 0;
+		int64_t id = 0;
 		std::string title;
 		std::string imageUrl;        // the game's icon, as the proxy rewrote it
 		std::vector<Achievement> achievements;
@@ -87,11 +89,12 @@ namespace OfflineAchievementsText
 	// answer 200 with none, so emptiness never decides whether a game is
 	// cached. Any other body is not ok, and the caller must not read it as
 	// "nothing unlocked" (audit #186 PL-26): validity travels apart from
-	// emptiness.
+	// emptiness. A list with entries and no positive id among them is not
+	// that shape either (#1286).
 	struct Unlocks
 	{
 		bool ok = false;
-		std::vector<int> ids;
+		std::vector<int64_t> ids;
 	};
 	Unlocks parseUnlocks(const std::string& body);
 
@@ -107,7 +110,7 @@ namespace OfflineAchievementsText
 	// earned. Lines of any other shape are dropped.
 	struct PendingAward
 	{
-		int id = 0;
+		int64_t id = 0;
 		time_t when = 0;
 	};
 	std::vector<PendingAward> parsePendingIds(const std::string& text);
@@ -120,7 +123,7 @@ namespace OfflineAchievementsText
 	struct StoreGame
 	{
 		bool ok = false;
-		int id = 0;
+		int64_t id = 0;
 		std::string title;
 		std::string icon;
 		int achievements = 0;

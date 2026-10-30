@@ -3,21 +3,22 @@
 
 #include "utils/StringUtil.h"
 #include <rapidjson/document.h>
+#include <cerrno>
 #include <cstdlib>
 
 namespace
 {
-	int jsonInt(const rapidjson::Value& val, const char* name)
+	// 64-bit: the server's ids are, and one cut to an int names another
+	// game or another achievement (#1281). The counts read through it fit.
+	int64_t jsonInt(const rapidjson::Value& val, const char* name)
 	{
 		if (!val.IsObject() || !val.HasMember(name))
 			return 0;
 		const rapidjson::Value& v = val[name];
-		if (v.IsInt())
-			return v.GetInt();
 		if (v.IsInt64())
-			return (int)v.GetInt64();
+			return v.GetInt64();
 		if (v.IsString())
-			return Utils::String::toInteger(v.GetString());
+			return std::strtoll(v.GetString(), nullptr, 10);
 		return 0;
 	}
 
@@ -182,20 +183,24 @@ OfflineAchievementsText::Unlocks OfflineAchievementsText::parseUnlocks(const std
 	rapidjson::Document doc;
 	if (!parseDocument(body, doc) || !doc.HasMember("UserUnlocks") || !doc["UserUnlocks"].IsArray())
 		return unlocks;
-	// Success false with a list would be the proxy contradicting itself;
-	// not the shape either.
-	if (doc.HasMember("Success") && doc["Success"].IsBool() && !doc["Success"].GetBool())
+	// Success true is the shape, as the header says: a body without it, or
+	// with anything but true, is not known progress (#1286).
+	if (!doc.HasMember("Success") || !doc["Success"].IsBool() || !doc["Success"].GetBool())
 		return unlocks;
 	for (const auto& v : doc["UserUnlocks"].GetArray())
 	{
-		int id = 0;
-		if (v.IsInt())
-			id = v.GetInt();
+		int64_t id = 0;
+		if (v.IsInt64())
+			id = v.GetInt64();
 		else if (v.IsString())
-			id = Utils::String::toInteger(v.GetString());
+			id = std::strtoll(v.GetString(), nullptr, 10);
 		if (id > 0)
 			unlocks.ids.push_back(id);
 	}
+	// A list with entries and not one id among them is not the shape
+	// either; an empty list is (#1286).
+	if (!doc["UserUnlocks"].Empty() && unlocks.ids.empty())
+		return unlocks;
 	unlocks.ok = true;
 	return unlocks;
 }
@@ -227,7 +232,11 @@ std::vector<OfflineAchievementsText::PendingAward> OfflineAchievementsText::pars
 		if (fields.size() != 2 || !wholeNumber(fields[0]) || !wholeNumber(fields[1]))
 			continue;
 		PendingAward award;
-		award.id = Utils::String::toInteger(fields[0]);
+		// Out of range is dropped, as a field that is not a number is (#1281).
+		errno = 0;
+		award.id = std::strtoll(fields[0].c_str(), nullptr, 10);
+		if (errno == ERANGE)
+			continue;
 		award.when = (time_t)strtoll(fields[1].c_str(), nullptr, 10);
 		if (award.id <= 0)
 			continue;

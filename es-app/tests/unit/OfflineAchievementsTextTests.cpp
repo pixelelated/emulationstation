@@ -134,6 +134,29 @@ TEST_CASE("parseAchievementSets falls back to the first set, and refuses the res
 	CHECK_FALSE(parsePatch(SETS).ok);
 }
 
+TEST_CASE("ids above 2^31 are read whole, not cut to an int (#1281)")
+{
+	// The server's ids are 64-bit integers in the JSON; one cut to 32 bits
+	// names another game or another achievement.
+	const Game patch = parsePatch(R"({"Success":true,"PatchData":{"ID":4294967297,"Title":"T","Achievements":[{"ID":4294967298,"Title":"a","Points":5,"Flags":3}]}})");
+	REQUIRE(patch.ok);
+	CHECK(patch.id == 4294967297LL);
+	REQUIRE(patch.achievements.size() == 1);
+	CHECK(patch.achievements[0].id == 4294967298LL);
+
+	const Game sets = parseAchievementSets(R"({"Success":true,"GameId":4294967297,"Title":"T","Sets":[{"Type":"core","Achievements":[{"ID":4294967298,"Title":"a","Points":5}]}]})");
+	REQUIRE(sets.ok);
+	CHECK(sets.id == 4294967297LL);
+	REQUIRE(sets.achievements.size() == 1);
+	CHECK(sets.achievements[0].id == 4294967298LL);
+
+	const Unlocks unlocks = parseUnlocks(R"({"Success":true,"UserUnlocks":[4294967298,"4294967299"]})");
+	REQUIRE(unlocks.ok);
+	REQUIRE(unlocks.ids.size() == 2);
+	CHECK(unlocks.ids[0] == 4294967298LL);
+	CHECK(unlocks.ids[1] == 4294967299LL);
+}
+
 // ----------------------------------------------------------------- unlocks
 
 TEST_CASE("parseUnlocks reads the merged ids and nothing else")
@@ -185,6 +208,25 @@ TEST_CASE("parseUnlocks on what is not the unlocks shape: not ok, never an empty
 	}
 }
 
+TEST_CASE("parseUnlocks needs Success true, and a list with no valid id is not progress (#1286)")
+{
+	// The contract above, in the header's words: Success true and
+	// UserUnlocks a list. Each of these was read as known progress with
+	// nothing unlocked, which locks every badge on the page.
+	for (const char* body : {
+		R"({"UserUnlocks":[100359]})",
+		R"({"Success":"true","UserUnlocks":[100359]})",
+		R"({"Success":1,"UserUnlocks":[100359]})",
+		R"({"Success":null,"UserUnlocks":[100359]})",
+		R"({"Success":true,"UserUnlocks":[0,-1,"x"]})" })
+	{
+		INFO(body);
+		const Unlocks u = parseUnlocks(body);
+		CHECK_FALSE(u.ok);
+		CHECK(u.ids.empty());
+	}
+}
+
 // ------------------------------------------------------------------- error
 
 TEST_CASE("parseError and isNotCached tell the miss from the rest")
@@ -228,6 +270,17 @@ TEST_CASE("parsePendingIds reads the ctl's lines and drops the rest")
 	const auto mixed = parsePendingIds("junk\r\n  100359 1789336962  \r\nraofflineproxy-ctl: x\n");
 	REQUIRE(mixed.size() == 1);
 	CHECK(mixed[0].id == 100359);
+}
+
+TEST_CASE("parsePendingIds reads an id above 2^31 whole, and drops one past 64 bits (#1281)")
+{
+	const auto awards = parsePendingIds("4294967297 1700000000\n");
+	REQUIRE(awards.size() == 1);
+	CHECK(awards[0].id == 4294967297LL);
+	CHECK(awards[0].when == 1700000000);
+
+	// Out of range is dropped, as a line that is not a number is.
+	CHECK(parsePendingIds("99999999999999999999 1700000000\n").empty());
 }
 
 // ----------------------------------------------------------- online state

@@ -10,7 +10,9 @@
 #include <csignal>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <string>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -72,6 +74,83 @@ TEST_CASE("run lock: the holder is found while it holds the lock")
 	stop(child);
 	CHECK(RunLock::holder(path, "sleep") == 0);   // released with the process
 	std::remove(path.c_str());
+}
+
+namespace
+{
+	// A process in a group of its own, so stopping it stops what it started.
+	pid_t holdLockAs(const std::string& path, const std::function<void()>& exec)
+	{
+		const pid_t child = fork();
+		if (child == 0)
+		{
+			setpgid(0, 0);
+			exec();
+			_exit(127);
+		}
+		for (int i = 0; i < 200; i++)
+		{
+			std::ifstream in(path);
+			std::string line;
+			if (std::getline(in, line) && std::atol(line.c_str()) == child)
+				break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		return child;
+	}
+
+	void stopGroup(pid_t p) { kill(-p, SIGKILL); waitpid(p, nullptr, 0); }
+
+	std::string firstField(pid_t p)
+	{
+		std::ifstream cmd("/proc/" + std::to_string(p) + "/cmdline", std::ios::binary);
+		std::string field;
+		std::getline(cmd, field, '\0');
+		return field;
+	}
+}
+
+TEST_CASE("run lock: a holder whose arguments only mention the program is not it (#1280)")
+{
+	// The lock held by a process whose argv[0] is tail and whose arguments
+	// name the program -- a tail of its log, a grep: the pid a killed run
+	// left may by now be one of these.
+	const std::string path = tempLock();
+	const pid_t child = holdLockAs(path, [&path]
+	{
+		execl("/bin/sh", "tail", "-c", "exec 9<>\"$1\"; flock 9; printf '%s\\n' $$ >&9; sleep 30; :",
+			"raofflineproxy-ctl", path.c_str(), (char*) nullptr);
+	});
+	REQUIRE(firstField(child) == "tail");
+	CHECK(RunLock::holder(path, "raofflineproxy-ctl") == 0);
+	stopGroup(child);
+	std::remove(path.c_str());
+}
+
+TEST_CASE("run lock: a script run by its interpreter is found by the script's name (#1280)")
+{
+	// raofflineproxy-ctl is a #!/bin/bash script: the kernel runs it as
+	// "/bin/bash /usr/bin/raofflineproxy-ctl ...", so the first field of its
+	// command line is the interpreter, and argv[0] alone never names it.
+	char dir[] = "/tmp/runlock-test-XXXXXX";
+	REQUIRE(mkdtemp(dir) != nullptr);
+	const std::string script = std::string(dir) + "/raofflineproxy-ctl";
+	{
+		std::ofstream out(script);
+		out << "#!/bin/sh\nexec 9<>\"$1\"; flock 9; printf '%s\\n' $$ >&9; sleep 30; :\n";
+	}
+	chmod(script.c_str(), 0755);
+	const std::string path = tempLock();
+	const pid_t child = holdLockAs(path, [&script, &path]
+	{
+		execl(script.c_str(), script.c_str(), path.c_str(), (char*) nullptr);
+	});
+	REQUIRE(firstField(child) == "/bin/sh");
+	CHECK(RunLock::holder(path, "raofflineproxy-ctl") == child);
+	stopGroup(child);
+	std::remove(path.c_str());
+	std::remove(script.c_str());
+	rmdir(dir);
 }
 
 TEST_CASE("run lock: no file, an empty file, and no number are no run")
