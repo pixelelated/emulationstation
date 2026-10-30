@@ -473,6 +473,15 @@ void updateGamelist(SystemData* system)
 		auto xmf = xmlMap.find(Utils::FileSystem::getCanonicalPath(file->getPath()));
 		if (xmf != xmlMap.cend())
 		{
+			// #1271 (D-CLOUD-187): a node the file already holds takes the
+			// fields this session changed; what the file has that the session
+			// never saw -- a restored description, its art -- stays.
+			if (file->getMetadata().overlayXML(xmf->second, true, system->getStartPath()))
+			{
+				++numUpdated;
+				continue;
+			}
+
 			removed = true;
 			root.remove_child(xmf->second);
 		}

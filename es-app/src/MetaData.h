@@ -2,6 +2,7 @@
 #ifndef ES_APP_META_DATA_H
 #define ES_APP_META_DATA_H
 
+#include <bitset>
 #include <map>
 #include <vector>
 #include <functional>
@@ -141,6 +142,10 @@ public:
 
 	void loadFromXML(MetaDataListType type, pugi::xml_node& node, SystemData* system);
 	void appendToXML(pugi::xml_node& parent, bool ignoreDefaults, const std::string& relativeTo, bool fullPaths = false) const;
+	// #1271 (D-CLOUD-187): write only the fields this session changed into a
+	// node the file already holds, by appendToXML's rules; false when the
+	// node is to be rebuilt whole (setDirty).
+	bool overlayXML(pugi::xml_node& node, bool ignoreDefaults, const std::string& relativeTo, bool fullPaths = false) const;
 
 	void migrate(FileData* file, pugi::xml_node& node);
 
@@ -166,6 +171,7 @@ public:
 	const void setDirty() 
 	{ 
 		mWasChanged = true; 
+		mWholeNode = true; // #1271: the node is rebuilt whole, as before
 	}
 
 	inline MetaDataListType getType() const { return mType; }
@@ -182,12 +188,17 @@ public:
 	Utils::Time::DateTime* getScrapeDate(const std::string& scraper);
 
 private:
+	void appendScrapeDates(pugi::xml_node& parent) const;
+
 	std::map<int, Utils::Time::DateTime> mScrapeDates;
 
 	std::string		mName;
 	MetaDataListType mType;
 //	std::map<MetaDataId, std::string> mMap;
 	bool mWasChanged;
+	std::bitset<MetaDataIdCount> mChangedFields; // #1271: which fields this session changed
+	bool mScrapeDatesChanged;
+	bool mWholeNode;
 	SystemData*		mRelativeTo;
 	
 	int8_t mIndices[MetaDataIdCount];

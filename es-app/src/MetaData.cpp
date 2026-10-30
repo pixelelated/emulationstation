@@ -143,7 +143,7 @@ MetaDataId MetaDataList::getId(const std::string& key) const
 	return mGameIdMap[key];
 }
 
-MetaDataList::MetaDataList(MetaDataListType type) : mType(type), mWasChanged(false), mRelativeTo(nullptr)
+MetaDataList::MetaDataList(MetaDataListType type) : mType(type), mWasChanged(false), mScrapeDatesChanged(false), mWholeNode(false), mRelativeTo(nullptr)
 {
 	memset(mIndices, -1, sizeof(mIndices));
 }
@@ -329,6 +329,11 @@ void MetaDataList::appendToXML(pugi::xml_node& parent, bool ignoreDefaults, cons
 			parent.append_attribute(std::get<0>(element).c_str()).set_value(std::get<1>(element).c_str());
 	}
 
+	appendScrapeDates(parent);
+}
+
+void MetaDataList::appendScrapeDates(pugi::xml_node& parent) const
+{
 	if (mScrapeDates.size() > 0)
 	{
 		for (auto scrapeDate : mScrapeDates)
@@ -354,6 +359,61 @@ void MetaDataList::appendToXML(pugi::xml_node& parent, bool ignoreDefaults, cons
 	}
 }
 
+// #1271 (D-CLOUD-187): a game list the cloud restored while EmulationStation
+// runs is merged at the next save, never overwritten. Each field this session
+// changed replaces that field in the node the file holds -- the child or the
+// attribute of its key, by appendToXML's rules -- and every other field, the
+// path and the unknown elements stay as the file has them.
+bool MetaDataList::overlayXML(pugi::xml_node& node, bool ignoreDefaults, const std::string& relativeTo, bool fullPaths) const
+{
+	if (mWholeNode)
+		return false;
+
+	for (auto mdd : getMDD())
+	{
+		if (!mChangedFields.test(mdd.id) || mdd.id == MetaDataId::GenreIds)
+			continue;
+
+		if (mdd.id == MetaDataId::Name)
+		{
+			pugi::xml_node name = node.child("name");
+			if (!name)
+				name = node.append_child("name");
+			name.text().set(mName.c_str());
+			continue;
+		}
+
+		while (node.remove_child(mdd.key.c_str()));
+		node.remove_attribute(mdd.key.c_str());
+
+		auto idx = mIndices[mdd.id];
+		if (idx < 0 || (ignoreDefaults && mValues[idx] == mdd.defaultValue))
+			continue;
+
+		std::string value = mValues[idx];
+		if (mdd.type == MD_PATH)
+		{
+			if (fullPaths && mRelativeTo != nullptr)
+				value = Utils::FileSystem::resolveRelativePath(value, mRelativeTo->getStartPath(), true);
+			else
+				value = Utils::FileSystem::createRelativePath(value, relativeTo, true);
+		}
+
+		if (mdd.isAttribute)
+			node.append_attribute(mdd.key.c_str()).set_value(value.c_str());
+		else
+			node.append_child(mdd.key.c_str()).text().set(value.c_str());
+	}
+
+	if (mScrapeDatesChanged)
+	{
+		while (node.remove_child("scrap"));
+		appendScrapeDates(node);
+	}
+
+	return true;
+}
+
 void MetaDataList::set(MetaDataId id, const std::string& value)
 {
 	if (id == MetaDataId::Name)
@@ -363,6 +423,7 @@ void MetaDataList::set(MetaDataId id, const std::string& value)
 
 		mName = value;
 		mWasChanged = true;
+		mChangedFields.set(MetaDataId::Name);
 		return;
 	}
 
@@ -402,6 +463,7 @@ void MetaDataList::set(MetaDataId id, const std::string& value)
 	}
 
 	mWasChanged = true;
+	mChangedFields.set(id);
 }
 
 const std::string MetaDataList::get(MetaDataId id, bool resolveRelativePaths) const
@@ -464,6 +526,9 @@ bool MetaDataList::wasChanged() const
 void MetaDataList::resetChangedFlag()
 {
 	mWasChanged = false;
+	mChangedFields.reset();
+	mScrapeDatesChanged = false;
+	mWholeNode = false;
 }
 
 void MetaDataList::importScrappedMetadata(const MetaDataList& source)
@@ -588,6 +653,7 @@ void MetaDataList::setScrapeDate(const std::string& scraper)
 
 	mScrapeDates[it->second] = Utils::Time::DateTime::now();
 	mWasChanged = true;
+	mScrapeDatesChanged = true;
 }
 
 Utils::Time::DateTime* MetaDataList::getScrapeDate(const std::string& scraper)
