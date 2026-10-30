@@ -3573,6 +3573,15 @@ msgstr ""
 "Un compte valide est nécessaire. Veuillez créer un compte sur https://"
 "retroachievements.org"
 
+msgid "IN PROGRESS"
+msgstr "EN COURS"
+
+msgid "DROPPED"
+msgstr "ABANDONNÉ"
+
+msgid "ON HOLD"
+msgstr "EN PAUSE"
+
 msgid "SLOW"
 msgstr "LENT"
 

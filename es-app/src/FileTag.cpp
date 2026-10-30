@@ -9,6 +9,12 @@
 #define fake_gettext_buggy _("BUGGY")
 #define fake_gettext_liked _("LIKED")
 #define fake_gettext_disliked _("DISLIKED")
+// The three upstream left out, so the catalog never carried them and a
+// player read them in English whatever the language (#1277). The stored
+// names below stay English.
+#define fake_gettext_inprogress _("IN PROGRESS")
+#define fake_gettext_dropped _("DROPPED")
+#define fake_gettext_onhold _("ON HOLD")
 
 static std::vector<FileTag> defaultTags = 
 { 
