@@ -33,6 +33,7 @@
 AsyncNotificationComponent::AsyncNotificationComponent(Window* window, bool actionLine)
 	: GuiComponent(window)
 {
+	mCloseRequested = false;
 	mRunning = true;
 	mFadeTime = 0;
 	mFadeOut = 0;
@@ -114,10 +115,11 @@ AsyncNotificationComponent::AsyncNotificationComponent(Window* window, bool acti
 	setOpacity(NOTIFICATION_OPACITY);
 }
 
+// #1309: one store, from whichever thread finished the work. mClosing and
+// mFadeTime are the interface thread's alone; update() reads the request.
 void AsyncNotificationComponent::close()
 {
-	mClosing = true;	
-	mFadeTime = -1;
+	mCloseRequested.store(true, std::memory_order_release);
 }
 
 AsyncNotificationComponent::~AsyncNotificationComponent()
@@ -261,6 +263,13 @@ void AsyncNotificationComponent::render(const Transform4x4f& parentTrans)
 void AsyncNotificationComponent::update(int deltaTime)
 {
 	GuiComponent::update(deltaTime);
+
+	// The first update to see the request starts the closing fade (#1309).
+	if (!mClosing && mCloseRequested.load(std::memory_order_acquire))
+	{
+		mClosing = true;
+		mFadeTime = -1;
+	}
 
 	// compute fade effects
 

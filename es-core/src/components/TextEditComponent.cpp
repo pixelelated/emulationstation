@@ -36,7 +36,7 @@ void TextEditComponent::onFocusGained()
 	mFocused = true;
 	mBox.setImagePath(ThemeData::getMenuTheme()->Icons.textinput_ninepatch_active);	
 
-	mWindow->postToUiThread([this]() { startEditing(); });
+	mWindow->postToUiThread([this, alive = std::weak_ptr<void>(mAlive)]() { if (alive.lock()) startEditing(); });
 }
 
 void TextEditComponent::onFocusLost()
@@ -44,7 +44,7 @@ void TextEditComponent::onFocusLost()
 	mFocused = false;
 	mBox.setImagePath(ThemeData::getMenuTheme()->Icons.textinput_ninepatch);
 	
-	mWindow->postToUiThread([this]() { stopEditing(); });
+	mWindow->postToUiThread([this, alive = std::weak_ptr<void>(mAlive)]() { if (alive.lock()) stopEditing(); });
 }
 
 void TextEditComponent::onSizeChanged()

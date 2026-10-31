@@ -52,6 +52,9 @@ private:
 
 	std::string mText;
 	bool mFocused;
+	// #1311: the focus handlers' posts hold this weakly and run nothing once
+	// the field is gone; made before the constructor's first onFocusLost().
+	std::shared_ptr<void> mAlive = std::make_shared<int>(0);
 	bool mEditing;
 	unsigned int mCursor; // cursor position in characters
 

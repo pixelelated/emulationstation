@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <memory>
 #include <mutex>
 #include "GuiComponent.h"
 #include <string>
@@ -10,7 +12,7 @@ class NinePatchComponent;
 class TextComponent;
 class Window;
 
-class AsyncNotificationComponent : public GuiComponent
+class AsyncNotificationComponent : public GuiComponent, public std::enable_shared_from_this<AsyncNotificationComponent>
 {
 	friend class Window;
 
@@ -45,6 +47,14 @@ public:
 	bool isRunning() { return mRunning; };
 	Vector2f getFullSize() { return mFullSize; };
 
+	// #1310: what a holder keeps instead of the pointer. lock() fails once
+	// the window has let the card go, so a late close() or updateText() from a
+	// worker reaches nothing; the window owns the card through a shared_ptr.
+	using Handle = std::weak_ptr<AsyncNotificationComponent>;
+	Handle handle() { return weak_from_this(); }
+
+	// Any thread may ask; the card turns the request into its closing fade on
+	// the interface thread, in update() (#1309).
 	void close();
 	
 private:
@@ -68,6 +78,7 @@ private:
 
 	int mPercent;
 
+	std::atomic<bool>   mCloseRequested;
 	bool                mRunning;
 	bool				mClosing;
 	float				mFadeOut;
