@@ -1091,6 +1091,13 @@ void Window::onWake()
 
 void Window::startScreenSaver()
 {
+	// The top page may hold the screensaver off while its job runs; the idle
+	// time keeps counting, so it starts at the first frame after the page
+	// lets go (#1305).
+	GuiComponent* top = peekGui();
+	if (top != nullptr && !top->allowScreenSaver())
+		return;
+
 	if (mScreenSaver && !mRenderScreenSaver)
 	{
 		for (auto extra : mScreenExtras)

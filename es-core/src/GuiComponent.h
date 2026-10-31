@@ -208,6 +208,9 @@ public:
 	virtual void	onHide();
 	virtual void	onScreenSaverActivate();
 	virtual void	onScreenSaverDeactivate();
+	// A page that owns the screen for a job holds the screensaver off while
+	// the job runs; every other page allows it, as upstream's do (#1305).
+	virtual bool	allowScreenSaver() { return true; }
 	virtual void	onMouseLeave();
 	virtual void	onMouseEnter();
 	virtual void	onPaddingChanged();
