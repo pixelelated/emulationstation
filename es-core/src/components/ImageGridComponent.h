@@ -527,6 +527,22 @@ void ImageGridComponent<T>::setImage(const std::string& imagePath, const T& obj)
 	if (entry != list->end() && (*entry).data.texturePath != imagePath)
 	{
 		(*entry).data.texturePath = imagePath;
+
+		// The old tile leaves the visible list with its image, as a tile
+		// scrolled out of range does; the next layout makes the new one
+		// (#1330). getSelectedTile() searches the lists, so no other pointer
+		// to it is held.
+		auto old = (*entry).data.tile;
+		if (old != nullptr)
+		{
+			if (old->isVisible())
+				old->setVisible(false);
+
+			auto it = std::find(mVisibleTiles.cbegin(), mVisibleTiles.cend(), old);
+			if (it != mVisibleTiles.cend())
+				mVisibleTiles.erase(it);
+		}
+
 		(*entry).data.tile = nullptr;
 
 		mEntriesDirty = true;
@@ -1148,7 +1164,7 @@ void ImageGridComponent<T>::onCursorChanged(const CursorState& state)
 					if (tile->hasItemTemplate())
 						tile->setSelected(false);
 		}
-		else if (mLastCursor = -9999)
+		else if (mLastCursor == -9999) // the drag's sentinel, compared as at :1200 and :1213 (#1331)
 			mEntries[mCursor].data.tile->startVideo();
 	}
 
@@ -1381,6 +1397,7 @@ template<typename T>
 void ImageGridComponent<T>::resetGrid()
 {
 	mVisibleTiles.clear();
+	mScrollLoopTiles.clear(); // render() draws these; a reset grid has none (#1329)
 
 	if (mGridSizeOverride.x() != 0 && mGridSizeOverride.y() != 0)
 		mAutoLayout = mGridSizeOverride;
