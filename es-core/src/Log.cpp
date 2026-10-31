@@ -76,6 +76,12 @@ public:
         if (mThread.joinable()) 
             mThread.join();
 
+        // What was enqueued after the worker's last swap is still in the
+        // write buffer: take it as the worker does, then drain it (#1343).
+        {
+            std::lock_guard<std::mutex> lk(mMutex);
+            std::swap(mWriteBuf, mDrainBuf);
+        }
         drainBuffer();
         mFile.flush();
         mFile.close();
@@ -95,7 +101,8 @@ public:
         for (int i = 0; i < 200 && mEmergency.load(std::memory_order_acquire); ++i)
             std::this_thread::sleep_for(std::chrono::microseconds(50));
 
-        mFile.flush();
+        // The worker flushes its own batch (below); this thread leaves the
+        // stream alone, since the worker may be writing it (#1356).
     }
 
     void enqueue(LogLevel level, std::string&& msg)
@@ -118,6 +125,7 @@ private:
     {
         while (true)
         {
+            bool stop;
             {
                 std::unique_lock<std::mutex> lk(mMutex);
                 mCV.wait(lk, [this] 
@@ -128,6 +136,7 @@ private:
                     });
                 
                 std::swap(mWriteBuf, mDrainBuf);
+                stop = mShutdown; // read under the lock it is written under (#1343)
             }
 
             drainBuffer();
@@ -149,7 +158,7 @@ private:
             if (mEmergency.load(std::memory_order_acquire))
                 mEmergency.store(false, std::memory_order_release);
 
-            if (mShutdown) break;
+            if (stop) break;
         }
     }
 
@@ -234,6 +243,9 @@ Log::Log(LogLevel level) : mLevel(level)
     tl_stream.clear();    
 }
 
+// The handler's limits (#1356): emergencyFlush's notify_one and sleep_for are
+// not async-signal-safe, and its wait for the worker is bounded at 200 x 50 us;
+// it no longer touches the stream, which the worker flushes batch by batch.
 static void crashHandler(int sig)
 {
     AsyncLogger::instance().emergencyFlush();
