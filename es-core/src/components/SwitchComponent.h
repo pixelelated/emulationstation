@@ -42,6 +42,7 @@ public:
 
 private:
 	void onStateChanged();
+	void updateImage();
 
 	ImageComponent mImage;
 	bool mState;

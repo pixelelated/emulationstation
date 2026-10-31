@@ -154,7 +154,7 @@ private:
 	float mSelectorBarOffset;
 	float mCameraOffset;
 
-	ComponentListFlags::UpdateType mUpdateType;
+	ComponentListFlags::UpdateType mUpdateType = ComponentListFlags::UpdateType::UPDATE_ALWAYS; // read before any page set it (#1324)
 
 	std::function<void(CursorState state)> mCursorChangedCallback;
 

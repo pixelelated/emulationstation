@@ -46,7 +46,7 @@ GridTileComponent::GridTileComponent(Window* window) : GuiComponent(window), mBa
 	addChild(&(*mImage));
 	addChild(&mLabel);
 
-	setSelected(false);
+	setSelected(false, false, nullptr, true); // forced: the unselected look is applied once (#1324)
 	setVisible(true);
 }
 

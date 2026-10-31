@@ -303,6 +303,11 @@ void MenuComponent::setTitleImage(std::shared_ptr<ImageComponent> titleImage, bo
 		return;
 	}
 
+	// setSubTitle() sets the same image again: the entry it holds leaves the
+	// header first, so the grid keeps one cell for it (#1333).
+	if (mTitleImage != nullptr)
+		mHeaderGrid->removeEntry(mTitleImage);
+
 	mTitleImage = titleImage;	
 	mTitleImage->setPadding(TITLE_HEIGHT * 0.15f);
 	

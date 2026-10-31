@@ -14,7 +14,7 @@ SwitchComponent::SwitchComponent(Window* window, bool state, bool hasAuto, bool 
 		height = menuTheme->Text.font->getHeight(1.1f);
 
 	mColor = menuTheme->Text.color;
-	mImage.setImage(menuTheme->Icons.off);
+	updateImage(); // the state it is built with, not OFF whatever it holds (#1332)
 	mImage.setColorShift(mColor);
 	mImage.setResize(0, height);
 
@@ -143,6 +143,7 @@ bool SwitchComponent::hasAuto() const {
 
 void SwitchComponent::setHasAuto(bool hasAuto) {
      mHasAuto = hasAuto;
+     updateImage();
 }
 
 bool SwitchComponent::getAutoState() const {
@@ -151,12 +152,21 @@ bool SwitchComponent::getAutoState() const {
 
 void SwitchComponent::setAutoState(bool bAuto) {
      mAutoState = bAuto;
+     updateImage();
+}
+
+// The one path from the held state to the drawn image: the constructor, the
+// two setters and every change through onStateChanged() (#1332). Auto stays
+// in force as getValue() reads it.
+void SwitchComponent::updateImage()
+{
+	auto theme = ThemeData::getMenuTheme();
+	mImage.setImage((mHasAuto && mAutoState) ? theme->Icons.onoffauto : (mState ? theme->Icons.on : theme->Icons.off));
 }
 
 void SwitchComponent::onStateChanged()
 {
-	auto theme = ThemeData::getMenuTheme();
-	mImage.setImage((mHasAuto && mAutoState) ? theme->Icons.onoffauto : (mState ? theme->Icons.on : theme->Icons.off));
+	updateImage();
 
 	if (mOnChangedCallback != nullptr)
 		mOnChangedCallback();

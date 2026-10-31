@@ -87,6 +87,7 @@ public:
 		glowColor = 0;
 		glowSize = 0;
 		padding = Vector4f::Zero();
+		autoScroll = false; // #1324
 	}
 
 	void mixProperties(GridTextProperties& def, GridTextProperties& sel, float percent);
@@ -309,7 +310,7 @@ private:
 	void setSelectedZoom(float percent);
 
 	float mSelectedZoomPercent;
-	bool mSelected;	
+	bool mSelected = false; // read by the constructor's setSelected (#1324)
 
 	bool mIsDefaultImage;
 
