@@ -2,6 +2,7 @@
 
 #include "utils/FileSystemUtil.h"
 #include "utils/StringUtil.h"
+#include "utils/AtomicFileUtil.h"
 #include "CECInput.h"
 #include "Log.h"
 #include "utils/Platform.h"
@@ -10,6 +11,7 @@
 #include <pugixml/src/pugixml.hpp>
 #include <SDL.h>
 #include <iostream>
+#include <sstream>
 #include <assert.h>
 #include "Settings.h"
 #include <algorithm>
@@ -792,9 +794,9 @@ bool InputManager::parseEvent(const SDL_Event& ev, Window* window)
 #if !WIN32
 		if (ev.key.keysym.sym == SDLK_F4)
 		{
-			SDL_Event* quit = new SDL_Event();
-			quit->type = SDL_QUIT;
-			SDL_PushEvent(quit);
+			SDL_Event quit {}; // SDL_PushEvent copies it (#1350)
+			quit.type = SDL_QUIT;
+			SDL_PushEvent(&quit);
 			return false;
 		}
 #endif
@@ -890,7 +892,8 @@ bool InputManager::tryLoadInputConfig(std::string path, InputConfig* config, boo
 {
 	pugi::xml_node configNode(NULL);
 
-	if (!Utils::FileSystem::exists(path))
+	// uncached: the interface writes this file outside Utils::FileSystem (#1340)
+	if (!Utils::FileSystem::exists(path, false))
 		return false;
 
 	pugi::xml_document doc;
@@ -943,7 +946,7 @@ bool InputManager::tryLoadInputConfig(std::string path, InputConfig* config, boo
 		{
 			if (strcmp(config->getDeviceGUIDString().c_str(), item.attribute("deviceGUID").value()) == 0)
 			{
-				LOG(LogInfo) << "Approximative device found using guid=" << configNode.attribute("deviceGUID").value() << " name=" << configNode.attribute("deviceName").value() << ")";
+				LOG(LogInfo) << "Approximative device found using guid=" << item.attribute("deviceGUID").value() << " name=" << item.attribute("deviceName").value() << ")"; // the match, not the node before it (#1349)
 				configNode = item;
 				break;
 			}
@@ -957,7 +960,7 @@ bool InputManager::tryLoadInputConfig(std::string path, InputConfig* config, boo
 		{
 			if (strcmp(config->getDeviceName().c_str(), item.attribute("deviceName").value()) == 0)
 			{
-				LOG(LogInfo) << "Approximative device found using guid=" << configNode.attribute("deviceGUID").value() << " name=" << configNode.attribute("deviceName").value() << ")";
+				LOG(LogInfo) << "Approximative device found using guid=" << item.attribute("deviceGUID").value() << " name=" << item.attribute("deviceName").value() << ")"; // the match, not the node before it (#1349)
 				configNode = item;
 				break;
 			}
@@ -1184,7 +1187,8 @@ void InputManager::writeDeviceConfig(InputConfig* config)
 
 	pugi::xml_document doc;
 
-	if (Utils::FileSystem::exists(path))
+	// uncached: an earlier save in this session is not in the cache (#1340)
+	if (Utils::FileSystem::exists(path, false))
 	{
 		// merge files
 		pugi::xml_parse_result result = doc.load_file(WINSTRINGW(path).c_str());
@@ -1222,14 +1226,24 @@ void InputManager::writeDeviceConfig(InputConfig* config)
 		root = doc.append_child("inputList");
 
 	config->writeToXML(root);
-	doc.save_file(WINSTRINGW(path).c_str());
+
+	// Written whole: save_file's bytes (its default indent and flags) through
+	// AtomicFile, so a cut write leaves the last good file, never a short one
+	// (#1348).
+	std::ostringstream xml;
+	doc.save(xml);
+	if (!Utils::AtomicFile::writeText(path, xml.str()))
+		LOG(LogError) << "InputManager: couldn't write " << path;
         
 	/* create a es_last_input.cfg so that people can easily share their config */
 	pugi::xml_document lastdoc;
 	pugi::xml_node lastroot = lastdoc.append_child("inputList");
 	config->writeToXML(lastroot);
 	std::string lastpath = getTemporaryConfigPath();
-	lastdoc.save_file(WINSTRINGW(lastpath).c_str());
+	std::ostringstream lastxml;
+	lastdoc.save(lastxml);
+	if (!Utils::AtomicFile::writeText(lastpath, lastxml.str()))
+		LOG(LogError) << "InputManager: couldn't write " << lastpath;
 
 	Scripting::fireEvent("config-changed");
 	Scripting::fireEvent("controls-changed");
@@ -1247,7 +1261,8 @@ void InputManager::doOnFinish()
 	std::string path = getConfigPath();
 	pugi::xml_document doc;
 
-	if(Utils::FileSystem::exists(path))
+	// uncached, as the writer's own read (#1340)
+	if(Utils::FileSystem::exists(path, false))
 	{
 		pugi::xml_parse_result result = doc.load_file(WINSTRINGW(path).c_str());
 		if(!result)

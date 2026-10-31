@@ -124,7 +124,8 @@ void GuiDetectDevice::update(int deltaTime)
 	if(mHoldingConfig)
 	{
 		// If ES starts and if a known device is connected after startup skip controller configuration
-		if(mFirstRun && Utils::FileSystem::exists(InputManager::getConfigPath()) && InputManager::getInstance()->getNumConfiguredDevices() > 0)
+		// uncached: the configuration page writes this file outside Utils::FileSystem (#1340)
+		if(mFirstRun && Utils::FileSystem::exists(InputManager::getConfigPath(), false) && InputManager::getInstance()->getNumConfiguredDevices() > 0)
 		{
 			if(mDoneCallback)
 				mDoneCallback();
