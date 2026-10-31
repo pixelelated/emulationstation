@@ -1,10 +1,11 @@
 #include "WebImageComponent.h"
 #include "utils/StringUtil.h"
 #include "HttpReq.h"
-#include "utils/ZipFile.h"
+#include "Log.h"
 #include "resources/TextureResource.h"
 #include "Paths.h"
 #include "utils/OfflineProxyUrl.h"
+#include "utils/md5.h"
 
 #include <algorithm>
 #include <cctype>
@@ -40,6 +41,47 @@ public:
 
 	std::string protocol, host, path, query;
 };
+
+// #1323: a cache file is named by the digest of its whole URL, directly in the
+// cache directory, with the URL's extension kept only when it is one to five
+// letters or digits. Every file this component removes, reads or has written
+// is checked to sit directly in the cache directory first (containment); a
+// name that fails the check is refused and nothing is touched.
+static std::string cacheDirectory()
+{
+	return Utils::FileSystem::getGenericPath(Paths::getUserEmulationStationPath() + "/tmp");
+}
+
+static bool insideCacheDirectory(const std::string& file, const std::string& cacheDir)
+{
+	if (file.empty() || cacheDir.empty())
+		return false;
+
+	auto dir = Utils::FileSystem::getCanonicalPath(cacheDir);
+	return !dir.empty() && Utils::FileSystem::getParent(Utils::FileSystem::getCanonicalPath(file)) == dir;
+}
+
+static std::string cacheNameFor(const std::string& address, const std::string& cacheDir)
+{
+	std::string name = url::parse(address).path;
+	auto slash = name.find_last_of('/');
+	if (slash != std::string::npos)
+		name = name.substr(slash + 1);
+
+	std::string ext;
+	auto dot = name.find_last_of('.');
+	if (dot != std::string::npos)
+	{
+		ext = name.substr(dot + 1);
+		bool plain = !ext.empty() && ext.size() <= 5 && std::all_of(ext.begin(), ext.end(), [](char c)
+			{ return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); });
+		if (!plain)
+			ext.clear();
+	}
+
+	std::string file = cacheDir + "/" + md5(address) + (ext.empty() ? "" : "." + ext);
+	return insideCacheDirectory(file, cacheDir) ? file : "";
+}
 
 // keepInCacheDuration = 0 -> image expire immediately
 // keepInCacheDuration = -1 -> image expire never
@@ -78,19 +120,9 @@ WebImageComponent::~WebImageComponent()
 	if (mBusyAnim != nullptr)
 		delete mBusyAnim;
 	
-	if (mKeepInCacheDuration == 0 && Utils::FileSystem::exists(mLocalFile))
-	{
+	// The cache is flat since #1323, so there is no directory to walk up.
+	if (mKeepInCacheDuration == 0 && insideCacheDirectory(mLocalFile, cacheDirectory()) && Utils::FileSystem::exists(mLocalFile))
 		Utils::FileSystem::removeFile(mLocalFile);
-
-		auto root = Utils::FileSystem::getGenericPath(Paths::getUserEmulationStationPath() + "/tmp");
-		auto file = Utils::FileSystem::getParent(Utils::FileSystem::getGenericPath(mLocalFile));
-
-		while (!file.empty() && file != root && file != mLocalFile)
-		{
-			Utils::FileSystem::removeFile(file);
-			file = Utils::FileSystem::getParent(file);
-		}
-	}
 }
 
 void WebImageComponent::setImage(const std::string& path, bool tile, const MaxSizeInfo& maxSize, bool checkFileExists, bool allowMultiImagePlaylist)
@@ -119,18 +151,16 @@ void WebImageComponent::setImage(const std::string& path, bool tile, const MaxSi
 	if (uri.host.empty() || uri.path.empty())
 		return;
 
-	if (Utils::String::startsWith(uri.path, "/"))
-		uri.path = uri.path.substr(1);
-
-	std::string queryCrc;
-
-	if (!uri.query.empty())
+	std::string localFile = cacheNameFor(path, cacheDirectory());
+	if (localFile.empty())
 	{
-		auto file_crc32 = Utils::Zip::ZipFile::computeCRC(0, uri.query.data(), uri.query.size());
-		queryCrc = "-" + Utils::String::toHexString(file_crc32);
+		LOG(LogWarning) << "WebImageComponent: an image from " << uri.host << " has no cache file inside the cache directory; not loaded";
+		mUrlToLoad = "";
+		mLocalFile = "";
+		ImageComponent::setImage(nullptr, 0);
+		return;
 	}
 
-	std::string localFile = Paths::getUserEmulationStationPath() + "/tmp/" + uri.host + "/" + uri.path + queryCrc;	
 	if (Utils::FileSystem::exists(localFile))
 	{
 		bool keepLoadingLocal = true;
