@@ -12,7 +12,7 @@ int PowerSaver::mWakeupTimeout = -1;
 int PowerSaver::mScreenSaverTimeout = -1;
 PowerSaver::mode PowerSaver::mMode = PowerSaver::DISABLED;
 
-bool PowerSaver::mHasPushedEvent = false;
+std::atomic<bool> PowerSaver::mHasPushedEvent(false);
 int PowerSaver::mPushEventID = -1;
 int PowerSaver::mPauseCounter = 0;
 

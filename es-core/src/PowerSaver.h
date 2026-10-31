@@ -2,6 +2,8 @@
 #ifndef ES_CORE_POWER_SAVER_H
 #define ES_CORE_POWER_SAVER_H
 
+#include <atomic>
+
 class PowerSaver
 {
 public:
@@ -65,7 +67,7 @@ public:
 private:
 	static void setState(bool state);
 
-	static bool mHasPushedEvent;
+	static std::atomic<bool> mHasPushedEvent; // a worker's push and the interface thread's reset (#1357)
 	static int  mPushEventID;
 
 	static bool mState;
