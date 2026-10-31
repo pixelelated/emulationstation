@@ -70,6 +70,13 @@ void ImageComponent::setSize(float w, float h)
 		return;
 	}
 
+	// An unchanged size changes nothing: returning here ends the loop where
+	// a resizing cell's grid sizes the image again from the image's own
+	// notice (WebImageComponent::resize, #1326). A new texture resizes
+	// through setImage, not through here.
+	if (Vector2f(w, h) == mTargetSize)
+		return;
+
 	auto clientSize = getClientRect();
 
 	mTargetSize = Vector2f(w, h);

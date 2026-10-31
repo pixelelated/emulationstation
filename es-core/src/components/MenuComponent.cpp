@@ -4,9 +4,10 @@
 #include "TextToSpeech.h"
 
 #define BUTTON_GRID_VERT_PADDING  (Renderer::getScreenHeight()*0.0296296)
-// The gap between two buttons on a menu's button bar, and the one place it is
-// defined -- every ES screen ends in this bar, so a value set here is the
-// house style rather than a per-page decision.
+// The gap between two buttons on a menu's button bar -- every ES screen ends
+// in this bar, so a value set here is the house style rather than a per-page
+// decision. The keyboard popup keeps a second copy of it
+// (GuiTextEditPopupKeyboard.cpp) until that file reads this one (#1320).
 //
 // It was 0.0052 of the screen width, which is 3px on a 640px handheld panel:
 // two buttons that read as one control, and a destructive choice one thumb's

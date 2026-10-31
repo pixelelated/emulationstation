@@ -8,7 +8,11 @@
 #include "components/OptionListComponent.h"
 #include "InputManager.h"
 
-#define TOTAL_HORIZONTAL_PADDING_PX 20
+// How far a selectable row's content sits in from each side of the list, as
+// a share of the screen width: 10px on a 640px handheld panel, as the fixed
+// 20px pair gave, and scaling with the panel from there (#1320). rowInset()
+// is the one reader; pages that line up with a row use it.
+#define ROW_INSET_FRACTION 0.015625
 
 ComponentList::ComponentList(Window* window) : IList<ComponentListRow, std::string>(window, LIST_SCROLL_STYLE_SLOW, LIST_NEVER_LOOP), mScrollbar(window)
 {
@@ -89,7 +93,7 @@ void ComponentList::addGroup(const std::string& label, bool forceVisible)
 		group->setRenderBackground(true);
 
 	group->setLineSpacing(theme->Group.lineSpacing);
-	group->setPadding(Vector4f(TOTAL_HORIZONTAL_PADDING_PX / 2, 0, TOTAL_HORIZONTAL_PADDING_PX / 2, 0));
+	group->setPadding(Vector4f(rowInset(), 0, rowInset(), 0));
 
 	row.addElement(group, true);
 	row.selectable = false;
@@ -490,7 +494,7 @@ float ComponentList::getTotalRowHeight() const
 
 float ComponentList::rowInset()
 {
-	return TOTAL_HORIZONTAL_PADDING_PX / 2;
+	return Renderer::getScreenWidth() * ROW_INSET_FRACTION;
 }
 
 void ComponentList::updateElementPosition(const ComponentListRow& row, float yOffset)
@@ -505,7 +509,7 @@ void ComponentList::updateElementPosition(const ComponentListRow& row, float yOf
 	// assumes updateElementSize has already been called
 	float rowHeight = getRowHeight(row);
 
-	float x = row.selectable ? TOTAL_HORIZONTAL_PADDING_PX / 2 : 0;
+	float x = row.selectable ? rowInset() : 0;
 	for(unsigned int i = 0; i < row.elements.size(); i++)
 	{
 		const auto comp = row.elements.at(i).component;
@@ -518,7 +522,7 @@ void ComponentList::updateElementPosition(const ComponentListRow& row, float yOf
 
 void ComponentList::updateElementSize(const ComponentListRow& row)
 {
-	float width = mSize.x() - (row.selectable ? TOTAL_HORIZONTAL_PADDING_PX : 0);
+	float width = mSize.x() - (row.selectable ? 2 * rowInset() : 0);
 	std::vector< std::shared_ptr<GuiComponent> > resizeVec;
 
 	for(auto it = row.elements.cbegin(); it != row.elements.cend(); it++)

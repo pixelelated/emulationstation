@@ -335,7 +335,9 @@ void TextComponent::onTextChanged()
 		if (mMultiline == MultiLineType::SINGLELINE)
 			mSize[1] = mFont->getHeight() + mPadding.y() + mPadding.w();
 		else
-			mSize[1] = mFont->sizeWrappedText(mUppercase ? Utils::String::toUpper(mText) : mText, getSize().x(), mLineSpacing).y() + mPadding.y() + mPadding.w();
+			// Measured at the width buildTextCache() lays the glyphs out at,
+			// its width less the side padding (#1315).
+			mSize[1] = mFont->sizeWrappedText(mUppercase ? Utils::String::toUpper(mText) : mText, getSize().x() - mPadding.x() - mPadding.z(), mLineSpacing).y() + mPadding.y() + mPadding.w();
 	}
 }
 
@@ -480,10 +482,10 @@ void TextComponent::update(int deltaTime)
 		// if we're not scrolling and this object's text goes outside our size, marquee it!
 
 		if (mTextLength < 0)
-			mTextLength = mFont->sizeWrappedText(mUppercase ? Utils::String::toUpper(mText) : mText, getSize().x(), mLineSpacing).y();
+			mTextLength = mFont->sizeWrappedText(mUppercase ? Utils::String::toUpper(mText) : mText, getSize().x() - mPadding.x() - mPadding.z(), mLineSpacing).y(); // the drawn width (#1315)
 
 		int textLength = mTextLength;
-		int limit = mSize.y() - mPadding.y() - mPadding.y();
+		int limit = mSize.y() - mPadding.y() - mPadding.w(); // top and bottom padding (#1313)
 
 		if (textLength > limit)
 		{

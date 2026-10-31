@@ -71,8 +71,9 @@ void MultiLineMenuEntry::layoutRows()
 		float sh = mMultiLine ? mSubstring->getSize().y() : naturalHeight(mSubstring);
 		float h = th + sh;
 
-		setRowHeightPerc(0, (th * 0.9) / h);
-		setRowHeightPerc(1, (sh * 1.1) / h);
+		// Each row's share of the height it measured, summing to 1 (#1314).
+		setRowHeightPerc(0, th / h);
+		setRowHeightPerc(1, sh / h);
 
 		setSize(Vector2f(mSize.x(), h));
 	}
@@ -96,7 +97,7 @@ void MultiLineMenuEntry::setDimmed(bool dimmed)
 // to reach the two text components inside it. Without this, an entry placed
 // in a non-selectable row sits flush against the left edge while selectable
 // rows and group headers are inset by ComponentList (which only offsets
-// selectable rows -- see TOTAL_HORIZONTAL_PADDING_PX there).
+// selectable rows -- see ROW_INSET_FRACTION and rowInset() there).
 void MultiLineMenuEntry::setPadding(const Vector4f padding)
 {
 	GuiComponent::setPadding(padding);
