@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <thread>
 #include <condition_variable>
 #include <mutex>
@@ -66,23 +67,29 @@ private:
 
 	struct WatcherInfo
 	{
-		WatcherInfo() { component = nullptr; nextCheckTime = std::chrono::steady_clock::now(); }
+		WatcherInfo() { component = nullptr; nextCheckTime = std::chrono::steady_clock::now(); probing = false; resetPending = false; }
 
 		IWatcher*	component;
 		std::chrono::steady_clock::time_point nextCheckTime;
+		// Both under mWatchersLock (#1283): a record is in flight from the
+		// pass that takes it until its probe and notification have ended,
+		// and a reset made meanwhile is applied when it ends.
+		bool		probing;
+		bool		resetPending;
 	};
 
 	void NotifyComponentChanged(IWatcher* component);
 
 	static std::mutex								mWatchersLock;
 	static std::list<WatcherInfo*>					mWatchers;
+	static std::condition_variable					mProbeDone; // with mWatchersLock (#1283)
 
 	static std::mutex								mNotificationLock;
 	static std::list<IWatcherNotify*>				mNotification;
 
 	std::mutex										mThreadLock;
 	std::condition_variable							mEvent;
-	bool											mRunning;
+	std::atomic<bool>								mRunning; // read by run() unlocked (#1283)
 	bool											mPaused;
 	
 	std::thread*									mThread;

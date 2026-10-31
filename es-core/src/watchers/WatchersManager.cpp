@@ -1,11 +1,14 @@
 #include "WatchersManager.h"
 #include "Log.h"
+#include <algorithm>
 #include <chrono>
+#include <vector>
 
 std::mutex											WatchersManager::mNotificationLock;
 std::list<IWatcherNotify*>							WatchersManager::mNotification;
 std::mutex											WatchersManager::mWatchersLock;
 std::list<WatchersManager::WatcherInfo*>			WatchersManager::mWatchers;
+std::condition_variable								WatchersManager::mProbeDone;
 
 WatchersManager* WatchersManager::mInstance = nullptr;
 
@@ -77,15 +80,25 @@ void WatchersManager::UnregisterComponent(IWatcher* instance)
 {
 	std::unique_lock<std::mutex> lock(mWatchersLock);
 
-	for (auto it = mWatchers.cbegin(); it != mWatchers.cend(); it++)
+	// A probe of this watcher in flight keeps its record and the watcher
+	// alive until it ends: wait for that probe alone, then look again, since
+	// the list may have changed while the lock was released (#1283).
+	for (;;)
 	{
-		WatcherInfo* info = *it;
-		if (info->component == instance)
-		{
-			mWatchers.erase(it);
-			delete info;
+		auto it = std::find_if(mWatchers.begin(), mWatchers.end(), [instance](WatcherInfo* info) { return info->component == instance; });
+		if (it == mWatchers.end())
 			return;
+
+		WatcherInfo* info = *it;
+		if (info->probing)
+		{
+			mProbeDone.wait(lock);
+			continue;
 		}
+
+		mWatchers.erase(it);
+		delete info;
+		return;
 	}
 }
 
@@ -98,6 +111,7 @@ void WatchersManager::ResetComponent(IWatcher* instance)
 		if (comp->component == instance)
 		{
 			comp->nextCheckTime = std::chrono::steady_clock::now();
+			comp->resetPending = comp->probing; // kept when the probe ends (#1283)
 			return;
 		}
 	}
@@ -138,6 +152,18 @@ WatchersManager::~WatchersManager()
 
 	LOG(LogDebug) << "WatchersManager : Exit";
 
+	// Stop the thread first: a probe runs outside the list lock, so the
+	// records are freed only once no pass holds one (#1283).
+	{
+		std::unique_lock<std::mutex> lock(mThreadLock);
+		mRunning = false;
+	}
+	mEvent.notify_all();
+
+	mThread->join();
+	delete mThread;
+	mThread = nullptr;
+
 	// Remove locks
 	{
 		std::unique_lock<std::mutex> lock(mWatchersLock);
@@ -147,13 +173,7 @@ WatchersManager::~WatchersManager()
 
 		mWatchers.clear();
 	}
-
-	mRunning = false;
-	mEvent.notify_all();
-
-	mThread->join();
-	delete mThread;
-	mThread = nullptr;
+	mProbeDone.notify_all();
 }
 
 void WatchersManager::run()
@@ -176,28 +196,41 @@ void WatchersManager::run()
 				continue;
 		}
 
-		// Notification Lock
+		// The due records are taken under the list lock and marked in flight;
+		// each probe and its notification run outside it, so Register, Reset,
+		// Get and every other watcher's Unregister return at once, and the
+		// next check time is written back under the lock (#1283).
+		std::vector<WatcherInfo*> due;
+		auto now = std::chrono::steady_clock::now();
 		{
 			std::unique_lock<std::mutex> lock(mWatchersLock);
 
-			auto now = std::chrono::steady_clock::now();
-
 			for (auto item : mWatchers)
 			{
-				if (!mRunning)
-					return;
-
 				if (!item->component->enabled())
 					continue;
 
 				if (now < item->nextCheckTime)
 					continue;
 
-				if (item->component->check())
-					NotifyComponentChanged(item->component);
-
-				item->nextCheckTime = now + std::chrono::milliseconds(item->component->updateTime());
+				item->probing = true;
+				due.push_back(item);
 			}
 		}
+
+		for (auto item : due)
+		{
+			if (mRunning && item->component->check())
+				NotifyComponentChanged(item->component);
+
+			std::unique_lock<std::mutex> lock(mWatchersLock);
+			item->nextCheckTime = item->resetPending ? std::chrono::steady_clock::now() : now + std::chrono::milliseconds(item->component->updateTime());
+			item->resetPending = false;
+			item->probing = false;
+			mProbeDone.notify_all();
+		}
+
+		if (!mRunning)
+			return;
 	}
 }
