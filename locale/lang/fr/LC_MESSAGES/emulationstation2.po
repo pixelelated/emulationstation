@@ -3898,6 +3898,9 @@ msgstr "CEC"
 msgid "GAMEPAD %i"
 msgstr "MANETTE %i"
 
+msgid "GAMEPAD"
+msgstr "MANETTE"
+
 msgid "HOLD ANY BUTTON TO SKIP"
 msgstr "MAINTENEZ UN BOUTON POUR PASSER"
 

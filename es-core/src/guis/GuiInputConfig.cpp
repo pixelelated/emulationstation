@@ -131,7 +131,10 @@ GuiInputConfig::GuiInputConfig(Window* window, InputConfig* target, bool reconfi
 	else if(target->getDeviceId() == DEVICE_CEC)
 	  strncpy(strbuf, _("CEC").c_str(), 256); 
 	else {
-	  snprintf(strbuf, 256, _("GAMEPAD %i").c_str(), target->getDeviceId() + 1); 
+	  // the pad's own name, which the player can match to the pad in hand; the
+	  // SDL instance number matched nothing they could see (#1353)
+	  std::string name = target->getDeviceName();
+	  snprintf(strbuf, 256, "%s", name.empty() ? _("GAMEPAD").c_str() : name.c_str());
 	}
 	mSubtitle1 = std::make_shared<TextComponent>(mWindow, Utils::String::toUpper(strbuf), theme->Text.font, theme->Title.color, ALIGN_CENTER); 
 	mGrid.setEntry(mSubtitle1, Vector2i(0, 2), false, true);

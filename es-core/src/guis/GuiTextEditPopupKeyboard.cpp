@@ -11,7 +11,9 @@
 #define OSK_PADDINGX (Renderer::getScreenWidth() * 0.02f)
 #define OSK_PADDINGY (Renderer::getScreenWidth() * 0.01f)
 
-#define BUTTON_GRID_HORIZ_PADDING (Renderer::getScreenWidth()*0.0052083333)
+// the key grid's inset, a quarter of it on each side of a key: the keyboard's own
+// value, not the menu bar's BUTTON_GRID_HORIZ_PADDING (#1351)
+#define OSK_KEY_PADDING (Renderer::getScreenWidth()*0.0052083333)
 #define BUTTON_LAYER_SIZE (4)
 
 std::vector<std::vector<const char*>> kbUs {
@@ -217,7 +219,7 @@ GuiTextEditPopupKeyboard::GuiTextEditPopupKeyboard(Window* window, const std::st
 				else
 					button = makeButton(lower, upper, lowerAlted, upperAlted);
 
-				button->setPadding(Vector4f(BUTTON_GRID_HORIZ_PADDING / 4.0f, BUTTON_GRID_HORIZ_PADDING / 4.0f, BUTTON_GRID_HORIZ_PADDING / 4.0f, BUTTON_GRID_HORIZ_PADDING / 4.0f));
+				button->setPadding(Vector4f(OSK_KEY_PADDING / 4.0f, OSK_KEY_PADDING / 4.0f, OSK_KEY_PADDING / 4.0f, OSK_KEY_PADDING / 4.0f));
 				button->setRenderNonFocusedBackground(false);
 				buttons.push_back(button);
 
@@ -389,10 +391,11 @@ bool GuiTextEditPopupKeyboard::input(InputConfig* config, Input input)
 	if (config->isMappedTo("y", input) && input.value) 
 		shiftKeys();
 
+	// x empties the field and keeps the keyboard open; OK commits (#1352)
 	if (config->isMappedTo("x", input) && input.value && mOkCallback != nullptr)
 	{
-		mOkCallback(""); 
-		delete this;
+		mText->setValue("");
+		mText->setCursor(0);
 		return true;
 	}
 
@@ -490,8 +493,9 @@ std::shared_ptr<ButtonComponent> GuiTextEditPopupKeyboard::makeButton(const std:
 		}
 		else if (key == _("CLEAR"))
 		{
-			mOkCallback(""); 
-			delete this;
+			// empties the field and keeps the keyboard open; OK commits (#1352)
+			mText->setValue("");
+			mText->setCursor(0);
 			return;
 		}
 		else if (key == _("CANCEL"))
