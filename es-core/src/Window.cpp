@@ -1565,8 +1565,9 @@ void Window::processStorageRequest(std::string line)
 
 		if (!uniqueId.empty())
 		{
+			// YES first, the safe choice last: no name here is OK or NO, so back takes the last button (#1342)
 			auto* msg = new GuiMsgBox(this, message,
-				_("NO, IGNORE THIS TIME"), [processNext] { processNext(); },
+				_("YES, MERGE DRIVE"), mergeLambda,
 				_("NO, IGNORE FOREVER"), [this, uniqueId, processNext] {
 					this->displayNotificationMessage(_("Adding drive to ignore list..."));
 					std::thread([uniqueId, processNext, this]() {
@@ -1574,7 +1575,7 @@ void Window::processStorageRequest(std::string line)
 						this->postToUiThread([processNext] { processNext(); });
 					}).detach();
 				},
-				_("YES, MERGE DRIVE"), mergeLambda
+				_("NO, IGNORE THIS TIME"), [processNext] { processNext(); }
 			);
 			pushGui(msg);
 		}
@@ -1627,8 +1628,9 @@ void Window::processStorageRequest(std::string line)
 
 		if (!uniqueId.empty())
 		{
+			// YES first, the safe choice last: no name here is OK or NO, so back takes the last button (#1342)
 			auto* msg = new GuiMsgBox(this, message,
-				_("NO, IGNORE THIS TIME"), [processNext] { processNext(); },
+				_("YES, FORMAT & MERGE"), confirmLambda,
 				_("NO, IGNORE FOREVER"), [this, uniqueId, processNext] {
 					this->displayNotificationMessage(_("Adding drive to ignore list..."));
 					std::thread([uniqueId, processNext, this]() {
@@ -1636,15 +1638,16 @@ void Window::processStorageRequest(std::string line)
 						this->postToUiThread([processNext] { processNext(); });
 					}).detach();
 				},
-				_("YES, FORMAT & MERGE"), confirmLambda
+				_("NO, IGNORE THIS TIME"), [processNext] { processNext(); }
 			);
 			pushGui(msg);
 		}
 		else
 		{
+			// YES first, the safe choice last: no name here is OK or NO, so back takes the last button (#1342)
 			auto* msg = new GuiMsgBox(this, message,
-				_("NO, IGNORE"), [processNext] { processNext(); },
-				_("YES, FORMAT & MERGE"), confirmLambda
+				_("YES, FORMAT & MERGE"), confirmLambda,
+				_("NO, IGNORE"), [processNext] { processNext(); }
 			);
 			pushGui(msg);
 		}
