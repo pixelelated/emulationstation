@@ -87,6 +87,7 @@ namespace Scripting
 
     static void executeScript(const std::string& script, const std::string& eventName, const std::string& arg1, const std::string& arg2, const std::string& arg3, bool allowAsync = true)
     {
+#if WIN32
         std::string command = script;
 
         if (script.find(" ") != std::string::npos)
@@ -101,7 +102,7 @@ namespace Scripting
                 break;
 
             std::string data = arg;
-            if (Utils::String::startsWith(data, "\"") && Utils::String::startsWith(data, "\""))
+            if (Utils::String::startsWith(data, "\"") && Utils::String::endsWith(data, "\""))
                 data = Utils::String::replace(data.substr(1, data.size() - 2), "\"", "");
 
             data = Utils::String::replace(data, "\"", "");
@@ -111,6 +112,28 @@ namespace Scripting
             else
                 command += " " + data;
         }
+#else
+        // /bin/sh reads this line (ProcessStartInfo), so the script path, the
+        // event name and every argument go in single quotes: a game's name is
+        // text, never a command. A caller's own surrounding double quotes are
+        // taken off; every other byte reaches the hook as it was (#1339).
+        std::string command = Utils::String::shellQuote(script);
+
+        if (!eventName.empty())
+            command += " " + Utils::String::shellQuote(eventName);
+
+        for (auto arg : { arg1, arg2, arg3 })
+        {
+            if (arg.empty())
+                break;
+
+            std::string data = arg;
+            if (data.size() >= 2 && Utils::String::startsWith(data, "\"") && Utils::String::endsWith(data, "\""))
+                data = data.substr(1, data.size() - 2);
+
+            command += " " + Utils::String::shellQuote(data);
+        }
+#endif
 
 #if WIN32
         if (Utils::FileSystem::getExtension(script) == ".ps1")
