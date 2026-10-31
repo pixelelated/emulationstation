@@ -47,11 +47,36 @@ public:
 	bool isRunning() { return mRunning; };
 	Vector2f getFullSize() { return mFullSize; };
 
-	// #1310: what a holder keeps instead of the pointer. lock() fails once
-	// the window has let the card go, so a late close() or updateText() from a
-	// worker reaches nothing; the window owns the card through a shared_ptr.
-	using Handle = std::weak_ptr<AsyncNotificationComponent>;
-	Handle handle() { return weak_from_this(); }
+	// #1310: what a holder keeps instead of the pointer. The window owns the
+	// card through a shared_ptr; each call here locks it and reaches nothing
+	// once the window has let it go, so a worker's late close() or
+	// updateText() is refused. -> forwards to the handle itself, so a holder's
+	// calls read as they did through the pointer. == nullptr keeps the
+	// pointer's meaning: never given a card, not a card that has gone.
+	class Handle
+	{
+	public:
+		Handle() {}
+		Handle(std::nullptr_t) {}
+		Handle(const std::weak_ptr<AsyncNotificationComponent>& card) : mCard(card) {}
+
+		std::shared_ptr<AsyncNotificationComponent> lock() const { return mCard.lock(); }
+		bool operator==(std::nullptr_t) const { return isEmpty(); }
+		bool operator!=(std::nullptr_t) const { return !isEmpty(); }
+		const Handle* operator->() const { return this; }
+
+		void close() const { if (auto c = mCard.lock()) c->close(); }
+		void updateTitle(const std::string text) const { if (auto c = mCard.lock()) c->updateTitle(text); }
+		void updateText(const std::string text, const std::string action = "") const { if (auto c = mCard.lock()) c->updateText(text, action); }
+		void updateText(const std::string text, const std::vector<std::string>& actionCandidates) const { if (auto c = mCard.lock()) c->updateText(text, actionCandidates); }
+		void updateText(const std::vector<std::string>& textCandidates, const std::vector<std::string>& actionCandidates) const { if (auto c = mCard.lock()) c->updateText(textCandidates, actionCandidates); }
+		void updatePercent(int percent) const { if (auto c = mCard.lock()) c->updatePercent(percent); }
+
+	private:
+		bool isEmpty() const { std::weak_ptr<AsyncNotificationComponent> none; return !mCard.owner_before(none) && !none.owner_before(mCard); }
+		std::weak_ptr<AsyncNotificationComponent> mCard;
+	};
+	Handle handle() { return Handle(weak_from_this()); }
 
 	// Any thread may ask; the card turns the request into its closing fade on
 	// the interface thread, in update() (#1309).
