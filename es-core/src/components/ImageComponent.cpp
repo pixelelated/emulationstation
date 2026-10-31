@@ -440,8 +440,22 @@ void ImageComponent::setImage(const std::string&  path, bool tile, const MaxSize
 		resize();
 }
 
+// A load still pending from an earlier path would land over the image set
+// here once it finished (watchTextureLoading): cancelled first, as the path
+// overload does (#1328).
+void ImageComponent::cancelPendingLoad()
+{
+	if (mLoadingTexture && mLoadingTexture.use_count() == 1 && !mLoadingTexture->isLoaded())
+		TextureResource::cancelAsync(mLoadingTexture);
+
+	mLoadingTexture.reset();
+	mLoadingTextureLoaded = false;
+}
+
 void ImageComponent::setImage(const char* path, size_t length, bool tile)
 {
+	cancelPendingLoad();
+
 	mPath = "";
 	if (mTexture != nullptr)
 		mTexture->setRequired(false);
@@ -461,6 +475,8 @@ void ImageComponent::setImage(const char* path, size_t length, bool tile)
 
 void ImageComponent::setImage(const std::shared_ptr<TextureResource>& texture)
 {
+	cancelPendingLoad();
+
 	if (mTexture != nullptr)
 		mTexture->setRequired(false);
 

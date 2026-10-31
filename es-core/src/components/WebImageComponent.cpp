@@ -133,6 +133,12 @@ void WebImageComponent::setImage(const std::string& path, bool tile, const MaxSi
 		mRequest = nullptr;
 	}
 
+	// A rebind starts with nothing queued: a URL left from the last bind
+	// would otherwise be fetched and drawn over a local or cached image
+	// (#1327). The network path below queues its own.
+	mUrlToLoad = "";
+	mLocalFile = "";
+
 	mWaitLoaded = true;
 
 	if (!Utils::String::startsWith(path, "http://") && !Utils::String::startsWith(path, "https://"))
@@ -226,7 +232,10 @@ void WebImageComponent::update(int deltaTime)
 		// default -- and the badge would stay blank after the proxy had it.
 		if (Utils::FileSystem::getFileSize(mLocalFile) == 0)
 		{
+			// Not kept as done either: the component holds no cache path for
+			// it, and the next bind asks again (#1319).
 			Utils::FileSystem::removeFile(mLocalFile);
+			mLocalFile = "";
 			return;
 		}
 

@@ -167,6 +167,7 @@ private:
 	void updateColors();
 	void updateRoundCorners();
 	bool watchTextureLoading();
+	void cancelPendingLoad(); // #1328
 
 	void fadeIn(bool textureLoaded);
 
