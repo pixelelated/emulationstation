@@ -332,12 +332,12 @@ void Window::processNotificationMessages()
 	// while a progress card is up -- both sit at the top centre, and the
 	// SENT toast drew over the sync card on a handheld -- and shows once
 	// the card has gone. Nothing is dropped; the order is the order things
-	// happened.
+	// happened, so the queue is read from its front (#1338).
 	if (!mAsyncNotificationComponent.empty())
 		return;
 	
-	NotificationMessage msg = mNotificationMessages.back();
-	mNotificationMessages.pop_back();
+	NotificationMessage msg = mNotificationMessages.front();
+	mNotificationMessages.erase(mNotificationMessages.begin());
 
 	LOG(LogDebug) << "Notification message :" << msg.first.c_str();
 	
@@ -1029,8 +1029,9 @@ void Window::setHelpPrompts(const std::vector<HelpPrompt>& prompts, const HelpSt
 				// yes, it has!
 
 				// can we combine? (dpad only)
-				if((it->first == "up/down" && addPrompts.at(mappedTo->second).first != "left/right") ||
-					(it->first == "left/right" && addPrompts.at(mappedTo->second).first != "up/down"))
+				// only the other half merges; any other prompt with this action stays (#1354)
+				if((it->first == "up/down" && addPrompts.at(mappedTo->second).first == "left/right") ||
+					(it->first == "left/right" && addPrompts.at(mappedTo->second).first == "up/down"))
 				{
 					// yes!
 					addPrompts.at(mappedTo->second).first = "up/down/left/right";
@@ -1156,12 +1157,16 @@ AsyncNotificationComponent* Window::createAsyncNotificationComponent(bool action
 	// The other half of one-surface-at-a-time (fork #283, D-UI-093): a card
 	// created while a toast is up takes the toast's place, and the toast's
 	// words go back on the queue to show after the card -- a toast is short
-	// and the card's run would otherwise pass unseen behind it. The queue is
-	// read from its back, so a toast returned last shows first.
+	// and the card's run would otherwise pass unseen behind it. The words go
+	// back at the front, in the order they were on screen, so they keep their
+	// place ahead of anything queued after them, each whole, with the default
+	// duration (#1338).
 	if (!mNotificationPopups.empty())
 	{
+		std::vector<NotificationMessage> returned;
 		for (auto ip : mNotificationPopups)
-			mNotificationMessages.push_back(NotificationMessage(ip->getMessage(), notificationDuration(-1)));
+			returned.push_back(NotificationMessage(ip->getMessage(), notificationDuration(-1)));
+		mNotificationMessages.insert(mNotificationMessages.begin(), returned.begin(), returned.end());
 		stopNotificationPopups();
 	}
 
@@ -1264,6 +1269,9 @@ void Window::unregisterPostedFunctions(void* data)
 	if (data == nullptr)
 		return;
 
+	// the lock postToUiThread and processPostedFunctions take (#1341)
+	std::unique_lock<std::mutex> lock(mNotificationMessagesLock);
+
 	for (auto it = mFunctions.cbegin(); it != mFunctions.cend(); )
 	{
 		if ((*it).container == data)
@@ -1281,10 +1289,14 @@ void Window::postToUiThread(const std::function<void()>& func, void* data)
 	pf.func = func;
 	pf.container = data;
 	mFunctions.push_back(pf);
+	// The wake (#1355): the idle count and the sleep flag belong to the
+	// interface thread, which reads them unlocked in update and render, so a
+	// worker only marks the wake and processPostedFunctions applies it. The
+	// refresh event still goes from here: it ends the main loop's
+	// SDL_WaitEventTimeout, without which the drain does not run.
 	if (mSleeping || !PowerSaver::getState())
 	{
-		mSleeping = false;
-		mTimeSinceLastInput = 0;
+		mWakePosted = true;
 		PowerSaver::pushRefreshEvent();
 	}
 }
@@ -1300,7 +1312,17 @@ void Window::processPostedFunctions()
 
 	mFunctions.clear();
 
+	bool wake = mWakePosted;
+	mWakePosted = false;
+
 	mNotificationMessagesLock.unlock();
+
+	// a worker's post asked for the wake (#1355)
+	if (wake)
+	{
+		mSleeping = false;
+		mTimeSinceLastInput = 0;
+	}
 
 	for (auto func : functions)
 		TRYCATCH("processPostedFunction", func.func())

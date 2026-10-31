@@ -7,6 +7,7 @@
 #include "Settings.h"
 #include "math/Vector2f.h"
 #include "math/Vector2i.h"
+#include <atomic>
 #include <memory>
 #include <functional>
 
@@ -171,8 +172,9 @@ private:
 	bool mNormalizeNextUpdate;
 
 	bool mAllowSleep;
-	bool mSleeping;
+	std::atomic<bool> mSleeping; // read by a worker's post (#1355)
 	unsigned int mTimeSinceLastInput;
+	bool mWakePosted = false; // guarded by the queue's lock (#1355)
 
 	bool mRenderedHelpPrompts;
 
