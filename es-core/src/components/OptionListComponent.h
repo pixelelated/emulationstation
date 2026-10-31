@@ -636,7 +636,7 @@ private:
 	std::vector<HelpPrompt> getHelpPrompts() override
 	{
 		std::vector<HelpPrompt> prompts;
-		if(!mMultiSelect)
+		if(!mMultiSelect && mEntries.size() > 1) // one value has nothing to change to (#1321)
 			prompts.push_back(HelpPrompt("left/right", _("CHANGE")));
 
 		prompts.push_back(HelpPrompt(BUTTON_OK, _("SELECT")));

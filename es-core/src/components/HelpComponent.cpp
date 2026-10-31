@@ -127,9 +127,19 @@ void HelpComponent::updateGrid()
 		// origin 0.5 the prompts sat left of centre by half the dropped entry
 		// -- 138 px on a 640x480 French game list, where the sixth prompt also
 		// vanished without a word (#210).
-		const float entryWidth = icon->getSize().x() + lbl->getSize().x() + ICON_TEXT_SPACING + ENTRY_SPACING;
+		float entryWidth = icon->getSize().x() + lbl->getSize().x() + ICON_TEXT_SPACING + ENTRY_SPACING;
 		if (width + entryWidth >= maxWidth)
-			break;
+		{
+			// A first prompt wider than the bar is kept with its label cut to
+			// the room left, so a bar is never empty while it has a prompt to
+			// show (#1325); a later one that does not fit is dropped as before.
+			const float room = maxWidth - icon->getSize().x() - ICON_TEXT_SPACING - ENTRY_SPACING - 1;
+			if (!items.empty() || room <= 0)
+				break;
+
+			lbl->setSize(room, lbl->getSize().y());
+			entryWidth = icon->getSize().x() + room + ICON_TEXT_SPACING + ENTRY_SPACING;
+		}
 
 		width += entryWidth;
 
@@ -146,6 +156,12 @@ void HelpComponent::updateGrid()
 	// The box is what the row draws, so the trailing spacer of the last entry
 	// is not part of it either: inside the size it shifted every prompt left
 	// of centre by half a spacer, on every screen and every page (#210).
+	if (items.empty())
+	{
+		mGrid.reset(); // nothing fits, not even an icon: no grid of no columns
+		return;
+	}
+
 	float rowWidth = width;
 	if (!items.empty())
 		rowWidth -= ENTRY_SPACING;
@@ -208,6 +224,9 @@ std::shared_ptr<TextureResource> HelpComponent::getIconTexture(const std::string
 void HelpComponent::setOpacity(unsigned char opacity)
 {
 	GuiComponent::setOpacity(opacity);
+
+	if (!mGrid) // no prompt, no grid (batocera 9dbd4b9bf; #1325)
+		return;
 
 	for (auto i = 0; i < mGrid->getChildCount(); i++)
 		mGrid->getChild(i)->setOpacity(opacity);

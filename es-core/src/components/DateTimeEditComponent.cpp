@@ -2,6 +2,7 @@
 
 #include "resources/Font.h"
 #include "utils/StringUtil.h"
+#include "LocaleES.h"
 
 DateTimeEditComponent::DateTimeEditComponent(Window* window, DisplayMode dispMode) : GuiComponent(window),
 	mEditing(false), mEditIndex(0), mRelativeUpdateAccumulator(0), mUppercase(false), mAutoSize(true)
@@ -254,7 +255,7 @@ std::string DateTimeEditComponent::getDisplayString() const
 		return Utils::Time::getElapsedSinceString(mTime.getTime());
 
 	if (mTime.getTime() == 0)
-		return "";
+		return _("<NOT SET>"); // the placeholder for a missing value (#1322)
 
 	return Utils::Time::timeToString(mTime, mDateFormat);
 }

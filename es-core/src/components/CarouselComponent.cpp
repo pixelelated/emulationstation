@@ -355,10 +355,14 @@ std::vector<HelpPrompt> CarouselComponent::getHelpPrompts()
 {
 	std::vector<HelpPrompt> prompts;
 
-	if (mType == CarouselType::VERTICAL || mType == CarouselType::VERTICAL_WHEEL)
-		prompts.push_back(HelpPrompt("up/down", _("CHOOSE")));
-	else
-		prompts.push_back(HelpPrompt("left/right", _("CHOOSE")));
+	// One entry has nowhere to move to (#1321).
+	if (size() > 1)
+	{
+		if (mType == CarouselType::VERTICAL || mType == CarouselType::VERTICAL_WHEEL)
+			prompts.push_back(HelpPrompt("up/down", _("CHOOSE")));
+		else
+			prompts.push_back(HelpPrompt("left/right", _("CHOOSE")));
+	}
 
 	return prompts;
 }

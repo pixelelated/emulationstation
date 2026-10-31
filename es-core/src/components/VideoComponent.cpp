@@ -346,8 +346,9 @@ void VideoComponent::applyTheme(const std::shared_ptr<ThemeData>& theme, const s
 
 std::vector<HelpPrompt> VideoComponent::getHelpPrompts()
 {
+	// The component takes no input, so it offers no prompt; the page's own
+	// bar carries BACK (#1318).
 	std::vector<HelpPrompt> ret;
-	ret.push_back(HelpPrompt(BUTTON_BACK, _("SELECT")));
 	return ret;
 }
 

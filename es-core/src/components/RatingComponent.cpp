@@ -4,6 +4,7 @@
 #include "utils/StringUtil.h"
 #include "ThemeData.h"
 #include "Settings.h"
+#include "LocaleES.h"
 
 RatingComponent::RatingComponent(Window* window) : GuiComponent(window), mColorShift(0xFFFFFFFF), mUnfilledColor(0xFFFFFFFF)
 {
@@ -262,7 +263,7 @@ void RatingComponent::applyTheme(const std::shared_ptr<ThemeData>& theme, const 
 std::vector<HelpPrompt> RatingComponent::getHelpPrompts()
 {
 	std::vector<HelpPrompt> prompts;
-	prompts.push_back(HelpPrompt(BUTTON_OK, "add star"));
+	prompts.push_back(HelpPrompt(BUTTON_OK, _("ADD STAR"))); // an upper-case verb, translated (#1317)
 	return prompts;
 }
 

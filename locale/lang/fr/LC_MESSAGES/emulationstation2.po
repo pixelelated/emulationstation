@@ -1571,6 +1571,9 @@ msgstr "NOM COURT"
 msgid "COMMUNITY RATING"
 msgstr "NOTES DE LA COMMUNAUTÉ"
 
+msgid "ADD STAR"
+msgstr "AJOUTER UNE ÉTOILE"
+
 msgid "VIDEO"
 msgstr "VIDÉO"
 

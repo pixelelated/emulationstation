@@ -569,7 +569,7 @@ std::vector<HelpPrompt> ComponentList::getHelpPrompts()
 		}
 
 		if(addMovePrompt)
-			prompts.push_back(HelpPrompt(_("up/down"), _("CHOOSE")));
+			prompts.push_back(HelpPrompt("up/down", _("CHOOSE"))); // the icon key is an identifier, never translated (#1312)
 	}
 
 	return prompts;
