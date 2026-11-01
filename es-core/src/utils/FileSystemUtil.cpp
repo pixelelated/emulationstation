@@ -723,9 +723,12 @@ namespace Utils
 				return path;
 #endif
 			
-			int indexes[32];
+			// T36 #683 S5 (#1370): the fold's buffers are sized to the input, which bounds the
+			// component count and the byte position, so no write passes their end. The contained
+			// fix the held record describes.
+			std::vector<int> indexes(path.size() + 2);
 			int index = -1;
-			char fp[4096];
+			std::vector<char> fp(path.size() + 2);
 
 			int pos = 0;
 			int ofs = 0;
@@ -780,7 +783,7 @@ namespace Utils
 			}
 
 			fp[pos] = 0;
-			return fp;			
+			return std::string(fp.data());
 
 		}
 
