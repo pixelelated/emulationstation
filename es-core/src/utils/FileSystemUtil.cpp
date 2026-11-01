@@ -676,7 +676,9 @@ namespace Utils
 			return '"' + getPreferredPath(path) + '"';
 #else // _WIN32
 			// insert a backslash before most characters that would mess up a bash path
-			const char* invalidChars = "\\ '\"!$^&*(){}[]?;<>";
+			// T36 #683 S6 (#1371): the contained fix the held record describes -- the list also
+			// escapes the backtick and the pipe, which the shell would otherwise act on.
+			const char* invalidChars = "\\ '\"!$^&*(){}[]?;<>|`";
 			const char* invalidChar  = invalidChars;
 
 			while(*invalidChar)

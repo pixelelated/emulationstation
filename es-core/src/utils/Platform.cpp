@@ -159,9 +159,12 @@ namespace Utils
 #else
 			// getting the output when in a pipe is not easy...
 			// https://stackoverflow.com/questions/1221833/pipe-output-and-capture-exit-status-in-bash
-			std::string cmdOutput = "((((" + cmd_utf8 + " 2> " + Utils::FileSystem::combine(Paths::getLogPath(), stderrFilename) + " ; echo $? >&3) | head -300 > " + Utils::FileSystem::combine(Paths::getLogPath(), stdoutFilename) + ") 3>&1) | (read xs; exit $xs))";
+			// T36 #683 S6: the command is grouped in { ...; } so its 2> redirection covers every
+			// simple command in it (not only the last), and the log paths are shell-quoted so a
+			// space or a metacharacter in a path cannot split the redirection (ruling 5, G-18).
+			std::string cmdOutput = "(((( { " + cmd_utf8 + " ; } 2> " + Utils::String::shellQuote(Utils::FileSystem::combine(Paths::getLogPath(), stderrFilename)) + " ; echo $? >&3) | head -300 > " + Utils::String::shellQuote(Utils::FileSystem::combine(Paths::getLogPath(), stdoutFilename)) + ") 3>&1) | (read xs; exit $xs))";
 			if (!Log::enabled())
-			  cmdOutput = "((((" + cmd_utf8 + " 2> /dev/null ; echo $? >&3) | head -300 > /dev/null) 3>&1) | (read xs; exit $xs))";
+			  cmdOutput = "(((( { " + cmd_utf8 + " ; } 2> /dev/null ; echo $? >&3) | head -300 > /dev/null) 3>&1) | (read xs; exit $xs))";
 
 			if (waitForExit) {
 			  int n = system(cmdOutput.c_str());
