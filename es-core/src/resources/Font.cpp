@@ -263,17 +263,19 @@ void Font::getTextureForNewGlyph(const Vector2i& glyphSize, FontTexture*& tex_ou
 	tex->textureSize = Vector2i(x, y);
 	tex->initTexture();
 
-	tex_out = tex;
-
-	mTextures.push_back(tex);
-	
-	bool ok = tex_out->findEmpty(glyphSize, cursor_out);
+	// T36 #683 S1: find the glyph a place BEFORE the atlas joins mTextures, so a failed
+	// fit deletes a texture the list never held -- no freed pointer is left behind.
+	bool ok = tex->findEmpty(glyphSize, cursor_out);
 	if(!ok)
 	{
-		LOG(LogError) << "Glyph too big to fit on a new texture (glyph size > " << tex_out->textureSize.x() << ", " << tex_out->textureSize.y() << ")!";
+		LOG(LogError) << "Glyph too big to fit on a new texture (glyph size > " << tex->textureSize.x() << ", " << tex->textureSize.y() << ")!";
 		delete tex;
 		tex_out = NULL;
+		return;
 	}
+
+	tex_out = tex;
+	mTextures.push_back(tex);
 }
 
 std::vector<std::string> getFallbackFontPaths()
