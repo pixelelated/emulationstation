@@ -1090,13 +1090,14 @@ namespace Utils
 		{
 			std::string path = getGenericPath(_path);
 
-			// don't create if it already exists
+			// T36 #683 S3: an existing directory is success; an existing non-directory is a
+			// failure -- don't claim to have made a directory where a file sits (G-15).
 			if (exists(path, false))
-				return true;
+				return isDirectory(path);
 
 			FileCache::remove(path);
 
-#ifdef WIN32	
+#ifdef WIN32
 			if (::CreateDirectoryW(Utils::String::convertToWideString(_path).c_str(), nullptr))
 				return true;
 #endif
@@ -1111,12 +1112,14 @@ namespace Utils
 			// only try to create parent if it's not identical to path
 			if (parent != path)
 				createDirectory(parent);
-						
+
 			// try to create directory again now that the parent should exist
 			if (mkdir(path.c_str(), 0755) == 0)
 				return true;
 
-			return false;
+			// T36 #683 S3: a competing creator may have made the directory between our checks
+			// -- an uncached test, so a race no longer returns false (L-16).
+			return isDirectory(path);
 		} // createDirectory
 
 		bool exists(const std::string& _path, bool enableCache)
@@ -1469,9 +1472,21 @@ namespace Utils
 			std::string path = getGenericPath(src);
 			std::string pathD = getGenericPath(dst);
 
-			// don't remove if it doesn't exists
+			// T36 #683 S3: an absent source is a failure, not a success (L-03).
 			if (!exists(path, false))
-				return true;
+				return false;
+
+#if !defined(_WIN32)
+			// T36 #683 S3: refuse to copy a file onto itself (same device and inode, e.g. a
+			// hard-link alias) -- opening the destination "wb" truncates it before the read,
+			// which would destroy the source (G-16, data loss).
+			{
+				struct stat64 si, di;
+				if (stat64(path.c_str(), &si) == 0 && stat64(pathD.c_str(), &di) == 0
+					&& si.st_dev == di.st_dev && si.st_ino == di.st_ino)
+					return false;
+			}
+#endif
 
 			Utils::FileSystem::createDirectory(Utils::FileSystem::getParent(pathD));
 
@@ -1497,17 +1512,27 @@ namespace Utils
 				return false;
 			}
 
-			while (size = fread(buf, 1, 512, source))
-				fwrite(buf, 1, size, dest);
-
-			fclose(dest);
+			// T36 #683 S3: a short write (a full disk) is a failure, not a silent success (L-03).
+			bool ok = true;
+			while ((size = fread(buf, 1, 512, source)) > 0)
+			{
+				if (fwrite(buf, 1, size, dest) != size)
+				{
+					ok = false;
+					break;
+				}
+			}
+			if (ferror(source))
+				ok = false;
+			if (fclose(dest) != 0)
+				ok = false;
 			fclose(source);
 
 			FileCache::remove(path);
 			FileCache::remove(pathD);
 
-			return true;
-		} // removeFile
+			return ok;
+		} // copyFile
 
 		void deleteDirectoryFiles(const std::string& path, bool deleteDirectory)
 		{
