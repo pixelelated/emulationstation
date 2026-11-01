@@ -1064,25 +1064,27 @@ namespace Utils
 			if (!exists(path, false))
 				return true;
 
-			FileCache::remove(path);
-#if WIN32			
+			// T36 #683 S4: remove the path BEFORE erasing its cache entry, so nothing re-reads
+			// the still-present file back into the cache between the two (L-19). The directory
+			// test is an uncached stat, since the cached answer is about to be dropped anyway.
+			bool ok;
+#if WIN32
 			if (isDirectory(_path))
-				return RemoveDirectoryW(Utils::String::convertToWideString(getPreferredPath(_path)).c_str());
-						
-			if (!DeleteFileW(Utils::String::convertToWideString(_path).c_str()))
+				ok = RemoveDirectoryW(Utils::String::convertToWideString(getPreferredPath(_path)).c_str());
+			else if (DeleteFileW(Utils::String::convertToWideString(_path).c_str()))
+				ok = true;
+			else
 			{
 				SetFileAttributesW(Utils::String::convertToWideString(_path).c_str(), FILE_ATTRIBUTE_NORMAL);
-				return DeleteFileW(Utils::String::convertToWideString(_path).c_str());
+				ok = DeleteFileW(Utils::String::convertToWideString(_path).c_str());
 			}
-
-			return true;
 #else
-			if (isDirectory(_path))
-				return (rmdir(path.c_str()) == 0);
-
-			// try to remove file
-			return (unlink(path.c_str()) == 0);
+			struct stat64 info;
+			bool isDir = (stat64(path.c_str(), &info) == 0) && S_ISDIR(info.st_mode);
+			ok = isDir ? (rmdir(path.c_str()) == 0) : (unlink(path.c_str()) == 0);
 #endif
+			FileCache::remove(path);
+			return ok;
 
 		} // removeFile
 
@@ -1795,7 +1797,9 @@ namespace Utils
 
 			preloaded.insert(path);
 
-			auto doWork = [&](std::string* dir)
+			// T36 #683 S4 (#1378, L-15): capture trySaveStates by value -- the thread is
+			// detached and reads it after this function's frame has returned.
+			auto doWork = [trySaveStates](std::string* dir)
 			{
 				if (trySaveStates)
 				{

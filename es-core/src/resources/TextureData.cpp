@@ -336,7 +336,9 @@ bool TextureData::loadFromVideo()
 			Utils::FileSystem::removeFile(localFile);
 	}
 
-	if (!Utils::FileSystem::exists(localFile))
+	// T36 #683 S4: uncached -- an earlier removeFile or an extraction by another process
+	// changes this file outside the session cache's knowledge (PL-05).
+	if (!Utils::FileSystem::exists(localFile, false))
 	{
 		Utils::FileSystem::createDirectory(Utils::FileSystem::getParent(localFile));
 
@@ -407,7 +409,9 @@ bool TextureData::loadFromVideo()
 		libvlc_release(vlcInstance);
 	}
 
-	if (Utils::FileSystem::exists(localFile))
+	// T36 #683 S4: uncached -- libvlc's snapshot above wrote this file outside the cache,
+	// so a cached miss from :339 would read the just-made thumbnail as absent (PL-05).
+	if (Utils::FileSystem::exists(localFile, false))
 	{
 		std::shared_ptr<ResourceManager>& rm = ResourceManager::getInstance();
 		const ResourceData& data = rm->getFileData(localFile);
