@@ -417,6 +417,11 @@ namespace Utils
 
 			while(*f)
 			{
+				// T36 #683 S2: stop before any field (<= 4 bytes) plus its NUL could pass the
+				// buffer's end, so an over-long format string cannot overrun the stack.
+				if(s - buf > (long)sizeof(buf) - 8)
+					break;
+
 				if(*f == '%')
 				{
 					++f;
